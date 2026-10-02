@@ -162,7 +162,7 @@ def build_track_data(obj, action):
         duration = action.frame_end / FPS
     td = paa_codec.TrackData(
         paa_codec.Lead(tuple(action["cd_rec_a"]), tuple(action["cd_rec_b"]), action["cd_ref_scale"],
-                       duration, lead.lod_const, lead.lod_zero),
+                       duration, lead.lod_const, lead.lod_zero, lead.skeleton),
         tracks, lod)
 
     last = round(duration * FPS)

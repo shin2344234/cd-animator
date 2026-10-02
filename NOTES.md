@@ -54,3 +54,8 @@ Blender gives new keys Bezier interpolation, and the game only interpolates in s
 - Four leaf bones in `phm_01.pab` have a bind scale of 1.0014 or 1.053 (the eyeballs and `Bip01 L/R Elbow_In`). The importer ignores bind scale. On a leaf bone that changes nothing visible.
 - Every Kliff bone name and every broom bone name resolves from the clips' hashes.
 - Nothing here has been tested on a rig other than these two.
+
+## Clips from other mounts
+
+The u16 at 0x10 of a full clip is a set of flags, 0x0F on every broom clip. Kliff's camel, elephant and iguana idles have 0x4F or 0xCF. Bit 0x40 adds the skeleton's path to the lead, as a u8 length and the path, between `ref_scale` and the duration. With that read, those three clips decode and round-trip byte for byte. Kliff's bear idle (flags 0x4F) still fails: its `B_MoveControl_01` track has block flags 1 where every other track seen has 0, and 28 bytes follow its header that the known layout does not explain.
+

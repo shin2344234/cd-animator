@@ -91,6 +91,7 @@ BONE_NAMES = [
 
 LOD_MARKER = 415
 LOD_TAIL_CONST = 5
+FLAG_SKELETON = 0x40    # header flag: the lead names the skeleton file
 
 
 def bone_hash(name: str) -> int:
@@ -179,9 +180,17 @@ class Lead:
     duration: float
     lod_const: int = LOD_TAIL_CONST   # LOD only: u32 after the duration (5)
     lod_zero: int = 0                 # LOD only: u32 before c (0)
+    # Full clips whose header flags (the u16 at 0x10) have FLAG_SKELETON set
+    # store the skeleton's path between ref_scale and the duration, as a u8
+    # length and that many bytes ("character/model/1_pc/1_phm/phm_01.pab" on
+    # Kliff's camel and iguana clips). None when absent.
+    skeleton: bytes | None = None
 
     def pack(self, a, b, c, lod):
-        out = struct.pack("<17f", *self.rec_a, *self.rec_b) + struct.pack("<2f", self.ref_scale, self.duration)
+        out = struct.pack("<17f", *self.rec_a, *self.rec_b) + struct.pack("<f", self.ref_scale)
+        if self.skeleton is not None:
+            out += bytes([len(self.skeleton)]) + self.skeleton
+        out += struct.pack("<f", self.duration)
         if lod:
             out += struct.pack("<IHHII", self.lod_const, a, b, self.lod_zero, c)
         else:
@@ -224,19 +233,27 @@ def _name_of(h):
     return NAME_BY_HASH.get(h, f"unk_{h:08x}")
 
 
-def read_track_data(t: bytes, lod: bool = False) -> TrackData:
-    """Parse the track data region. `lod` selects the LOD clip layout."""
+def read_track_data(t: bytes, lod: bool = False, flags: int = 0) -> TrackData:
+    """Parse the track data region. `lod` selects the LOD clip layout;
+    `flags` is a full clip's header u16 at 0x10."""
     n = len(t)
     rec = struct.unpack_from("<17f", t, 0)
-    ref_scale, duration = struct.unpack_from("<2f", t, 68)
+    ref_scale = struct.unpack_from("<f", t, 68)[0]
+    skeleton = None
+    extra = 0
+    if not lod and flags & FLAG_SKELETON:
+        k = t[72]
+        skeleton = bytes(t[73:73 + k])
+        extra = 1 + k
+    duration = struct.unpack_from("<f", t, 72 + extra)[0]
     if lod:
         lod_const, a, b, lod_zero, c = struct.unpack_from("<IHHII", t, 76)
         off = LOD_LEAD_SIZE
     else:
         lod_const, lod_zero = LOD_TAIL_CONST, 0
-        a, b, c = struct.unpack_from("<HHI", t, 76)
-        off = LEAD_SIZE
-    lead = Lead(rec[:10], rec[10:17], ref_scale, duration, lod_const, lod_zero)
+        a, b, c = struct.unpack_from("<HHI", t, 76 + extra)
+        off = LEAD_SIZE + extra
+    lead = Lead(rec[:10], rec[10:17], ref_scale, duration, lod_const, lod_zero, skeleton)
 
     bones = []
     key_bytes = 0
@@ -367,7 +384,7 @@ def decode_file(data: bytes):
         hdr = LodHeader(data[5], marker, zero, src, scale)
         return hdr, read_track_data(data[0x24:], lod=True)
     anim = _paa.read_paa(data)
-    return anim, read_track_data(anim.track_data)
+    return anim, read_track_data(anim.track_data, flags=anim.count_u16)
 
 
 def encode_file(container, td: TrackData) -> bytes:
