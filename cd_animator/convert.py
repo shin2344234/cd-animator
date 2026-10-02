@@ -82,20 +82,47 @@ def pick_axis(local_dir):
     return best
 
 
+def _signed_permutation(q):
+    """Rows of the rotation matrix of a 90 degree turn, as (index, sign)."""
+    m = q.to_matrix()
+    rows = []
+    for r in range(3):
+        col = max(range(3), key=lambda c: abs(m[r][c]))
+        rows.append((col, 1.0 if m[r][col] > 0 else -1.0))
+    return tuple(rows)
+
+
+# C as a signed permutation, so conversions only move and negate numbers.
+# That keeps them bit exact, negative zeros included, which an unchanged
+# export needs to reproduce the original file.
+AXIS_PERMUTATION = {name: _signed_permutation(q) for name, q in AXIS_CORRECTION.items()}
+
+
+def _apply(perm, v):
+    return [sign * v[i] for i, sign in perm]
+
+
+def _apply_inverse(perm, v):
+    out = [0.0, 0.0, 0.0]
+    for r, (i, sign) in enumerate(perm):
+        out[i] = sign * v[r]
+    return out
+
+
 def key_to_basis(axis, key_q, key_t):
     """Game key (quaternion xyzw, position xyz) to Blender pose basis
-    (Quaternion, Vector) for a bone with correction `axis`."""
-    c = AXIS_CORRECTION[axis]
-    ci = c.conjugated()
-    q = ci @ quat_in(key_q) @ c
-    t = ci @ vec_in(key_t)
-    return q, t
+    (Quaternion, Vector) for a bone with correction `axis`: C^-1 @ K @ C.
+    Exact: the result holds the same numbers, moved and negated."""
+    perm = AXIS_PERMUTATION[axis]
+    x, y, z, w = key_q
+    v = _apply_inverse(perm, (-x, -z, -y))   # vector part of quat_in, turned by C^-1
+    t = _apply_inverse(perm, vec_in(key_t))
+    return Quaternion((w, v[0], v[1], v[2])), Vector(t)
 
 
 def basis_to_key(axis, q, t):
-    """Inverse of key_to_basis."""
-    c = AXIS_CORRECTION[axis]
-    ci = c.conjugated()
-    gq = c @ q @ ci
-    gt = c @ t
-    return quat_out(gq), vec_out(gt)
+    """Inverse of key_to_basis, also exact."""
+    perm = AXIS_PERMUTATION[axis]
+    vx, vy, vz = _apply(perm, (q[1], q[2], q[3]))
+    gt = _apply(perm, (t[0], t[1], t[2]))
+    return (-vx, -vz, -vy, q[0]), (gt[0], gt[2], gt[1])

@@ -65,10 +65,12 @@ def sample(keys, frame, quat):
     return v
 
 
-def game_fk(sk, tracks, frame, step):
+def game_fk(sk, tracks, frame, lod):
     out = []
     for b in sk.bones:
         bt = tracks.get(b.name)
+        # LOD section 1 counts 1/5 s ticks, everything else 30 fps frames
+        step = 6 if bt and lod and bt.section == 1 else 1
         kq, kt = (0.0, 0.0, 0.0, 1.0), (0.0, 0.0, 0.0)
         if bt and bt.rot_keys:
             kq = tuple(sample(bt.rot_keys, frame / step, True))
@@ -102,13 +104,12 @@ def check_clip(context, obj, sk, clip_path, frames_to_check):
     _c, td = paa_codec.decode_file(data)
     names = {paa_codec.bone_hash(b.name): b.name for b in sk.bones}
     tracks = {names[bt.name_hash]: bt for bt in td.bones if bt.name_hash in names}
-    step = anim.LOD_TICK if td.lod else 1
     anim.import_clip(context, obj, clip_path)
     worst = 0.0
     worst_at = None
     for fr in frames_to_check:
         context.scene.frame_set(int(fr), subframe=fr - int(fr))
-        ref = game_fk(sk, tracks, fr, step)
+        ref = game_fk(sk, tracks, fr, td.lod)
         for i, b in enumerate(sk.bones):
             q, t = ref[i]
             want = [t] + [tuple(a + d for a, d in zip(t, qrot(q, v))) for v in ((1, 0, 0), (0, 1, 0))]
@@ -193,7 +194,7 @@ def main():
         # bind pose: no action
         anim.reset_pose(obj)
         context.view_layer.update()
-        ref = game_fk(sk, {}, 0, 1)
+        ref = game_fk(sk, {}, 0, False)
         bind_err = max(math.dist(ref[i][1], blender_game_frame(obj, b.name)[0]) for i, b in enumerate(sk.bones))
         print(f"{pab_name}: {len(sk.bones)} bones, bind pose max error {bind_err:.2e} m")
         failures += bind_err > 1e-4
@@ -204,9 +205,9 @@ def main():
             _c, td = paa_codec.decode_file(open(path, "rb").read())
             last = round(td.lead.duration * anim.FPS)
             frames = {0, 1, last // 3, last // 2, (2 * last) // 3 + 1, last, 0.5, last / 2 + 0.25}
-            step = anim.LOD_TICK if td.lod else 1
             # half frames around every sign flip, where interpolation matters
             for bt in td.bones:
+                step = 6 if td.lod and bt.section == 1 else 1
                 for a, b in zip(bt.rot_keys, bt.rot_keys[1:]):
                     if a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w < 0:
                         frames.add((a.frame + b.frame) * step / 2)

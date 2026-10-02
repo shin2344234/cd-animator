@@ -6,17 +6,17 @@ import bpy
 from bpy.props import CollectionProperty, StringProperty
 from bpy.app.handlers import persistent
 from bpy.types import Operator, OperatorFileListElement
-from bpy_extras.io_utils import ImportHelper
+from bpy_extras.io_utils import ExportHelper, ImportHelper
 
-from . import anim, skeleton
+from . import anim, export, skeleton
 
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 1, 0),
+    "version": (0, 2, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
-    "description": "Import Crimson Desert .pab skeletons and .paa animation clips",
+    "description": "Import Crimson Desert .pab skeletons and .paa animation clips, and export clips",
     "category": "Import-Export",
 }
 
@@ -83,6 +83,44 @@ class CDANIM_OT_import_paa(Operator, ImportHelper):
         return {"FINISHED"}
 
 
+class CDANIM_OT_export_paa(Operator, ExportHelper):
+    """Write the active armature's current action as a Crimson Desert clip (.paa)"""
+    bl_idname = "cd_animator.export_paa"
+    bl_label = "Export Crimson Desert animation"
+
+    filename_ext = ".paa"
+    filter_glob: StringProperty(default="*.paa", options={"HIDDEN"})
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.object
+        action = obj.animation_data.action if obj and obj.animation_data else None
+        if not skeleton.is_cd_armature(obj) or action is None or "cd_source" not in action:
+            cls.poll_message_set("Select an armature whose action was imported from a .paa clip")
+            return False
+        return True
+
+    def invoke(self, context, event):
+        if not self.filepath:
+            self.filepath = context.object.animation_data.action.name + self.filename_ext
+        return super().invoke(context, event)
+
+    def execute(self, context):
+        obj = context.object
+        if obj.mode == "EDIT":
+            bpy.ops.object.mode_set(mode="POSE")
+        action = obj.animation_data.action
+        try:
+            data, problems = export.export_clip(obj, action, self.filepath)
+        except (export.ExportError, ValueError, OSError) as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        for p in problems:
+            self.report({"WARNING"}, p)
+        self.report({"INFO"}, f"Wrote {os.path.basename(self.filepath)}, {len(data)} bytes")
+        return {"FINISHED"}
+
+
 def _cd_armatures(context):
     return [o for o in context.selected_objects if skeleton.is_cd_armature(o)]
 
@@ -140,6 +178,7 @@ class CDANIM_PT_panel(bpy.types.Panel):
         col = self.layout.column(align=True)
         col.operator(CDANIM_OT_import_pab.bl_idname, text="Import skeleton (.pab)", icon="ARMATURE_DATA")
         col.operator(CDANIM_OT_import_paa.bl_idname, text="Import animation (.paa)", icon="ACTION")
+        col.operator(CDANIM_OT_export_paa.bl_idname, text="Export animation (.paa)", icon="EXPORT")
         col.separator()
         col.operator(CDANIM_OT_seat_rider.bl_idname, icon="CONSTRAINT_BONE")
         col.operator(CDANIM_OT_unseat_rider.bl_idname, icon="X")
@@ -167,12 +206,16 @@ def _reseat_on_frame(scene, _depsgraph=None):
             anim.seat_rider(obj)
 
 
+def _menu_export(self, context):
+    self.layout.operator(CDANIM_OT_export_paa.bl_idname, text="Crimson Desert animation (.paa)")
+
+
 def _menu_import(self, context):
     self.layout.operator(CDANIM_OT_import_pab.bl_idname, text="Crimson Desert skeleton (.pab)")
     self.layout.operator(CDANIM_OT_import_paa.bl_idname, text="Crimson Desert animation (.paa)")
 
 
-_classes = (CDANIM_OT_import_pab, CDANIM_OT_import_paa, CDANIM_OT_seat_rider,
+_classes = (CDANIM_OT_import_pab, CDANIM_OT_import_paa, CDANIM_OT_export_paa, CDANIM_OT_seat_rider,
             CDANIM_OT_unseat_rider, CDANIM_PT_panel)
 
 
@@ -180,12 +223,14 @@ def register():
     for c in _classes:
         bpy.utils.register_class(c)
     bpy.types.TOPBAR_MT_file_import.append(_menu_import)
+    bpy.types.TOPBAR_MT_file_export.append(_menu_export)
     bpy.app.handlers.frame_change_pre.append(_reseat_on_frame)
 
 
 def unregister():
     if _reseat_on_frame in bpy.app.handlers.frame_change_pre:
         bpy.app.handlers.frame_change_pre.remove(_reseat_on_frame)
+    bpy.types.TOPBAR_MT_file_export.remove(_menu_export)
     bpy.types.TOPBAR_MT_file_import.remove(_menu_import)
     for c in reversed(_classes):
         bpy.utils.unregister_class(c)

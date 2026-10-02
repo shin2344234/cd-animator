@@ -35,9 +35,22 @@ Each rider clip's lead holds record A, a rotation and position. Putting the ride
 
 Record B, `ref_scale` and the four `B_TL_Position` bones are not used for display.
 
+## Writing a clip back
+
+The exporter writes against the clip the action was imported from. It keeps that file's header, lead and block order, and fits new bones into section 1 after the last template bone that comes before them in the skeleton. An imported clip exported without edits is byte for byte the original in all 44 cases, which `tests/check_export.py` checks.
+
+Three things had to be exact for that:
+
+- The axis corrections are 90 degree turns, so the conversion only moves and negates numbers. 189 rotation values in the samples are negative zero and survive the trip.
+- The importer's sign flips are recorded per track (`neg` in the action's `cd_blocks`), and the exporter puts the stored signs back on those frames.
+- The padding u16 of float position keys is the same in every key of a track in all 59 tracks that have it, so one value per track is kept.
+
+Blender gives new keys Bezier interpolation, and the game only interpolates in straight lines. The exporter writes a track's keys as they are when every key is linear, and otherwise samples it at every frame (every tick in LOD section 1) from its first key to its last. The edited idle in the test turns Spine1 20 degrees and adds a new eyeball track with Bezier keys; it re-imports within 0.17 mm of the edited action.
+
 ## Smaller points
 
-- LOD clips count 1/5 second ticks; the importer multiplies by 6 to get 30 fps frames.
+- In a LOD clip only section 1 counts 1/5 second ticks. Section 2 (`Bip01`, `B_MoveControl_01`, the TL bones) keeps 30 fps frame numbers: in the LOD run clip `B_MoveControl_01` ends on 48 while section 1 ends on tick 8. Version 0.1.0 scaled section 2 as well and played LOD root motion six times too slowly.
+- A LOD clip's last tick rounds up, so it can sit past the clip's last frame: 34 frames end on tick 6 (frame 36), 75 frames on tick 13.
 - Four leaf bones in `phm_01.pab` have a bind scale of 1.0014 or 1.053 (the eyeballs and `Bip01 L/R Elbow_In`). The importer ignores bind scale. On a leaf bone that changes nothing visible.
 - Every Kliff bone name and every broom bone name resolves from the clips' hashes.
 - Nothing here has been tested on a rig other than these two.

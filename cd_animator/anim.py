@@ -10,7 +10,14 @@ from . import convert
 from .formats import paa_codec
 
 FPS = 30
-LOD_TICK = 6   # a LOD clip counts 1/5 second ticks, six 30 fps frames each
+LOD_TICK = 6   # LOD section 1 tracks count 1/5 second ticks, six 30 fps frames each
+
+
+def frame_step(lod, section):
+    """30 fps frames per stored frame number. In a LOD clip only section 1
+    uses ticks; section 2 (Bip01, B_MoveControl_01, the TL bones) keeps the
+    full clip's 30 fps frames."""
+    return LOD_TICK if lod and section == 1 else 1
 
 
 def _fill(fcurve, frames, values):
@@ -31,7 +38,6 @@ def import_clip(context, obj, path):
     with open(path, "rb") as f:
         data = f.read()
     _container, td = paa_codec.decode_file(data)
-    step = LOD_TICK if td.lod else 1
 
     names = {paa_codec.bone_hash(b.name): b.name for b in obj.data.bones}
     name = os.path.splitext(os.path.basename(path))[0]
@@ -47,15 +53,20 @@ def import_clip(context, obj, path):
     blocks = []
     for bt in td.bones:
         bone_name = names.get(bt.name_hash)
-        blocks.append({
+        block = {
             "hash": bt.name_hash, "name": bone_name, "section": bt.section,
-            "rot": len(bt.rot_keys), "pos": len(bt.pos_keys),
-        })
+            "flags": bt.header_zero, "rot": len(bt.rot_keys), "pos": len(bt.pos_keys),
+            # padding u16 of float position keys, the same in every key of a track
+            "aux": bt.pos_keys[0].aux if bt.pos_keys else 0,
+            "neg": [],
+        }
+        blocks.append(block)
         if bone_name is None:
             unknown.append(bt.name_hash)
             continue
         axis = obj.data.bones[bone_name]["cd_axis"]
         base = f'pose.bones["{bone_name}"]'
+        step = frame_step(td.lod, bt.section)
 
         if bt.rot_keys:
             frames = [k.frame * step for k in bt.rot_keys]
@@ -65,9 +76,11 @@ def import_clip(context, obj, path):
             # Bip_Weapon_C in the mount clips, 20 times in 44 clips). Read
             # literally that is a 340 degree spin in one frame, so the game
             # takes the short way, and Blender only does if the signs agree.
+            # The export puts the stored signs back on the frames in "neg".
             for i in range(1, len(quats)):
                 if quats[i - 1].dot(quats[i]) < 0.0:
                     quats[i].negate()
+                    block["neg"].append(frames[i])
             for i in range(4):
                 fc = bag.fcurves.new(base + ".rotation_quaternion", index=i, group_name=bone_name)
                 _fill(fc, frames, [q[i] for q in quats])
