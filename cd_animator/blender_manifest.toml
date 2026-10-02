@@ -1,0 +1,11 @@
+schema_version = "1.0.0"
+
+id = "cd_animator"
+version = "0.1.0"
+name = "CD Animator"
+tagline = "Import Crimson Desert skeletons and animation clips"
+maintainer = "Seth"
+type = "add-on"
+blender_version_min = "4.4.0"
+license = ["SPDX:MIT"]
+tags = ["Animation", "Import-Export"]

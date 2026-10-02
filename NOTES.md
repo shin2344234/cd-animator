@@ -1,0 +1,43 @@
+# How the game's animation data maps onto Blender
+
+Worked out on 2 October 2026 against build 2.03.02, using Kliff's skeleton (`phm_01.pab`, 447 bones), the broom's (`cd_r0032_00_broom.pab`, 9 bones) and the 44 broom riding clips, full and LOD. `tests/check_import.py` re-checks everything below except the axis handedness, which is a judgement from the bind pose.
+
+The file formats themselves come from Broomy's research, its notes on clips and metabins and its `paa.py` for skeletons. The codecs in `cd_animator/formats` are copies of Broomy's, with only the imports changed.
+
+## A key sits on top of the bind pose
+
+A bone's local transform in a clip is `bind @ key`, for rotation and position both. The position key is in the bone's bind frame, so it is turned by the bind rotation before it is added to the bind position.
+
+The evidence:
+
+- Read as absolute transforms the keys make no sense. `Bip01 Spine` has a bind offset of 7.8 cm from the pelvis and a position key of 0, and the thighs, whose bind turns them about 180 degrees, have rotation keys within 30 degrees of identity.
+- Kliff's `Bip01` has a bind rotation of 90 degrees about Y. In the run clip its position key moves 6.80 m along +X while `B_MoveControl_01`, whose bind is identity, moves 6.86 m along -Z. Turned by the bind rotation the two are the same motion.
+- The broom's idle pitches its `Bip01` 17.6 degrees about X. Kliff's idle turns his `Bip01` 16 degrees about his local Z, which his bind rotation makes the world X, so he tilts with the broom.
+- Under this reading Kliff's idle frame is a seated rider, hands on the shaft, and his left and right limbs mirror each other. The other readings put his feet or head in the wrong place or break the symmetry.
+
+Blender poses bones the same way (`rest @ basis`), so a key becomes a pose basis directly. The only extra step is the bone direction correction described in `convert.py`.
+
+## The game is left-handed, Y up
+
+In the bind pose Kliff's toes point to -Z and his left side is +X. Facing -Z with the left side at +X only works in a left-handed frame. Swapping Y and Z gives Blender's right-handed Z-up frame with Kliff facing -Y, left side at +X, which is how Blender characters normally stand. The swap is exact for both vectors and quaternions.
+
+## Keys are normalised and interpolate the short way
+
+Stored rotation keys are not unit length: half floats are off by up to 0.005, the 8-bit LOD keys by up to 0.05. Blender normalises pose quaternions, and the reference in the test does too.
+
+Kliff's `Bip_Weapon_C` changes quaternion sign between neighbouring frames 20 times across the mount and dismount clips. Taken literally that is a 340 degree spin in one frame where the short way is 5 to 18 degrees, so the game must interpolate the short way. The importer flips signs so each track is continuous, which gives Blender the same result. An exporter can write either sign, since q and -q are the same rotation.
+
+Between keys the importer uses linear interpolation (Blender normalises, so rotations come out as nlerp). That matches Broomy's LOD builder but has not been checked against the engine.
+
+## Record A places a rider on its mount
+
+Each rider clip's lead holds record A, a rotation and position. Putting the rider's origin at the mount's origin moved by record A lines the two up. In both mount clips Kliff then starts with his toes exactly on the ground beside the broom (0.862 m to the left for `mount_l`, turned 90 degrees) and finishes exactly where the idle seats him. The idle's record A is the seat, about 1.35 m up. "Seat rider on mount" in the add-on does this and follows whichever clip is active.
+
+Record B, `ref_scale` and the four `B_TL_Position` bones are not used for display.
+
+## Smaller points
+
+- LOD clips count 1/5 second ticks; the importer multiplies by 6 to get 30 fps frames.
+- Four leaf bones in `phm_01.pab` have a bind scale of 1.0014 or 1.053 (the eyeballs and `Bip01 L/R Elbow_In`). The importer ignores bind scale. On a leaf bone that changes nothing visible.
+- Every Kliff bone name and every broom bone name resolves from the clips' hashes.
+- Nothing here has been tested on a rig other than these two.

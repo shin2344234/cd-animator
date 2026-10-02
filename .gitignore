@@ -1,0 +1,12 @@
+# Game data extracted from the PAZ archives. Regenerate with paz_unpack.py (README).
+samples/
+
+# Built extension zips. Rebuild with blender --command extension build.
+dist/
+
+__pycache__/
+*.pyc
+
+# Editor settings.
+.vscode/
+.idea/
