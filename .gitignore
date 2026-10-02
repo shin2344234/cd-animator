@@ -10,3 +10,4 @@ __pycache__/
 # Editor settings.
 .vscode/
 .idea/
+out/

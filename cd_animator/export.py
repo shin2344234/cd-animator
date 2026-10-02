@@ -8,12 +8,13 @@ clips.
 """
 
 import json
+import os
 
 from bpy_extras import anim_utils
 
 from . import convert
 from .anim import FPS, frame_step
-from .formats import paa_codec
+from .formats import metabin_codec, paa_codec
 
 
 class ExportError(Exception):
@@ -181,3 +182,83 @@ def export_clip(obj, action, path):
     with open(path, "wb") as f:
         f.write(data)
     return data, problems
+
+
+def _companion(source, suffix):
+    """A file that goes with the clip at `source`: next to it, or in an
+    actionchart folder beside its folder (where paz_unpack puts metabins)."""
+    folder, leaf = os.path.split(source)
+    stem = leaf[:-len(".paa")] if leaf.lower().endswith(".paa") else leaf
+    for candidate in (os.path.join(folder, stem + suffix),
+                      os.path.join(os.path.dirname(folder), "actionchart", stem + suffix)):
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+def _track(td, name_hash):
+    return next((b for b in td.bones if b.name_hash == name_hash), None)
+
+
+def _same_keys(a, b):
+    key = lambda k: (k.frame, k.x, k.y, k.z, getattr(k, "w", 0.0))  # noqa: E731
+    return (a is None) == (b is None) and (a is None or (
+        [key(k) for k in a.rot_keys] == [key(k) for k in b.rot_keys]
+        and [key(k) for k in a.pos_keys] == [key(k) for k in b.pos_keys]))
+
+
+def build_metabin(template_clip, template_metabin, clip):
+    """The .paa_metabin for `clip` (full clip bytes). Events, phases and the
+    two unexplained bytes come from the template clip's metabin, so a clip
+    that keeps its template's timing keeps its state changes. The motion
+    block is the clip's B_MoveControl_01 track; when that track is the
+    template's, the template's block is kept as it is."""
+    _c, new = paa_codec.decode_file(clip)
+    _t, old = paa_codec.decode_file(template_clip)
+    move = paa_codec.bone_hash("B_MoveControl_01")
+    new_move, old_move = _track(new, move), _track(old, move)
+    if template_metabin is not None:
+        mb = metabin_codec.read_metabin(template_metabin)
+    else:
+        mb = metabin_codec.new_metabin(new.lead.duration)
+    if not _same_keys(new_move, old_move):
+        mb.motion = None if new_move is None else metabin_codec.MotionTrack(
+            [paa_codec.RotKey(k.frame, k.x, k.y, k.z, k.w) for k in new_move.rot_keys],
+            [paa_codec.PosKey(k.frame, k.x, k.y, k.z) for k in new_move.pos_keys])
+        mb.flags = mb.expected_flags()
+    mb.duration = new.lead.duration
+    return metabin_codec.write_metabin(mb)
+
+
+def export_with_companions(obj, action, path):
+    """Write the clip at `path`, plus `<stem>_lod.paa` and `<stem>.paa_metabin`
+    beside it, the three files the game loads for one clip. Returns
+    (written paths, problems)."""
+    data, problems = export_clip(obj, action, path)
+    written = [path]
+    if action.get("cd_lod"):
+        return written, problems
+    source = action["cd_source"]
+    stem = path[:-len(".paa")] if path.lower().endswith(".paa") else path
+
+    template_lod = _companion(source, "_lod.paa")
+    if template_lod is None:
+        problems.append("no _lod.paa beside the template clip, so the LOD uses Kliff's bone list")
+    paa_codec.register_names([b.name for b in obj.data.bones])
+    lod = paa_codec.make_lod(data, open(template_lod, "rb").read() if template_lod else None)
+    paa_codec.decode_file(lod)
+    with open(stem + "_lod.paa", "wb") as f:
+        f.write(lod)
+    written.append(stem + "_lod.paa")
+
+    template_mb = _companion(source, ".paa_metabin")
+    if template_mb is None:
+        problems.append("no .paa_metabin found for the template clip, so the new one has no events")
+    with open(source, "rb") as f:
+        template_clip = f.read()
+    mb = build_metabin(template_clip, open(template_mb, "rb").read() if template_mb else None, data)
+    metabin_codec.read_metabin(mb)
+    with open(stem + ".paa_metabin", "wb") as f:
+        f.write(mb)
+    written.append(stem + ".paa_metabin")
+    return written, problems

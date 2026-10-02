@@ -56,6 +56,41 @@ def check_unchanged(context, folder, out_dir):
     return failures
 
 
+def check_companions(context, folder, out_dir):
+    """Exported unchanged with its LOD and metadata, each full clip's
+    .paa_metabin must be the game's byte for byte, and its _lod.paa must
+    name the full clip's hash and hold the shipped LOD's tracks in order."""
+    meta_dir = os.path.join(os.path.dirname(folder), "actionchart")
+    if not os.path.isdir(meta_dir):
+        print(f"  skipped: no {meta_dir} (paz_unpack the .paa_metabin files from group 0010)")
+        return 0
+    failures = 0
+    for pab, prefix in RIGS:
+        for o in list(bpy.data.objects):
+            bpy.data.objects.remove(o)
+        bpy.ops.cd_animator.import_pab(filepath=os.path.join(folder, pab))
+        obj = context.object
+        clips = sorted(f for f in os.listdir(folder)
+                       if f.startswith(prefix) and f.endswith(".paa") and not f.endswith("_lod.paa"))
+        for clip in clips:
+            action, _u = anim.import_clip(context, obj, os.path.join(folder, clip))
+            out = os.path.join(out_dir, "companions", clip)
+            os.makedirs(os.path.dirname(out), exist_ok=True)
+            written, _p = export.export_with_companions(obj, action, out)
+            stem = clip[:-4]
+            meta_same = open(written[2], "rb").read() == open(os.path.join(meta_dir, stem + ".paa_metabin"), "rb").read()
+            full = open(written[0], "rb").read()
+            hdr, lod = paa_codec.decode_file(open(written[1], "rb").read())
+            _h, shipped = paa_codec.decode_file(open(os.path.join(folder, stem + "_lod.paa"), "rb").read())
+            hash_ok = hdr.source_hash == paa_codec.lod_source_hash(full)
+            order_ok = [(b.name_hash, b.section) for b in lod.bones] == [(b.name_hash, b.section) for b in shipped.bones]
+            ok = meta_same and hash_ok and order_ok
+            failures += not ok
+            print(f"  {'ok  ' if ok else 'FAIL'} {stem}: metabin {'identical' if meta_same else 'DIFFERS'}, "
+                  f"LOD hash {'ok' if hash_ok else 'WRONG'}, LOD tracks {'as shipped' if order_ok else 'DIFFER'}")
+    return failures
+
+
 def pose_snapshot(obj, frames):
     snap = {}
     for f in frames:
@@ -130,6 +165,8 @@ def main():
     out_dir = tempfile.mkdtemp(prefix="cd_animator_export_")
     print("unchanged clips:")
     failures = check_unchanged(context, folder, out_dir)
+    print("LOD and metadata:")
+    failures += check_companions(context, folder, out_dir)
     print("edited clip:")
     failures += check_edited(context, folder, out_dir)
     print("PASS" if not failures else f"{failures} FAILURES")

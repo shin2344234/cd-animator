@@ -3,7 +3,7 @@
 import os
 
 import bpy
-from bpy.props import CollectionProperty, StringProperty
+from bpy.props import BoolProperty, CollectionProperty, StringProperty
 from bpy.app.handlers import persistent
 from bpy.types import Operator, OperatorFileListElement
 from bpy_extras.io_utils import ExportHelper, ImportHelper
@@ -90,6 +90,10 @@ class CDANIM_OT_export_paa(Operator, ExportHelper):
 
     filename_ext = ".paa"
     filter_glob: StringProperty(default="*.paa", options={"HIDDEN"})
+    companions: BoolProperty(
+        name="LOD and metadata",
+        description="Also write <name>_lod.paa and <name>.paa_metabin, which the game loads with every clip",
+        default=True)
 
     @classmethod
     def poll(cls, context):
@@ -111,13 +115,17 @@ class CDANIM_OT_export_paa(Operator, ExportHelper):
             bpy.ops.object.mode_set(mode="POSE")
         action = obj.animation_data.action
         try:
-            data, problems = export.export_clip(obj, action, self.filepath)
+            if self.companions:
+                written, problems = export.export_with_companions(obj, action, self.filepath)
+            else:
+                _data, problems = export.export_clip(obj, action, self.filepath)
+                written = [self.filepath]
         except (export.ExportError, ValueError, OSError) as exc:
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
         for p in problems:
             self.report({"WARNING"}, p)
-        self.report({"INFO"}, f"Wrote {os.path.basename(self.filepath)}, {len(data)} bytes")
+        self.report({"INFO"}, "Wrote " + ", ".join(os.path.basename(p) for p in written))
         return {"FINISHED"}
 
 
