@@ -4,13 +4,14 @@ The exporter reads a bone's rotation_quaternion and location curves. A bone
 moved by something else, a constraint, an IK chain, a driver or a rotation
 mode other than quaternions, shows a pose in Blender those curves do not
 hold. For those bones the exporter takes the pose Blender evaluates instead,
-at every frame (every tick in LOD section 1), in the bone's local space: the
+at every frame (every tick in a LOD's 8-bit blocks), in the bone's local space: the
 same space as its curves, on top of the bind pose and under its parent's
 evaluated pose.
 """
 
 from . import export
 from .anim import frame_step
+from .formats.paa_codec import KIND_HALF
 
 _ROT_PATHS = ("rotation_euler", "rotation_axis_angle")
 
@@ -54,11 +55,11 @@ def bones_to_bake(obj, action):
     return {n: w for n, w in why.items() if n in obj.pose.bones}
 
 
-def sample(context, obj, action, names, last, lod, sections):
-    """{bone name: {frame: (quaternion wxyz, location xyz)}} for `names`,
-    evaluated on frames 0 to `last`. `sections` maps a bone to its section,
-    for the LOD tick step. The action is shown on `obj` while sampling and
-    the scene's frame, action and NLA state are put back after."""
+def sample(context, obj, action, names, last, kinds):
+    """{bone name: {frame: (quaternion wxyz, location xyz, scale xyz)}} for
+    `names`, evaluated on frames 0 to `last`. `kinds` maps a bone to its key
+    kind, for the LOD tick step. The action is shown on `obj` while sampling
+    and the scene's frame, action and NLA state are put back after."""
     scene = context.scene
     ad = obj.animation_data or obj.animation_data_create()
     saved = (scene.frame_current, ad.action, ad.action_slot, ad.use_nla)
@@ -71,7 +72,7 @@ def sample(context, obj, action, names, last, lod, sections):
                 ad.action_slot = slot
         ad.use_nla = False
         for f in range(0, last + 1):
-            wanted = [n for n in names if f % frame_step(lod, sections.get(n, 1)) == 0]
+            wanted = [n for n in names if f % frame_step(kinds.get(n, KIND_HALF)) == 0]
             if not wanted:
                 continue
             scene.frame_set(f)
@@ -82,7 +83,7 @@ def sample(context, obj, action, names, last, lod, sections):
                 prev = out[n].get(max(out[n])) if out[n] else None
                 if prev is not None and prev[0].dot(q) < 0.0:
                     q.negate()   # stay on one side so straight-line blending takes the short way
-                out[n][f] = (q, m.to_translation())
+                out[n][f] = (q, m.to_translation(), m.to_scale())
     finally:
         frame, action0, slot0, use_nla = saved
         if ad.action != action0:

@@ -1,77 +1,66 @@
-"""Per-bone keyframe codec for Crimson Desert .paa animation clips (build 2.03.02).
+"""Keyframe codec for Crimson Desert .paa animation clips (build 2.03.02).
 
-Decodes and re-encodes the track payload of both kinds of .paa clip:
+Decodes and re-encodes every layout the game ships: full clips
+(character/motion/...) and LOD clips (character/motion/motion_lod__/...,
+the "_lod.paa" files), for any skeleton. On 3 October 2026 all 280,011 full
+clips of pack group 0009 but three, and all 267,132 LOD clips, parsed to their
+last byte with every block's key count matching the lead.
 
-  * full clips   (character/motion/..., header with a tag string), and
-  * LOD clips    (character/motion/motion_lod__/..., the "_lod.paa" files,
-                  a reduced copy with 8-bit keys),
+Layout (all integers little-endian)
 
-for both rigs checked so far: the 9-bone flying-broom rig and Kliff's 447-bone
-biped (phm_01.pab). Every file this module has been run against round-trips
-byte for byte from decoded keys (see roundtrip_check() and
-roundtrip_rider.py). rider_and_metabin.md has the evidence and the confidence
-for every claim below.
+    0x00  "PAR ", u8 2 (animation), u8 version (3), 10 bytes 00..09
+    0x10  u16 flags
+    0x12  u16 tag marker: 0 for no tag, 0xC000 for a UTF-8 tag (u16 byte
+          length, NUL included, then the bytes), 0x8000 for a UTF-16 tag
+          (u16 length in characters, no NUL). Tags are Korean keywords such
+          as "<male>;<broom>;".
+          FLAG_SOURCE: u32 hashlittle(<the full clip's bytes>, 0xC5EDE)
 
-Layout of a full clip (all integers little-endian)
+    then the lead, each field present only when its flag is set:
+          FLAG_REC1      10 x f32  a transform: scale xyz, quat xyzw, pos xyz
+          FLAG_REC2      10 x f32  a second transform, same layout
+          FLAG_REF       f32       ref_scale (0.9723 on Kliff's clips)
+          FLAG_SKELETON  u8 length and the skeleton's path, no NUL
+          always         f32       duration in seconds
+          FLAG_KINDS     u16 n (5), then n u16 block counts, one per key kind
+          otherwise      u16 count of KIND_HALF blocks, u16 of KIND_FLOAT
+          always         u32       total key bytes of all blocks
 
-    0x00  "PAR ", u8 2 (animation), u8 3 (version), 10 bytes 00..09
-    0x10  u16 15, u16 0xC000, u16 tag_len, tag (UTF-8, NUL terminated)
-          tag is "<korean for male>;<korean for broom>;" on every riding clip
-    ....  3 x f32 scale (1, 1, 1)
-    then the track data (paa.Animation.track_data):
+    then the blocks, ordered by kind: one per animated bone, in an order
+    derived from the skeleton. Bones without keys are absent. A block holds
+    scale, rotation and position keys, each list after its own count:
 
-      LEAD   84 bytes
-        10 x f32   record A: quat xyzw, position xyz, scale xyz
-        7  x f32   record B: quat xyzw, position xyz
-        f32        ref_scale  (0.9723 on Kliff's clips, 0.0 on the broom's)
-        f32        duration in seconds (same number the metabin ends with)
-        u16 a      number of blocks in section 1 ("compact" bones)
-        u16 b      number of blocks in section 2 ("full" bones)
-        u32 c      total key bytes of all blocks (headers and hashes excluded)
+      KIND_HALF   u32 hashlittle(bone name, 0xC5EDE)
+                  u16 n, n x { u16 frame, 3 x binary16 }      scale
+                  u16 n, n x { u16 frame, 4 x binary16 }      quat xyzw
+                  u16 n, n x { u16 frame, 3 x binary16 }      position
+      KIND_FLOAT  as KIND_HALF, but position keys are
+                  { u16 frame, u16 aux, 3 x f32 }. aux is uninitialised
+                  padding, the same stale number in every key; it is kept
+                  so the round trip is exact, and new keys write 0.
+      KIND_I8     (LOD clips) u8 counts and u8 frames:
+                  u32 hash, u8 n, n x { u8 frame, 3 x i8 / 32 }  scale
+                  u8 n, n x { u8 frame, 4 x i8 / 64 }            quat
+                  u8 n, n x { u8 frame, 3 x i8 / 32 }            position
 
-      then a + b BLOCKS, section 1 first. One block per animated bone, in a
-      fixed skeleton-derived order that is the same in every clip of a rig.
-      Bones without keys are absent (their bind pose applies):
+Frame numbers count 30 fps frames, except in KIND_I8 blocks, which count 1/5
+second ticks (frame / 6). Kinds 0 and 4 are counted but no clip uses them.
 
-        u32  hashlittle(bone_name, 0xC5EDE)
-        u16  flags            0 in every sample
-        u16  rot_count
-        rot_count x  { u16 frame, 4 x binary16 x y z w }          10 bytes
-        u16  pos_count
-        section 1:  pos_count x { u16 frame, 3 x binary16 x y z }  8 bytes
-        section 2:  pos_count x { u16 frame, u16 aux, 3 x f32 }   16 bytes
+A LOD clip carries its full clip's flags with LOD_FLAGS added (checked on
+3,000 pairs): FLAG_SOURCE, 0x80 and FLAG_KINDS. Its KIND_I8 blocks come from
+the full clip's KIND_HALF bones and its KIND_HALF blocks from the KIND_FLOAT
+ones. Flags 0x08, 0x20 and 0x80 change nothing in the layout and are kept as
+read.
 
-      aux is uninitialised padding: it equals the same stale half float in
-      every key of a track, and in every block of section 2 of a clip. It is
-      kept per key so the round trip is exact; write 0 for new keys.
-
-Layout of a LOD clip
-
-    0x10  u16 415, u16 0, u32 source_hash = hashlittle(<the full clip's bytes>,
-          0xC5EDE), 3 x f32 scale, then the same LEAD but with 16 tail bytes:
-          ... duration, u32 5, u16 a, u16 b, u32 0, u32 c
-    Section 1 blocks use 8-bit keys and u8 counts and frames:
-        u32 hash, u8 flags, u8 rot_count,
-        rot_count x { u8 frame, 4 x i8 }   (value = i8 / 64)
-        u8 pos_count, pos_count x { u8 frame, 3 x i8 } (value = i8 / 32)
-    Section 2 blocks use the full clip's section 1 shape (half floats, u16s).
-    LOD frame numbers count 1/5 second ticks: round(full_frame / 6).
-
-Frame numbers in a full clip are absolute frames at 30 fps (the highest one
-is duration x 30).
-
-Everything the old version of this module exposed still works for the broom:
-read_track_data, write_track_data, decode_file, encode_file, get_bone,
-roundtrip_check, hash_names, NAME_BY_HASH, HASH_BY_NAME, BONE_NAMES,
-RotKey, PosKey, BoneTrack, TrackData. TrackData.lead_block is now a property
-over the structured Lead.
+Scale keys are rare outside facial clips: most body tracks that have them
+hold 1.0 on two keys. The block field earlier versions called "flags" (0 in
+every broom clip) is the scale key count.
 """
 
 from __future__ import annotations
 
 import os
 import struct
-import sys
 from dataclasses import dataclass, field as dc_field
 
 from . import paa as _paa
@@ -80,18 +69,25 @@ from .hashlittle import hashlittle
 
 HASH_SEED = 0xC5EDE
 
-#: Section 2 ("full") bones on the broom rig, kept for old callers. The real
-#: rule is positional: the last `b` blocks of the clip are section 2.
-FULL_POS_BONES = {"Bip01", "B_MoveControl_01"}
+FLAG_REC1 = 0x01
+FLAG_REF = 0x02
+FLAG_REC2 = 0x04
+FLAG_SOURCE = 0x10
+FLAG_SKELETON = 0x40
+FLAG_KINDS = 0x100
+LOD_FLAGS = 0x190
+
+TAG_UTF8 = 0xC000
+TAG_UTF16 = 0x8000
+
+KIND_I8, KIND_HALF, KIND_FLOAT = 1, 2, 3
+KIND_SLOTS = 5
+LOD_TICK = 6        # 30 fps frames per KIND_I8 frame number
 
 BONE_NAMES = [
     "Bip01", "B_TL_Position_02", "B_TL_Position_01", "B_MoveControl_01",
     "B_Body_00", "B_EnemyCatch_00", "B_CatchMe_00", "B_Rider_01", "B_Rider_02",
 ]
-
-LOD_MARKER = 415
-LOD_TAIL_CONST = 5
-FLAG_SKELETON = 0x40    # header flag: the lead names the skeleton file
 
 
 def bone_hash(name: str) -> int:
@@ -142,60 +138,56 @@ class RotKey:
 
 @dataclass
 class PosKey:
+    """A position or scale key."""
     frame: int
     x: float
     y: float
     z: float
-    aux: int = 0          # section-2 float keys only: the padding u16
-
-
-# key formats of a block
-ROT_HALF, ROT_I8 = "half", "i8"
-POS_HALF, POS_F32, POS_I8 = "half", "f32", "i8"
+    aux: int = 0          # KIND_FLOAT position keys only: the padding u16
 
 
 @dataclass
 class BoneTrack:
     name: str             # resolved bone name, or "unk_XXXXXXXX"
     name_hash: int
-    header_zero: int      # the block's flags field (u16, or u8 in LOD section 1); 0 in every sample
     rot_keys: list
     pos_keys: list
-    pos_is_full: bool     # section 2 of a full clip: 16-byte float keys
-    pos_track_const: int = 0   # aux of the first position key (old API)
-    section: int = 1      # 1 or 2
-    rot_fmt: str = ROT_HALF
-    pos_fmt: str = POS_HALF
+    kind: int = KIND_HALF
+    scale_keys: list = dc_field(default_factory=list)
+
+
+def frame_step(kind):
+    """30 fps frames per stored frame number in a block of this kind."""
+    return LOD_TICK if kind == KIND_I8 else 1
+
+
+@dataclass
+class Header:
+    version: int
+    flags: int
+    tag_marker: int = 0
+    tag: bytes = b""      # as stored: UTF-8 with its NUL, or UTF-16-LE
+    source_hash: int = 0  # FLAG_SOURCE only
 
     @property
-    def pos_count_hint(self):   # old API: the position count
-        return len(self.pos_keys)
+    def lod(self):
+        return bool(self.flags & FLAG_SOURCE)
+
+    @property
+    def text(self):
+        if self.tag_marker == TAG_UTF16:
+            return self.tag.decode("utf-16-le")
+        return self.tag.rstrip(b"\x00").decode("utf-8", "replace")
 
 
 @dataclass
 class Lead:
-    rec_a: tuple          # 10 floats: quat xyzw, pos xyz, scale xyz
-    rec_b: tuple          # 7 floats: quat xyzw, pos xyz
-    ref_scale: float
+    rec1: tuple | None    # FLAG_REC1: scale xyz, quat xyzw, pos xyz
+    rec2: tuple | None    # FLAG_REC2
+    ref_scale: float | None
     duration: float
-    lod_const: int = LOD_TAIL_CONST   # LOD only: u32 after the duration (5)
-    lod_zero: int = 0                 # LOD only: u32 before c (0)
-    # Full clips whose header flags (the u16 at 0x10) have FLAG_SKELETON set
-    # store the skeleton's path between ref_scale and the duration, as a u8
-    # length and that many bytes ("character/model/1_pc/1_phm/phm_01.pab" on
-    # Kliff's camel and iguana clips). None when absent.
     skeleton: bytes | None = None
-
-    def pack(self, a, b, c, lod):
-        out = struct.pack("<17f", *self.rec_a, *self.rec_b) + struct.pack("<f", self.ref_scale)
-        if self.skeleton is not None:
-            out += bytes([len(self.skeleton)]) + self.skeleton
-        out += struct.pack("<f", self.duration)
-        if lod:
-            out += struct.pack("<IHHII", self.lod_const, a, b, self.lod_zero, c)
-        else:
-            out += struct.pack("<HHI", a, b, c)
-        return out
+    slots: int = KIND_SLOTS   # FLAG_KINDS: how many block counts follow
 
 
 @dataclass
@@ -204,119 +196,136 @@ class TrackData:
     bones: list                      # list[BoneTrack], in file order
     lod: bool = False
 
-    @property
-    def lead_block(self) -> bytes:   # old API: the verbatim lead bytes
-        a = sum(1 for b in self.bones if b.section == 1)
-        c = _key_bytes(self.bones, self.lod)
-        return self.lead.pack(a, len(self.bones) - a, c, self.lod)
 
-
-def _key_bytes(bones, lod):
-    n = 0
-    for b in bones:
-        if lod and b.section == 1:
-            n += 5 * len(b.rot_keys) + 4 * len(b.pos_keys)
-        else:
-            n += 10 * len(b.rot_keys) + (16 if b.pos_fmt == POS_F32 else 8) * len(b.pos_keys)
-    return n
-
-
-LEAD_SIZE = 84          # full clips
-LOD_LEAD_SIZE = 92
+def _key_bytes(b):
+    if b.kind == KIND_I8:
+        return 4 * len(b.scale_keys) + 5 * len(b.rot_keys) + 4 * len(b.pos_keys)
+    return 8 * len(b.scale_keys) + 10 * len(b.rot_keys) + (16 if b.kind == KIND_FLOAT else 8) * len(b.pos_keys)
 
 
 # --------------------------------------------------------------------------
-# Track data reader / writer
+# Reader and writer
 # --------------------------------------------------------------------------
 
 def _name_of(h):
     return NAME_BY_HASH.get(h, f"unk_{h:08x}")
 
 
-def read_track_data(t: bytes, lod: bool = False, flags: int = 0) -> TrackData:
-    """Parse the track data region. `lod` selects the LOD clip layout;
-    `flags` is the header u16 at 0x10, a full clip's flags or a LOD's
-    marker; FLAG_SKELETON means the same in both."""
+def read_header(data: bytes):
+    """-> (Header, offset of the lead)."""
+    if data[:4] != _paa.MAGIC or len(data) < 0x14:
+        raise ValueError("not a PAR file")
+    if data[4] != _paa.TYPE_ANIMATION:
+        raise ValueError(f"not an animation (type {data[4]:#x})")
+    if data[6:16] != _paa.CONST_BLOCK:
+        raise ValueError("unexpected constant block at 0x06")
+    flags, marker = struct.unpack_from("<HH", data, 0x10)
+    off = 0x14
+    tag = b""
+    if marker == TAG_UTF8:
+        n = struct.unpack_from("<H", data, off)[0]
+        tag = bytes(data[off + 2:off + 2 + n])
+        off += 2 + n
+    elif marker == TAG_UTF16:
+        n = struct.unpack_from("<H", data, off)[0]
+        tag = bytes(data[off + 2:off + 2 + 2 * n])
+        off += 2 + 2 * n
+    elif marker != 0:
+        raise ValueError(f"tag marker {marker:#x} at 0x12 is not one the add-on reads (flags {flags:#x})")
+    src = 0
+    if flags & FLAG_SOURCE:
+        src = struct.unpack_from("<I", data, off)[0]
+        off += 4
+    return Header(data[5], flags, marker, tag, src), off
+
+
+def read_track_data(t: bytes, flags: int, lod: bool = False) -> TrackData:
+    """Parse the lead and blocks. `flags` is the header's."""
     n = len(t)
-    rec = struct.unpack_from("<17f", t, 0)
-    ref_scale = struct.unpack_from("<f", t, 68)[0]
-    skeleton = None
-    extra = 0
+    off = 0
+    rec1 = rec2 = ref = skeleton = None
+    if flags & FLAG_REC1:
+        rec1 = struct.unpack_from("<10f", t, off)
+        off += 40
+    if flags & FLAG_REC2:
+        rec2 = struct.unpack_from("<10f", t, off)
+        off += 40
+    if flags & FLAG_REF:
+        ref = struct.unpack_from("<f", t, off)[0]
+        off += 4
     if flags & FLAG_SKELETON:
-        k = t[72]
-        skeleton = bytes(t[73:73 + k])
-        extra = 1 + k
-    duration = struct.unpack_from("<f", t, 72 + extra)[0]
-    if lod:
-        lod_const, a, b, lod_zero, c = struct.unpack_from("<IHHII", t, 76 + extra)
-        off = LOD_LEAD_SIZE + extra
+        k = t[off]
+        skeleton = bytes(t[off + 1:off + 1 + k])
+        off += 1 + k
+    duration = struct.unpack_from("<f", t, off)[0]
+    off += 4
+    slots = KIND_SLOTS
+    if flags & FLAG_KINDS:
+        slots = struct.unpack_from("<H", t, off)[0]
+        counts = struct.unpack_from(f"<{slots}H", t, off + 2)
+        off += 2 + 2 * slots
+        kinds = [k for k, m in enumerate(counts) for _ in range(m)]
     else:
-        lod_const, lod_zero = LOD_TAIL_CONST, 0
-        a, b, c = struct.unpack_from("<HHI", t, 76 + extra)
-        off = LEAD_SIZE + extra
-    lead = Lead(rec[:10], rec[10:17], ref_scale, duration, lod_const, lod_zero, skeleton)
+        a, b = struct.unpack_from("<HH", t, off)
+        off += 4
+        kinds = [KIND_HALF] * a + [KIND_FLOAT] * b
+    c = struct.unpack_from("<I", t, off)[0]
+    off += 4
+    odd = sorted(set(kinds) - {KIND_I8, KIND_HALF, KIND_FLOAT})
+    if odd:
+        raise ValueError(f"blocks of key kind {odd[0]}, which no known clip uses")
+    lead = Lead(rec1, rec2, ref, duration, skeleton, slots)
 
     bones = []
-    key_bytes = 0
-    for i in range(a + b):
-        sec = 1 if i < a else 2
-        if off + 4 > n:
+    for i, kind in enumerate(kinds):
+        if off + 7 > n:
             raise ValueError(f"block {i}: truncated at {off}")
         h = struct.unpack_from("<I", t, off)[0]
         off += 4
-        small = lod and sec == 1
-        if small:
-            flags, rn = t[off], t[off + 1]
-            off += 2
+        if kind == KIND_I8:
+            sk = []
+            for _ in range(t[off]):
+                fr, x, y, z = struct.unpack_from("<B3b", t, off + 1 + 4 * len(sk))
+                sk.append(PosKey(fr, x / 32.0, y / 32.0, z / 32.0))
+            off += 1 + 4 * len(sk)
             rk = []
-            for _ in range(rn):
-                fr = t[off]
-                q = struct.unpack_from("<4b", t, off + 1)
-                rk.append(RotKey(fr, *(v / 64.0 for v in q)))
-                off += 5
-            pn = t[off]
-            off += 1
+            for _ in range(t[off]):
+                fr, x, y, z, w = struct.unpack_from("<B4b", t, off + 1 + 5 * len(rk))
+                rk.append(RotKey(fr, x / 64.0, y / 64.0, z / 64.0, w / 64.0))
+            off += 1 + 5 * len(rk)
             pk = []
-            for _ in range(pn):
-                fr = t[off]
-                p = struct.unpack_from("<3b", t, off + 1)
-                pk.append(PosKey(fr, *(v / 32.0 for v in p)))
-                off += 4
-            key_bytes += 5 * rn + 4 * pn
-            rf, pf = ROT_I8, POS_I8
+            for _ in range(t[off]):
+                fr, x, y, z = struct.unpack_from("<B3b", t, off + 1 + 4 * len(pk))
+                pk.append(PosKey(fr, x / 32.0, y / 32.0, z / 32.0))
+            off += 1 + 4 * len(pk)
         else:
-            flags, rn = struct.unpack_from("<HH", t, off)
-            off += 4
-            rk = []
-            for _ in range(rn):
-                fr = struct.unpack_from("<H", t, off)[0]
-                q = struct.unpack_from("<4e", t, off + 2)
-                rk.append(RotKey(fr, *q))
-                off += 10
+            sn = struct.unpack_from("<H", t, off)[0]
+            sk = [PosKey(*struct.unpack_from("<H3e", t, off + 2 + 8 * j)) for j in range(sn)]
+            off += 2 + 8 * sn
+            rn = struct.unpack_from("<H", t, off)[0]
+            rk = [RotKey(*struct.unpack_from("<H4e", t, off + 2 + 10 * j)) for j in range(rn)]
+            off += 2 + 10 * rn
             pn = struct.unpack_from("<H", t, off)[0]
             off += 2
             pk = []
-            full = (sec == 2 and not lod)
-            for _ in range(pn):
-                if full:
-                    fr, aux = struct.unpack_from("<HH", t, off)
-                    p = struct.unpack_from("<3f", t, off + 4)
-                    pk.append(PosKey(fr, *p, aux=aux))
+            if kind == KIND_FLOAT:
+                for _ in range(pn):
+                    fr, aux, x, y, z = struct.unpack_from("<HH3f", t, off)
+                    pk.append(PosKey(fr, x, y, z, aux))
                     off += 16
-                else:
-                    fr = struct.unpack_from("<H", t, off)[0]
-                    p = struct.unpack_from("<3e", t, off + 2)
-                    pk.append(PosKey(fr, *p))
+            else:
+                for _ in range(pn):
+                    pk.append(PosKey(*struct.unpack_from("<H3e", t, off)))
                     off += 8
-            key_bytes += 10 * rn + (16 if full else 8) * pn
-            rf, pf = ROT_HALF, (POS_F32 if full else POS_HALF)
-        const = pk[0].aux if pk and pf == POS_F32 else 0
-        bones.append(BoneTrack(_name_of(h), h, flags, rk, pk, pf == POS_F32, const, sec, rf, pf))
+        if off > n:
+            raise ValueError(f"block {i} runs past the end of the clip")
+        bones.append(BoneTrack(_name_of(h), h, rk, pk, kind, sk))
 
     if off != n:
-        raise ValueError(f"{n - off} bytes left after {a + b} blocks")
-    if key_bytes != c:
-        raise ValueError(f"lead says {c} key bytes, blocks hold {key_bytes}")
+        raise ValueError(f"{n - off} bytes left after {len(kinds)} blocks")
+    got = sum(_key_bytes(b) for b in bones)
+    if got != c:
+        raise ValueError(f"lead says {c} key bytes, blocks hold {got}")
     return TrackData(lead, bones, lod)
 
 
@@ -325,86 +334,97 @@ def _q8(v, scale):
     return max(-128, min(127, r))
 
 
-def write_track_data(td: TrackData) -> bytes:
-    lod = td.lod
-    a = sum(1 for b in td.bones if b.section == 1)
-    # section 1 must come first
-    if any(b.section == 1 for b in td.bones[a:]):
-        raise ValueError("section 1 blocks must precede section 2 blocks")
-    out = bytearray(td.lead.pack(a, len(td.bones) - a, _key_bytes(td.bones, lod), lod))
+def write_track_data(td: TrackData, flags: int) -> bytes:
+    ld = td.lead
+    for flag, value, what in ((FLAG_REC1, ld.rec1, "first transform"), (FLAG_REC2, ld.rec2, "second transform"),
+                              (FLAG_REF, ld.ref_scale, "ref scale"), (FLAG_SKELETON, ld.skeleton, "skeleton path")):
+        if bool(flags & flag) != (value is not None):
+            raise ValueError(f"flags {flags:#x} and the lead disagree about the {what}")
+    kinds = [b.kind for b in td.bones]
+    if kinds != sorted(kinds):
+        raise ValueError("blocks must be ordered by key kind")
+    out = bytearray()
+    if ld.rec1 is not None:
+        out += struct.pack("<10f", *ld.rec1)
+    if ld.rec2 is not None:
+        out += struct.pack("<10f", *ld.rec2)
+    if ld.ref_scale is not None:
+        out += struct.pack("<f", ld.ref_scale)
+    if ld.skeleton is not None:
+        out += bytes([len(ld.skeleton)]) + ld.skeleton
+    out += struct.pack("<f", ld.duration)
+    if flags & FLAG_KINDS:
+        if kinds and kinds[-1] >= ld.slots:
+            raise ValueError(f"key kind {kinds[-1]} does not fit {ld.slots} block counts")
+        out += struct.pack(f"<H{ld.slots}H", ld.slots, *(kinds.count(k) for k in range(ld.slots)))
+    else:
+        if set(kinds) - {KIND_HALF, KIND_FLOAT}:
+            raise ValueError("8-bit keys need flag 0x100")
+        out += struct.pack("<HH", kinds.count(KIND_HALF), kinds.count(KIND_FLOAT))
+    out += struct.pack("<I", sum(_key_bytes(b) for b in td.bones))
     for b in td.bones:
         out += struct.pack("<I", b.name_hash)
-        small = lod and b.section == 1
-        if small:
-            out += struct.pack("<BB", b.header_zero, len(b.rot_keys))
+        if b.kind == KIND_I8:
+            for keys in (b.scale_keys, b.rot_keys, b.pos_keys):
+                if len(keys) > 255 or any(not 0 <= k.frame <= 255 for k in keys):
+                    raise ValueError(f"{b.name}: an 8-bit block holds at most 255 keys on ticks 0 to 255")
+            out.append(len(b.scale_keys))
+            for k in b.scale_keys:
+                out += struct.pack("<B3b", k.frame, *(_q8(v, 32) for v in (k.x, k.y, k.z)))
+            out.append(len(b.rot_keys))
             for k in b.rot_keys:
                 out += struct.pack("<B4b", k.frame, *(_q8(v, 64) for v in (k.x, k.y, k.z, k.w)))
-            out += struct.pack("<B", len(b.pos_keys))
+            out.append(len(b.pos_keys))
             for k in b.pos_keys:
                 out += struct.pack("<B3b", k.frame, *(_q8(v, 32) for v in (k.x, k.y, k.z)))
-        else:
-            out += struct.pack("<HH", b.header_zero, len(b.rot_keys))
-            for k in b.rot_keys:
-                out += struct.pack("<H4e", k.frame, k.x, k.y, k.z, k.w)
-            out += struct.pack("<H", len(b.pos_keys))
-            for k in b.pos_keys:
-                if b.pos_fmt == POS_F32:
-                    out += struct.pack("<HH3f", k.frame, k.aux, k.x, k.y, k.z)
-                else:
-                    out += struct.pack("<H3e", k.frame, k.x, k.y, k.z)
+            continue
+        out += struct.pack("<H", len(b.scale_keys))
+        for k in b.scale_keys:
+            out += struct.pack("<H3e", k.frame, k.x, k.y, k.z)
+        out += struct.pack("<H", len(b.rot_keys))
+        for k in b.rot_keys:
+            out += struct.pack("<H4e", k.frame, k.x, k.y, k.z, k.w)
+        out += struct.pack("<H", len(b.pos_keys))
+        for k in b.pos_keys:
+            if b.kind == KIND_FLOAT:
+                out += struct.pack("<HH3f", k.frame, k.aux, k.x, k.y, k.z)
+            else:
+                out += struct.pack("<H3e", k.frame, k.x, k.y, k.z)
     return bytes(out)
 
 
-# --------------------------------------------------------------------------
-# Whole-file wrappers
-# --------------------------------------------------------------------------
-
-@dataclass
-class LodHeader:
-    """Container fields of a _lod.paa (paa.read_paa rejects these files)."""
-    version: int
-    marker: int           # u16 at 0x10: 415 (0x19F), or 0x1DF with FLAG_SKELETON
-                          # on clips whose lead names the skeleton
-    zero: int             # u16 at 0x12
-    source_hash: int      # u32 at 0x14: hashlittle(full clip bytes, 0xC5EDE)
-    scale: tuple
+def write_header(hdr: Header) -> bytes:
+    out = bytearray(_paa.MAGIC)
+    out.append(_paa.TYPE_ANIMATION)
+    out.append(hdr.version)
+    out += _paa.CONST_BLOCK
+    out += struct.pack("<HH", hdr.flags, hdr.tag_marker)
+    if hdr.tag_marker == TAG_UTF8:
+        out += struct.pack("<H", len(hdr.tag)) + hdr.tag
+    elif hdr.tag_marker == TAG_UTF16:
+        out += struct.pack("<H", len(hdr.tag) // 2) + hdr.tag
+    if hdr.flags & FLAG_SOURCE:
+        out += struct.pack("<I", hdr.source_hash)
+    return bytes(out)
 
 
 def is_lod(data: bytes) -> bool:
-    return (data[:4] == _paa.MAGIC and data[4] == _paa.TYPE_ANIMATION
-            and struct.unpack_from("<H", data, 0x10)[0] & ~FLAG_SKELETON == LOD_MARKER)
+    return (data[:4] == _paa.MAGIC and data[4] == _paa.TYPE_ANIMATION and len(data) > 0x12
+            and bool(struct.unpack_from("<H", data, 0x10)[0] & FLAG_SOURCE))
 
 
 def decode_file(data: bytes):
-    """-> (container, TrackData). Container is a paa.Animation for a full
-    clip, a LodHeader for a LOD clip."""
-    if is_lod(data):
-        if data[6:16] != _paa.CONST_BLOCK:
-            raise ValueError("unexpected constant block at 0x06")
-        marker, zero, src = struct.unpack_from("<HHI", data, 0x10)
-        scale = struct.unpack_from("<3f", data, 0x18)
-        hdr = LodHeader(data[5], marker, zero, src, scale)
-        return hdr, read_track_data(data[0x24:], lod=True, flags=marker)
-    anim = _paa.read_paa(data)
-    return anim, read_track_data(anim.track_data, flags=anim.count_u16)
+    """-> (Header, TrackData) for a full or LOD clip."""
+    hdr, off = read_header(data)
+    return hdr, read_track_data(data[off:], hdr.flags, hdr.lod)
 
 
-def encode_file(container, td: TrackData) -> bytes:
-    if isinstance(container, LodHeader):
-        out = bytearray(_paa.MAGIC)
-        out.append(_paa.TYPE_ANIMATION)
-        out.append(container.version)
-        out += _paa.CONST_BLOCK
-        out += struct.pack("<HHI", container.marker, container.zero, container.source_hash)
-        out += struct.pack("<3f", *container.scale)
-        out += write_track_data(td)
-        return bytes(out)
-    container.track_data = write_track_data(td)
-    return _paa.write_paa(container)
+def encode_file(hdr: Header, td: TrackData) -> bytes:
+    return write_header(hdr) + write_track_data(td, hdr.flags)
 
 
 def lod_source_hash(full_clip_bytes: bytes) -> int:
-    """The value a LOD clip carries at 0x14 for its full clip."""
+    """The value a LOD clip carries for its full clip."""
     return hashlittle(full_clip_bytes, HASH_SEED)
 
 
@@ -419,10 +439,10 @@ def get_bone(td: TrackData, name: str) -> BoneTrack:
 # Making a LOD clip from a full clip
 # --------------------------------------------------------------------------
 #
-# The game's own LOD files follow rules this does reproduce (container, lead,
-# source hash, a fixed bone subset in a fixed order, section 1 on a 1/5 second
-# tick with 8-bit keys) and one it does not: which keys it drops. Its keys sit
-# on the ticks and look sampled from the full curve (mean error 0.005 to 0.02
+# The game's own LOD files follow rules this does reproduce (flags, lead,
+# source hash, a fixed bone subset in a fixed order, 8-bit keys on a 1/5
+# second tick) and one it does not: which keys it drops. Its keys sit on the
+# ticks and look sampled from the full curve (mean error 0.005 to 0.02
 # against the full clip sampled at frame 6 * tick). Here a key is dropped when
 # linear interpolation between its kept neighbours stays inside a tolerance.
 
@@ -493,52 +513,50 @@ def make_lod(full_bytes: bytes, template_lod_bytes: bytes | None = None, rot_tol
              pos_tol=0.03, half_rot_tol=0.003, half_pos_tol=0.01) -> bytes:
     """Build a _lod.paa for a full clip. Without a template the bone list and
     order are Kliff's (KLIFF_LOD_SECTION1/2); with one, any LOD clip of a rig
-    gives the bones and their order. Section 1 position keys clamp at +-3.97
-    (8-bit keys in 1/32 m steps)."""
-    fcont, ftd = decode_file(full_bytes)
+    gives the bones and their order. 8-bit position and scale keys clamp at
+    +-3.97 (1/32 steps)."""
+    fhdr, ftd = decode_file(full_bytes)
+    if fhdr.lod:
+        raise ValueError("the clip to make a LOD for is a LOD clip itself")
     if template_lod_bytes is not None:
-        tcont, ttd = decode_file(template_lod_bytes)
-        if not isinstance(tcont, LodHeader):
+        thdr, ttd = decode_file(template_lod_bytes)
+        if not thdr.lod:
             raise ValueError("template is not a LOD clip")
-        order = [(b.name, b.section) for b in ttd.bones]
+        order = [(b.name, b.kind) for b in ttd.bones]
     else:
-        order = [(n, 1) for n in KLIFF_LOD_SECTION1] + [(n, 2) for n in KLIFF_LOD_SECTION2]
+        order = [(n, KIND_I8) for n in KLIFF_LOD_SECTION1] + [(n, KIND_HALF) for n in KLIFF_LOD_SECTION2]
     fb = {b.name: b for b in ftd.bones}
     out = []
-    for name, section in order:
+    for name, kind in order:
         f = fb.get(name)
-        if f is None or f.section != section:
+        if f is None or f.kind != kind + 1:
             continue
-        t = f
-        rot, pos = [], []
-        if t.section == 1:
-            for keys, dst, quat, tol in ((f.rot_keys, rot, True, rot_tol), (f.pos_keys, pos, False, pos_tol)):
-                if not keys:
-                    continue
-                last = keys[-1].frame
-                ticks = list(range(0, int(round(last / 6.0)) + 1))
-                if len(keys) == 1:
-                    ticks = [0]
-                vals = [_sample(keys, min(6 * k, last), quat) for k in ticks]
-                for i in _thin(ticks, vals, tol):
-                    v = vals[i]
-                    dst.append(RotKey(ticks[i], *v) if quat else PosKey(ticks[i], *v))
-            bt = BoneTrack(f.name, f.name_hash, 0, rot, pos, False, 0, 1, ROT_I8, POS_I8)
+        lists = ((f.scale_keys, False), (f.rot_keys, True), (f.pos_keys, False))
+        new = []
+        if kind == KIND_I8:
+            for keys, quat in lists:
+                dst = []
+                if keys:
+                    last = keys[-1].frame
+                    ticks = [0] if len(keys) == 1 else list(range(0, int(round(last / 6.0)) + 1))
+                    vals = [_sample(keys, min(6 * k, last), quat) for k in ticks]
+                    for i in _thin(ticks, vals, rot_tol if quat else pos_tol):
+                        dst.append(RotKey(ticks[i], *vals[i]) if quat else PosKey(ticks[i], *vals[i]))
+                new.append(dst)
         else:
-            for keys, dst, quat, tol in ((f.rot_keys, rot, True, half_rot_tol), (f.pos_keys, pos, False, half_pos_tol)):
-                if not keys:
-                    continue
-                frames = [k.frame for k in keys]
-                vals = [[getattr(k, c) for c in ("x", "y", "z", "w")[:4 if quat else 3]] for k in keys]
-                for i in _thin(frames, vals, tol):
-                    k = keys[i]
-                    dst.append(RotKey(k.frame, k.x, k.y, k.z, k.w) if quat else PosKey(k.frame, k.x, k.y, k.z))
-            bt = BoneTrack(f.name, f.name_hash, 0, rot, pos, False, 0, 2, ROT_HALF, POS_HALF)
-        out.append(bt)
+            for keys, quat in lists:
+                dst = []
+                if keys:
+                    frames = [k.frame for k in keys]
+                    vals = [[getattr(k, c) for c in ("x", "y", "z", "w")[:4 if quat else 3]] for k in keys]
+                    for i in _thin(frames, vals, half_rot_tol if quat else half_pos_tol):
+                        k = keys[i]
+                        dst.append(RotKey(k.frame, k.x, k.y, k.z, k.w) if quat else PosKey(k.frame, k.x, k.y, k.z))
+                new.append(dst)
+        out.append(BoneTrack(f.name, f.name_hash, new[1], new[2], kind, new[0]))
     ld = ftd.lead
-    lead = Lead(ld.rec_a, ld.rec_b, ld.ref_scale, ld.duration, LOD_TAIL_CONST, 0, ld.skeleton)
-    marker = LOD_MARKER | (FLAG_SKELETON if ld.skeleton is not None else 0)
-    hdr = LodHeader(3, marker, 0, lod_source_hash(full_bytes), (1.0, 1.0, 1.0))
+    lead = Lead(ld.rec1, ld.rec2, ld.ref_scale, ld.duration, ld.skeleton, KIND_SLOTS)
+    hdr = Header(fhdr.version, fhdr.flags | LOD_FLAGS, 0, b"", lod_source_hash(full_bytes))
     return encode_file(hdr, TrackData(lead, out, True))
 
 
@@ -549,21 +567,19 @@ def make_lod(full_bytes: bytes, template_lod_bytes: bytes | None = None, rot_tol
 def check_track_data(td: TrackData, frame_limit: int | None = None):
     """Sanity problems in a decoded clip, as a list of strings (empty is
     good): strictly rising frames, frames inside the clip, unit quaternions.
-    A LOD clip's section 1 counts 1/5 second ticks, everything else counts
-    30 fps frames."""
+    8-bit blocks count 1/5 second ticks, everything else 30 fps frames."""
     problems = []
     frames30 = frame_limit if frame_limit is not None else int(round(td.lead.duration * 30)) + 1
     ticks5 = int(round(td.lead.duration * 5)) + 1
     for b in td.bones:
-        small = td.lod and b.section == 1
-        lim = ticks5 if small else frames30
-        for label, keys in (("rot", b.rot_keys), ("pos", b.pos_keys)):
+        lim = ticks5 if b.kind == KIND_I8 else frames30
+        for label, keys in (("scale", b.scale_keys), ("rot", b.rot_keys), ("pos", b.pos_keys)):
             fr = [k.frame for k in keys]
             if any(f2 <= f1 for f1, f2 in zip(fr, fr[1:])):
                 problems.append(f"{b.name}: {label} frames not strictly rising")
             if fr and fr[-1] > lim:
                 problems.append(f"{b.name}: {label} frame {fr[-1]} past clip end {lim}")
-        tol = 0.05 if b.rot_fmt == ROT_I8 else 0.005
+        tol = 0.05 if b.kind == KIND_I8 else 0.005
         for k in b.rot_keys:
             n2 = k.x * k.x + k.y * k.y + k.z * k.z + k.w * k.w
             if abs(n2 - 1.0) > tol:
@@ -577,22 +593,7 @@ def roundtrip_check(paths):
     results = []
     for path in paths:
         data = open(path, "rb").read()
-        cont, td = decode_file(data)
-        back = encode_file(cont, td)
+        hdr, td = decode_file(data)
+        back = encode_file(hdr, td)
         results.append((path, back == data, len(data), len(back), len(td.bones)))
     return results
-
-
-if __name__ == "__main__":
-    import glob
-
-    S = r"C:\scratchpad"
-    FULL = S + r"\extracted\0009\character\motion\4_riding\cd_r0032_00_broom"
-    LODD = S + r"\extracted\0009\character\motion\motion_lod__\4_riding\cd_r0032_00_broom"
-    paths = sorted(glob.glob(os.path.join(FULL, "*.paa"))) + sorted(glob.glob(os.path.join(LODD, "*.paa")))
-    ok_count = 0
-    for path, ok, dlen, blen, nbones in roundtrip_check(paths):
-        status = "OK" if ok else "MISMATCH"
-        ok_count += ok
-        print(f"{status:8s} {os.path.basename(path):65s} {dlen:5d}B  bones={nbones}")
-    print(f"{ok_count}/{len(paths)} round-tripped byte-exact")

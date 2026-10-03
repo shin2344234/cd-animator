@@ -24,6 +24,10 @@ Confidence, so a caller can tell what is load-bearing:
       why round-tripping is byte-exact despite the gap: unread bytes are
       never re-derived, only carried.
 
+CD Animator reads clips with paa_codec, which follows the header flags.
+read_paa below assumes the broom clips' header (a tag and three floats
+after it) and misreads most other clips; nothing in the add-on calls it.
+
 Round trip: read(data) then write(obj) reproduces `data` byte-for-byte
 for every file this module has been run against (the 11 broom clips and
 the broom .pab) -- see roundtrip_check() at the bottom.
@@ -90,11 +94,29 @@ _OFF_SCALE = 0x104
 _OFF_QUAT = 0x110
 _OFF_TRANS = 0x120
 _OFF_FLAGS = 0x12C
-# Gap (in bytes) between the end of a bone's 302-byte payload and the next
-# record's name-length byte. 2 is "no optional block" (this build has no
-# separate per-bone id, unlike kukdh1's BDO decoder, so the bare minimum gap
-# is 2 rather than BDO's 4); the rest are kukdh1's known block sizes + 2.
-_SEPARATORS = (2, 26, 38, 58, 62)
+# Bytes between the end of a bone's 302-byte payload and the next record's
+# name-length byte: 2 between every pair of bones in all 273 skeletons of
+# build 2.03.02. After the last bone comes a trailer, usually starting with
+# 0xFF bytes. The old guesses of 26, 38, 58 and 62 (kukdh1's BDO block sizes)
+# matched inside that trailer on 101 skeletons and read garbage as bones.
+_GAP = 2
+
+
+def _is_record(data, off, index):
+    """Whether a bone record with this index can start at `off`: a printable
+    name, a parent before it and a unit bind quaternion."""
+    if off >= len(data):
+        return False
+    n = data[off]
+    if not 0 < n <= 64 or off + 1 + n + _PAB_PAYLOAD_SIZE > len(data):
+        return False
+    if any(c < 0x20 or c > 0x7E for c in data[off + 1:off + 1 + n]):
+        return False
+    payload = off + 1 + n
+    if not -1 <= struct.unpack_from("<i", data, payload + _OFF_PARENT)[0] < index:
+        return False
+    q = struct.unpack_from("<4f", data, payload + _OFF_QUAT)
+    return 0.9 <= sum(c * c for c in q) <= 1.1
 
 
 def read_pab(data: bytes) -> Skeleton:
@@ -132,33 +154,15 @@ def read_pab(data: bytes) -> Skeleton:
 
         rec_end = payload + _PAB_PAYLOAD_SIZE
 
-        if rec_end == len(data):
-            bones.append(Bone(name, parent, scale, quat, trans, flags, matrices, b""))
-            off = len(data)
-            break
-
-        chosen = None
-        for sep in _SEPARATORS:
-            cand = rec_end + sep
-            if cand >= len(data):
-                continue
-            nlen = data[cand]
-            if not (0 < nlen <= 64 and cand + 1 + nlen + 4 <= len(data)):
-                continue
-            parent_probe = struct.unpack_from("<i", data, cand + 1 + nlen)[0]
-            if -1 <= parent_probe <= i + 1:
-                chosen = sep
-                break
-
-        if chosen is None:
-            # No further plausible record: this bone is last and whatever
-            # remains (if anything) is its own trailing block.
+        if not _is_record(data, rec_end + _GAP, i + 1):
+            # No further record: this bone is last and whatever remains is
+            # the trailer (per-bone tables and matrices, not decoded).
             bones.append(Bone(name, parent, scale, quat, trans, flags, matrices, data[rec_end:]))
             off = len(data)
             break
 
-        bones.append(Bone(name, parent, scale, quat, trans, flags, matrices, data[rec_end:rec_end + chosen]))
-        off = rec_end + chosen
+        bones.append(Bone(name, parent, scale, quat, trans, flags, matrices, data[rec_end:rec_end + _GAP]))
+        off = rec_end + _GAP
         i += 1
 
     return Skeleton(version, unk_u16, first_id_a, first_id_b, bones)

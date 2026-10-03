@@ -2,7 +2,7 @@
 
 Worked out on 2 October 2026 against build 2.03.02, using Kliff's skeleton (`phm_01.pab`, 447 bones), the broom's (`cd_r0032_00_broom.pab`, 9 bones) and the 44 broom riding clips, full and LOD. `tests/check_import.py` re-checks everything below except the axis handedness, which is a judgement from the bind pose.
 
-The file formats themselves come from Broomy's research, its notes on clips and metabins and its `paa.py` for skeletons. The codecs in `cd_animator/formats` are copies of Broomy's, with only the imports changed.
+The file formats themselves come from Broomy's research, its notes on clips and metabins and its `paa.py` for skeletons. The codecs in `cd_animator/formats` started as copies of Broomy's. Since 0.7.0 the clip codec follows the header flags and reads scale keys, and the skeleton reader no longer guesses the gap between bones, so Broomy's copies are older and read about a quarter of the game's clips. "Every layout the game ships" below has the details.
 
 ## A key sits on top of the bind pose
 
@@ -29,11 +29,11 @@ Kliff's `Bip_Weapon_C` changes quaternion sign between neighbouring frames 20 ti
 
 Between keys the importer uses linear interpolation (Blender normalises, so rotations come out as nlerp). That matches Broomy's LOD builder but has not been checked against the engine.
 
-## Record A places a rider on its mount
+## The first transform record places a rider on its mount
 
-Each rider clip's lead holds record A, a rotation and position. Putting the rider's origin at the mount's origin moved by record A lines the two up. In both mount clips Kliff then starts with his toes exactly on the ground beside the broom (0.862 m to the left for `mount_l`, turned 90 degrees) and finishes exactly where the idle seats him. The idle's record A is the seat, about 1.35 m up. "Seat rider on mount" in the add-on does this and follows whichever clip is active.
+Each rider clip's lead holds a transform record, a scale, rotation and position. Putting the rider's origin at the mount's origin moved by its rotation and position lines the two up. In both mount clips Kliff then starts with his toes exactly on the ground beside the broom (0.862 m to the left for `mount_l`, turned 90 degrees) and finishes exactly where the idle seats him. The idle's record is the seat, about 1.35 m up. "Seat rider on mount" in the add-on does this and follows whichever clip is active.
 
-Record B, `ref_scale` and the four `B_TL_Position` bones are not used for display.
+The second record, `ref_scale` and the four `B_TL_Position` bones are not used for display. Earlier versions split the two records at a different place and called the parts the container scale, record A and record B; the bytes are the same.
 
 ## What shows in game on a mount
 
@@ -45,7 +45,7 @@ An idle with motion on B_Body_00 jumps whenever the game restarts it with a shor
 
 ## Writing a clip back
 
-The exporter writes against the clip the action was imported from. It keeps that file's header, lead and block order, and fits new bones into section 1 after the last template bone that comes before them in the skeleton. An imported clip exported without edits is byte for byte the original in all 44 cases, which `tests/check_export.py` checks.
+The exporter writes against the clip the action was imported from. It keeps that file's header, lead and block order, and fits new bones among the half float tracks, after the last one that comes before them in the skeleton. An imported clip exported without edits is byte for byte the original in all 44 cases, which `tests/check_export.py` checks.
 
 Three things had to be exact for that:
 
@@ -53,7 +53,7 @@ Three things had to be exact for that:
 - The importer's sign flips are recorded per track (`neg` in the action's `cd_blocks`), and the exporter puts the stored signs back on those frames.
 - The padding u16 of float position keys is the same in every key of a track in all 59 tracks that have it, so one value per track is kept.
 
-Blender gives new keys Bezier interpolation, and the game only interpolates in straight lines. The exporter writes a track's keys as they are when every key is linear, and otherwise samples it at every frame (every tick in LOD section 1) from its first key to its last. The edited idle in the test turns Spine1 20 degrees and adds a new eyeball track with Bezier keys; it re-imports within 0.17 mm of the edited action.
+Blender gives new keys Bezier interpolation, and the game only interpolates in straight lines. The exporter writes a track's keys as they are when every key is linear, and otherwise samples it at every frame, or every tick in a LOD's 8-bit blocks, from its first key to its last. The edited idle in the test turns Spine1 20 degrees and adds a new eyeball track with Bezier keys; it re-imports within 0.17 mm of the edited action.
 
 ## Baking constraints and IK
 
@@ -86,13 +86,25 @@ Flags bits 16 to 19 give the compression; 2 is an LZ4 block, and a file is compr
 
 ## Smaller points
 
-- In a LOD clip only section 1 counts 1/5 second ticks. Section 2 (`Bip01`, `B_MoveControl_01`, the TL bones) keeps 30 fps frame numbers: in the LOD run clip `B_MoveControl_01` ends on 48 while section 1 ends on tick 8. Version 0.1.0 scaled section 2 as well and played LOD root motion six times too slowly.
+- In a LOD clip only the 8-bit blocks count 1/5 second ticks. Its half float blocks, which hold `Bip01`, `B_MoveControl_01` and the TL bones, keep 30 fps frame numbers. In the LOD run clip `B_MoveControl_01` ends on 48 while the 8-bit blocks end on tick 8. Version 0.1.0 scaled both and played LOD root motion six times too slowly.
 - A LOD clip's last tick rounds up, so it can sit past the clip's last frame: 34 frames end on tick 6 (frame 36), 75 frames on tick 13.
-- Four leaf bones in `phm_01.pab` have a bind scale of 1.0014 or 1.053 (the eyeballs and `Bip01 L/R Elbow_In`). The importer ignores bind scale. On a leaf bone that changes nothing visible.
-- Every Kliff bone name and every broom bone name resolves from the clips' hashes.
-- Nothing here has been tested on a rig other than these two.
+- Four leaf bones in `phm_01.pab` have a bind scale of 1.0014 or 1.053, the eyeballs and `Bip01 L/R Elbow_In`. Blender bones hold no rest scale, so on a leaf bone it is dropped and changes nothing visible. On 18 skeletons a bone with children has one. The horse's tail runs 1.85, 1.14, 1.17 and 1.16. The importer places each bone through the scaled hierarchy, which `tests/check_skeletons.py` checks on all 273 skeletons to 0.008 mm, but a key that moves such a child is not scaled the way the game would scale it.
+- Every bone name of Kliff, the broom, the Wyvern, the horse and the bear resolves from the clips' hashes.
+- Whether a scale key replaces the bind scale or multiplies it is not settled. The importer treats it like rotation and position, on top of the bind pose.
 
-## Clips from other mounts
+## Every layout the game ships
 
-The u16 at 0x10 of a full clip is a set of flags, 0x0F on every broom clip. Kliff's camel, elephant and iguana idles have 0x4F or 0xCF. Bit 0x40 adds the skeleton's path to the lead, as a u8 length and the path, between `ref_scale` and the duration. With that read, those three clips decode and round-trip byte for byte. Kliff's bear idle (flags 0x4F) still fails: its `B_MoveControl_01` track has block flags 1 where every other track seen has 0, and 28 bytes follow its header that the known layout does not explain.
+On 3 October 2026 the codec in 0.6.0 read 68,846 of the 280,011 full clips in group 0009, and the skeleton reader 172 of 273 skeletons. A survey of every file sorted the failures by header, and four findings cover all but three clips. `formats/paa_codec.py` has the full layout.
+
+The u16 at 0x10 is a set of flags that say which lead fields are present. 0x01 and 0x04 each add a transform record of ten floats, scale, rotation and position. 0x02 adds `ref_scale`, 0x40 the skeleton's path. The duration and the block counts always follow. The broom clips have 0x0F, so the old reader's fixed lead fit them. A Kliff clip with flags 0x02 starts with `ref_scale` right after the header, and one with 0x00 with its duration.
+
+The block field earlier versions called flags, 0 in every broom clip, is a count of scale keys. Each key is a frame and three half floats, read before the rotation keys, and the 8-bit LOD blocks hold them as three bytes in 1/32 steps, where 32 is 1.0. The bear idle's `B_MoveControl_01` has one, which is what broke it before. About 79,000 tracks in a 20,000-clip sample have scale keys. Almost all of the body tracks hold a constant 1.0, some hold a bind scale such as 1.053, and facial clips animate scale on each axis.
+
+Flag 0x100 replaces the two block counts with a u16 5 and five counts, one per key kind. Kind 1 is the 8-bit LOD block, kind 2 half floats throughout and kind 3 half float rotations with float positions. Kinds 0 and 4 are counted and never used. All 151,000 autofacial clips, Kliff's Wyvern riding clips and every LOD use this. The LOD layout the codec knew, a u32 5, two counts and a u32 0, is the same thing read with different field boundaries.
+
+Bit 0x10 adds a u32 after the header, the hash of the full clip, and marks a LOD. A LOD's flags are its full clip's with 0x190 added, in all 3,000 pairs checked, so the exporter derives them. The u16 at 0x12 is 0xC000 for a UTF-8 tag, 0x8000 for a UTF-16 tag counted in characters with no terminator, or 0. Flags 0x08, 0x20 and 0x80 change nothing in the layout; what they mean is not known, and the codec keeps them.
+
+With these, every full clip but three and all 267,132 LOD clips decode with every byte and key count accounted for and encode back byte for byte. The three are `cd_m0002_rabbit_basic_00_00_abn_capture_000`, `..._abn_die_000` and `cd_phm_longsword_01_01_att_skill_normal_combo_c_004`, with flags 0x30 and 0x70, where bit 0x10 does not fit the LOD reading.
+
+Skeletons put exactly 2 bytes between bone records in all 273 files. After the last bone comes a trailer of per-bone tables and matrices that the add-on keeps without reading. The old reader tried gaps of 2, 26, 38, 58 and 62, taken from a reader for an older game by the same studio, and on 101 skeletons one of those landed inside the trailer and read it as bones. The reader now takes 2 and stops when the next record has no printable name, no earlier parent or no unit quaternion.
 

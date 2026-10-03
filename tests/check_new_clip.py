@@ -43,7 +43,7 @@ def kliff(folder):
 
 
 def last_key(td):
-    return max((k.frame * (6 if td.lod and b.section == 1 else 1)
+    return max((k.frame * (6 if b.kind == paa_codec.KIND_I8 else 1)
                 for b in td.bones for k in b.rot_keys + b.pos_keys), default=0)
 
 

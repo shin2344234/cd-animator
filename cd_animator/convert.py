@@ -126,3 +126,22 @@ def basis_to_key(axis, q, t):
     vx, vy, vz = _apply(perm, (q[1], q[2], q[3]))
     gt = _apply(perm, (t[0], t[1], t[2]))
     return (-vx, -vz, -vy, q[0]), (gt[0], gt[2], gt[1])
+
+
+def scale_to_basis(axis, s):
+    """Game scale key (x, y, z) to Blender pose scale. Scale follows the same
+    axes as position, without the signs. A key holds the bone's whole local
+    scale, and the armature's rest has none (the importer ignores bind
+    scale), so the key goes on as it is."""
+    x, y, z = s
+    v = (x, z, y)
+    out = [0.0, 0.0, 0.0]
+    for r, (i, _sign) in enumerate(AXIS_PERMUTATION[axis]):
+        out[i] = v[r]
+    return Vector(out)
+
+
+def basis_to_scale(axis, s):
+    """Inverse of scale_to_basis."""
+    v = [s[i] for i, _sign in AXIS_PERMUTATION[axis]]
+    return (v[0], v[2], v[1])

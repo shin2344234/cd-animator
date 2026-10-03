@@ -10,14 +10,16 @@ from . import convert, meta
 from .formats import paa_codec
 
 FPS = 30
-LOD_TICK = 6   # LOD section 1 tracks count 1/5 second ticks, six 30 fps frames each
+frame_step = paa_codec.frame_step   # by key kind: 8-bit LOD blocks count 1/5 s ticks
 
 
-def frame_step(lod, section):
-    """30 fps frames per stored frame number. In a LOD clip only section 1
-    uses ticks; section 2 (Bip01, B_MoveControl_01, the TL bones) keeps the
-    full clip's 30 fps frames."""
-    return LOD_TICK if lod and section == 1 else 1
+def block_kind(block, lod):
+    """A stored block's key kind. Actions imported before 0.7.0 stored a
+    section instead: 1 and 2 in that order were 8-bit and half float keys in
+    a LOD clip, half float and float positions in a full one."""
+    if "kind" in block:
+        return block["kind"]
+    return block["section"] + (0 if lod else 1)
 
 
 def _fill(fcurve, frames, values):
@@ -54,8 +56,8 @@ def import_clip(context, obj, path):
     for bt in td.bones:
         bone_name = names.get(bt.name_hash)
         block = {
-            "hash": bt.name_hash, "name": bone_name, "section": bt.section,
-            "flags": bt.header_zero, "rot": len(bt.rot_keys), "pos": len(bt.pos_keys),
+            "hash": bt.name_hash, "name": bone_name, "kind": bt.kind,
+            "scale": len(bt.scale_keys), "rot": len(bt.rot_keys), "pos": len(bt.pos_keys),
             # padding u16 of float position keys, the same in every key of a track
             "aux": bt.pos_keys[0].aux if bt.pos_keys else 0,
             "neg": [],
@@ -66,7 +68,7 @@ def import_clip(context, obj, path):
             continue
         axis = obj.data.bones[bone_name]["cd_axis"]
         base = f'pose.bones["{bone_name}"]'
-        step = frame_step(td.lod, bt.section)
+        step = frame_step(bt.kind)
 
         if bt.rot_keys:
             frames = [k.frame * step for k in bt.rot_keys]
@@ -91,6 +93,12 @@ def import_clip(context, obj, path):
             for i in range(3):
                 fc = bag.fcurves.new(base + ".location", index=i, group_name=bone_name)
                 _fill(fc, frames, [v[i] for v in locs])
+        if bt.scale_keys:
+            frames = [k.frame * step for k in bt.scale_keys]
+            sizes = [convert.scale_to_basis(axis, (k.x, k.y, k.z)) for k in bt.scale_keys]
+            for i in range(3):
+                fc = bag.fcurves.new(base + ".scale", index=i, group_name=bone_name)
+                _fill(fc, frames, [v[i] for v in sizes])
 
     last = round(td.lead.duration * FPS)
     action.use_frame_range = True
@@ -100,9 +108,8 @@ def import_clip(context, obj, path):
     action["cd_source"] = path
     action["cd_lod"] = td.lod
     action["cd_duration"] = td.lead.duration
-    action["cd_rec_a"] = list(td.lead.rec_a)
-    action["cd_rec_b"] = list(td.lead.rec_b)
-    action["cd_ref_scale"] = td.lead.ref_scale
+    if td.lead.rec1 is not None:
+        action["cd_rec1"] = list(td.lead.rec1)
     action["cd_blocks"] = json.dumps(blocks)
     metabin = None if td.lod else meta.companion(path, ".paa_metabin")
     if metabin is not None:
@@ -125,21 +132,29 @@ def import_clip(context, obj, path):
 
 
 def seat_rider(obj, mount=None):
-    """Place a rider armature relative to its mount by the active clip's
-    record A. Rider clips are authored in the mount's space offset by record
-    A: in the left mount clip it puts Kliff's origin 0.86 m to the broom's
-    left and turned 90 degrees, in the idle it sits on the seat. Bones are
-    untouched; only the object moves."""
+    """Place a rider armature relative to its mount by the rotation and
+    position of the active clip's first transform record. Rider clips are
+    authored in the mount's space offset by it: in the left mount clip it
+    puts Kliff's origin 0.86 m to the broom's left and turned 90 degrees, in
+    the idle it sits on the seat. Bones are untouched; only the object
+    moves."""
     if mount is not None:
         obj.parent = mount
         obj.parent_type = "OBJECT"
         obj.matrix_parent_inverse.identity()
         obj["cd_seated"] = True
     action = obj.animation_data.action if obj.animation_data else None
-    if action is None or "cd_rec_a" not in action:
+    if action is None:
         return False
-    a = action["cd_rec_a"]
-    obj.matrix_basis = convert.matrix_in(a[0:4], a[4:7])
+    if "cd_rec1" in action:
+        r = action["cd_rec1"]
+        q, t = r[3:7], r[7:10]
+    elif "cd_rec_a" in action:   # imported before 0.7.0: rotation and position came first
+        r = action["cd_rec_a"]
+        q, t = r[0:4], r[4:7]
+    else:
+        return False
+    obj.matrix_basis = convert.matrix_in(q, t)
     return True
 
 

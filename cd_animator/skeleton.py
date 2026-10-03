@@ -3,6 +3,8 @@
 import os
 
 import bpy
+from mathutils import Matrix
+
 from . import convert
 from .formats import paa as paa_format
 
@@ -15,11 +17,23 @@ LEAF_LENGTH = 0.05
 
 
 def _bind_world(skeleton):
-    """Blender-space bind matrices (4x4, armature space), in bone order."""
-    world = []
+    """Blender-space bind matrices (4x4, armature space), in bone order,
+    without scale. A bone sits where the game's hierarchy puts it, its
+    parents' bind scale included: the horse's tail bones have a bind scale
+    of 1.85, 1.14, 1.17 and 1.16, and ignoring it left the tail 40% short."""
+    world, scaled = [], []
     for b in skeleton.bones:
         local = convert.matrix_in(b.quat, b.trans)
-        world.append(local if b.parent < 0 else world[b.parent] @ local)
+        size = Matrix.Diagonal(convert.vec_in(b.scale).to_4d())
+        size[3][3] = 1.0
+        if b.parent < 0:
+            w, s = local.copy(), local @ size
+        else:
+            w = world[b.parent] @ local
+            s = scaled[b.parent] @ local @ size
+            w.translation = (scaled[b.parent] @ local).translation
+        world.append(w)
+        scaled.append(s)
     return world
 
 
@@ -109,8 +123,9 @@ def build_armature(context, path, skeleton=None):
     obj["cd_pab"] = path
     obj["cd_bone_count"] = len(skeleton.bones)
 
-    # A bind scale on a leaf bone changes nothing the armature shows. On a
-    # bone with children it would move them, and the importer ignores it.
+    # Blender bones hold no rest scale. The children of a bone with a bind
+    # scale still sit where the game puts them (_bind_world), but a key that
+    # moves such a child is not scaled by it, as it would be in the game.
     odd_scale = [b.name for i, b in enumerate(skeleton.bones)
                  if kids[i] and any(abs(s - 1.0) > 1e-4 for s in b.scale)]
     return obj, odd_scale

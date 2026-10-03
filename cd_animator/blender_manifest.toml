@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "cd_animator"
-version = "0.6.0"
+version = "0.7.0"
 name = "CD Animator"
 tagline = "Import and export Crimson Desert animation clips"
 maintainer = "Seth"

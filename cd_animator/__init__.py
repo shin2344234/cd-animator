@@ -14,7 +14,7 @@ from .formats import paa_codec
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 6, 0),
+    "version": (0, 7, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert .pab skeletons and .paa animation clips, and export clips with their LOD and metadata",
@@ -40,7 +40,8 @@ class CDANIM_OT_import_pab(Operator, ImportHelper):
             self.report({"ERROR"}, f"Could not read {os.path.basename(self.filepath)}: {exc}")
             return {"CANCELLED"}
         if odd_scale:
-            self.report({"WARNING"}, f"{len(odd_scale)} bones with children have a bind scale other than 1, which the importer ignores")
+            self.report({"WARNING"}, f"{len(odd_scale)} bones with children have a bind scale. Their children sit where the game puts them, "
+                                     "but keys that move those children are not scaled by it")
         self.report({"INFO"}, f"Imported {obj['cd_bone_count']} bones")
         return {"FINISHED"}
 
@@ -251,7 +252,8 @@ class CDANIM_OT_game_skeleton(Operator):
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
         if odd_scale:
-            self.report({"WARNING"}, f"{len(odd_scale)} bones with children have a bind scale other than 1, which the importer ignores")
+            self.report({"WARNING"}, f"{len(odd_scale)} bones with children have a bind scale. Their children sit where the game puts them, "
+                                     "but keys that move those children are not scaled by it")
         self.report({"INFO"}, f"Imported {obj['cd_bone_count']} bones from {name}")
         return {"FINISHED"}
 

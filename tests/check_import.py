@@ -69,8 +69,8 @@ def game_fk(sk, tracks, frame, lod):
     out = []
     for b in sk.bones:
         bt = tracks.get(b.name)
-        # LOD section 1 counts 1/5 s ticks, everything else 30 fps frames
-        step = 6 if bt and lod and bt.section == 1 else 1
+        # 8-bit LOD blocks count 1/5 s ticks, everything else 30 fps frames
+        step = 6 if bt and bt.kind == paa_codec.KIND_I8 else 1
         kq, kt = (0.0, 0.0, 0.0, 1.0), (0.0, 0.0, 0.0)
         if bt and bt.rot_keys:
             kq = tuple(sample(bt.rot_keys, frame / step, True))
@@ -211,7 +211,7 @@ def main():
             frames = {0, 1, last // 3, last // 2, (2 * last) // 3 + 1, last, 0.5, last / 2 + 0.25}
             # half frames around every sign flip, where interpolation matters
             for bt in td.bones:
-                step = 6 if td.lod and bt.section == 1 else 1
+                step = 6 if bt.kind == paa_codec.KIND_I8 else 1
                 for a, b in zip(bt.rot_keys, bt.rot_keys[1:]):
                     if a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w < 0:
                         frames.add((a.frame + b.frame) * step / 2)

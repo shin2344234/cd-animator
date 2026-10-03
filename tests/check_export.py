@@ -87,7 +87,7 @@ def check_companions(context, folder, out_dir):
             hdr, lod = paa_codec.decode_file(open(written[1], "rb").read())
             _h, shipped = paa_codec.decode_file(open(os.path.join(folder, stem + "_lod.paa"), "rb").read())
             hash_ok = hdr.source_hash == paa_codec.lod_source_hash(full)
-            order_ok = [(b.name_hash, b.section) for b in lod.bones] == [(b.name_hash, b.section) for b in shipped.bones]
+            order_ok = [(b.name_hash, b.kind) for b in lod.bones] == [(b.name_hash, b.kind) for b in shipped.bones]
             ok = meta_same and hash_ok and order_ok
             failures += not ok
             print(f"  {'ok  ' if ok else 'FAIL'} {stem}: metabin {'identical' if meta_same else 'DIFFERS'}, "
@@ -152,8 +152,8 @@ def check_edited(context, folder, out_dir):
     checks = [
         ("re-imported pose matches the edited action within 3 mm", worst < 3e-3, f"max {worst * 1000:.2f} mm at {at}"),
         ("new track is in the file", eye in hashes, ""),
-        ("new track sits in section 1", eye in hashes and td.bones[hashes.index(eye)].section == 1
-         and hashes.index(eye) < sum(1 for b in td.bones if b.section == 1), ""),
+        ("new track sits with the half float tracks", eye in hashes and td.bones[hashes.index(eye)].kind == paa_codec.KIND_HALF
+         and hashes.index(eye) < sum(1 for b in td.bones if b.kind == paa_codec.KIND_HALF), ""),
     ]
     for label, ok, detail in checks:
         failures += not ok

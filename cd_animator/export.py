@@ -14,7 +14,7 @@ from bpy_extras import anim_utils
 
 from . import bake as baking
 from . import convert, meta
-from .anim import FPS, frame_step
+from .anim import FPS, block_kind, frame_step
 from .formats import metabin_codec, paa_codec
 
 
@@ -33,23 +33,27 @@ def _channelbag(obj, action):
 
 
 def _bone_curves(bag):
-    """{bone name: {"rot": {index: fcurve}, "pos": {index: fcurve}}}"""
+    """{bone name: {"rot": {index: fcurve}, "pos": {...}, "scale": {...}}}"""
     out = {}
     for fc in bag.fcurves if bag else ():
         path = fc.data_path
         if not path.startswith('pose.bones["'):
             continue
         name, _, prop = path[len('pose.bones["'):].partition('"].')
-        kind = {"rotation_quaternion": "rot", "location": "pos"}.get(prop)
+        kind = {"rotation_quaternion": "rot", "location": "pos", "scale": "scale"}.get(prop)
         if kind is None:
             continue
-        out.setdefault(name, {"rot": {}, "pos": {}})[kind][fc.array_index] = fc
+        out.setdefault(name, _no_curves())[kind][fc.array_index] = fc
     return out
+
+
+def _no_curves():
+    return {"rot": {}, "pos": {}, "scale": {}}
 
 
 def _frames(curves, step, bone, problems):
     """Sorted integer frames to write for one channel: the frames that hold a
-    key on any of its curves, or every frame (every tick in LOD section 1)
+    key on any of its curves, or every frame (every tick in 8-bit LOD blocks)
     from the first key to the last when a curve bends between keys, since
     the game only interpolates in straight lines."""
     found = set()
@@ -88,7 +92,7 @@ def _value(fc, frame, default):
 
 
 def _curve_keys(c, axis, aux, neg, step, name, problems):
-    """A bone's keys from its rotation_quaternion and location curves."""
+    """A bone's rotation, position and scale keys from its curves."""
     rot_keys = []
     for f in _frames(c["rot"], step, name, problems):
         q = [_value(c["rot"].get(i), f, d) for i, d in enumerate((1.0, 0.0, 0.0, 0.0))]
@@ -101,14 +105,19 @@ def _curve_keys(c, axis, aux, neg, step, name, problems):
         t = [_value(c["pos"].get(i), f, 0.0) for i in range(3)]
         x, y, z = convert.basis_to_key(axis, (1.0, 0.0, 0.0, 0.0), t)[1]
         pos_keys.append(paa_codec.PosKey(f // step, x, y, z, aux))
-    return rot_keys, pos_keys
+    scale_keys = []
+    for f in _frames(c["scale"], step, name, problems):
+        s = [_value(c["scale"].get(i), f, 1.0) for i in range(3)]
+        scale_keys.append(paa_codec.PosKey(f // step, *convert.basis_to_scale(axis, s)))
+    return rot_keys, pos_keys, scale_keys
 
 
 def _baked_keys(samples, c, axis, aux, step):
     """A bone's keys from its baked samples. Rotation is written when the
     bone had rotation curves or turns anywhere, position when it had
-    location curves or moves anywhere; keys that only repeat both
-    neighbours are dropped."""
+    location curves or moves anywhere, scale when it had scale curves or
+    changes size anywhere; keys that only repeat both neighbours are
+    dropped."""
     frames = sorted(samples)
     qs = [tuple(samples[f][0]) for f in frames]
     ts = [tuple(samples[f][1]) for f in frames]
@@ -122,7 +131,12 @@ def _baked_keys(samples, c, axis, aux, step):
         for f in baking.thin(frames, ts, 1e-6):
             x, y, z = convert.basis_to_key(axis, (1.0, 0.0, 0.0, 0.0), samples[f][1])[1]
             pos_keys.append(paa_codec.PosKey(f // step, x, y, z, aux))
-    return rot_keys, pos_keys
+    ss = [tuple(samples[f][2]) for f in frames]
+    scale_keys = []
+    if c["scale"] or any(not baking.close(s, (1.0, 1.0, 1.0), 1e-6) for s in ss):
+        for f in baking.thin(frames, ss, 1e-6):
+            scale_keys.append(paa_codec.PosKey(f // step, *convert.basis_to_scale(axis, samples[f][2])))
+    return rot_keys, pos_keys, scale_keys
 
 
 def build_track_data(obj, action, bake=True):
@@ -136,26 +150,33 @@ def build_track_data(obj, action, bake=True):
             template_bytes = f.read()
     except OSError as exc:
         raise ExportError(f"cannot read the template clip {action['cd_source']}: {exc}")
-    container, template = paa_codec.decode_file(template_bytes)
+    header, template = paa_codec.decode_file(template_bytes)
     lod = template.lod
     blocks = json.loads(action["cd_blocks"])
+    for b in blocks:
+        b["kind"] = block_kind(b, lod)
     curves = _bone_curves(_channelbag(obj, action))
     problems = []
     to_bake = baking.bones_to_bake(obj, action) if bake else {}
 
-    # New bones (keyed now, absent from the template) go into section 1 after
-    # the last template bone that comes before them in the skeleton.
+    # New bones (keyed now, absent from the template) take the compact key
+    # kind (8-bit in a LOD clip, half floats in a full one) and go after the
+    # last template bone of that kind that comes before them in the skeleton.
     known = {b["name"] for b in blocks if b["name"]}
     bones = obj.data.bones
+    new_kind = paa_codec.KIND_I8 if lod else paa_codec.KIND_HALF
     for name in sorted((n for n in set(curves) | set(to_bake) if n not in known and n in bones),
                        key=lambda n: bones[n]["cd_index"]):
         idx = bones[name]["cd_index"]
-        pos = 0
-        for i, b in enumerate(blocks):
-            if b["section"] == 1 and b["name"] and bones[b["name"]]["cd_index"] < idx:
+        pos = next((i for i, b in enumerate(blocks) if b["kind"] >= new_kind), len(blocks))
+        for i in range(pos, len(blocks)):
+            b = blocks[i]
+            if b["kind"] != new_kind:
+                break
+            if b["name"] and bones[b["name"]]["cd_index"] < idx:
                 pos = i + 1
-        blocks.insert(pos, {"hash": paa_codec.bone_hash(name), "name": name, "section": 1,
-                            "flags": 0, "aux": 0, "neg": []})
+        blocks.insert(pos, {"hash": paa_codec.bone_hash(name), "name": name, "kind": new_kind,
+                            "aux": 0, "neg": []})
         problems.append(f"{name}: not in the template, added as a new track")
 
     duration = action["cd_duration"]
@@ -164,8 +185,8 @@ def build_track_data(obj, action, bake=True):
     last = round(duration * FPS)
     baked = {}
     if to_bake:
-        sections = {b["name"]: b["section"] for b in blocks if b["name"]}
-        baked = baking.sample(bpy.context, obj, action, sorted(to_bake), last, lod, sections)
+        kinds = {b["name"]: b["kind"] for b in blocks if b["name"]}
+        baked = baking.sample(bpy.context, obj, action, sorted(to_bake), last, kinds)
         listed = ", ".join(f"{n} ({w})" for n, w in sorted(to_bake.items())[:8])
         if len(to_bake) > 8:
             listed += f" and {len(to_bake) - 8} more"
@@ -179,46 +200,37 @@ def build_track_data(obj, action, bake=True):
             # a bone this skeleton does not have: carry the template's track over
             tracks.append(template_tracks[b["hash"]])
             continue
-        c = curves.get(name, {"rot": {}, "pos": {}})
+        c = curves.get(name, _no_curves())
         axis = bones[name]["cd_axis"]
         neg = set(b["neg"])
-        step = frame_step(lod, b["section"])
+        step = frame_step(b["kind"])
 
         if name in baked:
-            rot_keys, pos_keys = _baked_keys(baked[name], c, axis, b["aux"], step)
+            rot_keys, pos_keys, scale_keys = _baked_keys(baked[name], c, axis, b["aux"], step)
         else:
-            rot_keys, pos_keys = _curve_keys(c, axis, b["aux"], neg, step, name, problems)
-        if not rot_keys and not pos_keys:
+            rot_keys, pos_keys, scale_keys = _curve_keys(c, axis, b["aux"], neg, step, name, problems)
+        if not rot_keys and not pos_keys and not scale_keys:
             problems.append(f"{name}: no keys left, the bone stays on its bind pose")
             continue
-        sec = b["section"]
-        if lod and sec == 1:
-            rf, pf = paa_codec.ROT_I8, paa_codec.POS_I8
-        else:
-            rf = paa_codec.ROT_HALF
-            pf = paa_codec.POS_F32 if (sec == 2 and not lod) else paa_codec.POS_HALF
-        tracks.append(paa_codec.BoneTrack(
-            name, b["hash"], b["flags"], rot_keys, pos_keys, pf == paa_codec.POS_F32,
-            pos_keys[0].aux if pos_keys and pf == paa_codec.POS_F32 else 0, sec, rf, pf))
+        tracks.append(paa_codec.BoneTrack(name, b["hash"], rot_keys, pos_keys, b["kind"], scale_keys))
 
     lead = template.lead
     td = paa_codec.TrackData(
-        paa_codec.Lead(tuple(action["cd_rec_a"]), tuple(action["cd_rec_b"]), action["cd_ref_scale"],
-                       duration, lead.lod_const, lead.lod_zero, lead.skeleton),
+        paa_codec.Lead(lead.rec1, lead.rec2, lead.ref_scale, duration, lead.skeleton, lead.slots),
         tracks, lod)
 
     for t in tracks:
-        step = frame_step(lod, t.section)
-        for keys in (t.rot_keys, t.pos_keys):
+        step = frame_step(t.kind)
+        for keys in (t.scale_keys, t.rot_keys, t.pos_keys):
             # a LOD clip rounds its last tick up (75 frames end on tick 13), past the end
             if keys and keys[-1].frame > -(-last // step):
                 raise ExportError(f"{t.name} has a key after the clip's last frame ({last})")
-    return container, td, problems
+    return header, td, problems
 
 
 def export_clip(obj, action, path, bake=True):
-    container, td, problems = build_track_data(obj, action, bake)
-    data = paa_codec.encode_file(container, td)
+    header, td, problems = build_track_data(obj, action, bake)
+    data = paa_codec.encode_file(header, td)
     paa_codec.decode_file(data)   # refuse to write anything the reader cannot read back
     with open(path, "wb") as f:
         f.write(data)
