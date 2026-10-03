@@ -52,7 +52,8 @@ def bones_to_bake(obj, action):
         name, _, prop = fc.data_path[len('pose.bones["'):].partition('"].')
         if fc.data_path.startswith('pose.bones["') and prop in _ROT_PATHS:
             why.setdefault(name, prop.replace("_", " ") + " keys")
-    return {n: w for n, w in why.items() if n in obj.pose.bones}
+    bones = obj.data.bones
+    return {n: w for n, w in why.items() if n in bones and "cd_index" in bones[n]}
 
 
 def sample(context, obj, action, names, last, kinds):

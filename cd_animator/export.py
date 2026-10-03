@@ -165,7 +165,9 @@ def build_track_data(obj, action, bake=True):
     known = {b["name"] for b in blocks if b["name"]}
     bones = obj.data.bones
     new_kind = paa_codec.KIND_I8 if lod else paa_codec.KIND_HALF
-    for name in sorted((n for n in set(curves) | set(to_bake) if n not in known and n in bones),
+    # Bones the game's skeleton lacks, a weapon's chain links (chains.py), are never written.
+    for name in sorted((n for n in set(curves) | set(to_bake) if n not in known and n in bones
+                        and "cd_index" in bones[n]),
                        key=lambda n: bones[n]["cd_index"]):
         idx = bones[name]["cd_index"]
         pos = next((i for i, b in enumerate(blocks) if b["kind"] >= new_kind), len(blocks))

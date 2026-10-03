@@ -10,14 +10,14 @@ from bpy.types import AddonPreferences, Operator, OperatorFileListElement, UILis
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 from mathutils import Matrix
 
-from . import anim, clip, convert, export, mesh, meta, packs, skeleton
+from . import anim, chains, clip, convert, export, mesh, meta, packs, skeleton
 from .formats import material, pac, paa_codec
 from .formats import sockets as sockets_format
 
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 14, 0),
+    "version": (0, 15, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -444,6 +444,10 @@ def _place_mesh(op, context, arm, data, name, game_path=None, variant=0,
             remap, placement, where = _socket_layout(context, arm, m, name, component, socket_file, drawn, socket,
                                                      follow)
             notes.append(("INFO", f"{name} at {where}"))
+    if m.bones and remap is not None:
+        # Bones of the mesh's own that the armature lacks, chains among them.
+        remap = dict(remap)
+        chains.add_bones(context, arm, m, name, remap, placement)
     mats, load, variants, note = _game_materials(op, context, name, game_path, variant)
     obj, missing = mesh.build_mesh(context, arm, m, name, mats, load, remap, placement)
     if where:
@@ -574,6 +578,10 @@ def _build_character(op, context, idx, text, clip=""):
     if varied:
         notes.append(("INFO", f"{arm.name}: own proportions from {', '.join(arm['cd_variations'])}, "
                               f"{arm.get('cd_varied_bones', 0)} bones; scale {ch.scale:g}"))
+    if not clip.strip():
+        hung = _hang_chains(context, arm)
+        if hung:
+            notes.append(hung)
     if clip.strip():
         try:
             # A short name may end several clips' paths; the skeleton's own
@@ -879,6 +887,9 @@ class CDANIM_OT_game_prop(Operator):
         pushed = _stack_gear(context, idx, arm) if placed else ""
         if pushed:
             notes.append(("INFO", f"Moved out over the clothes: {pushed}"))
+        hung = _hang_chains(context, arm) if placed else None
+        if hung:
+            notes.append(hung)
         for o in context.view_layer.objects:
             o.select_set(o == arm)
         context.view_layer.objects.active = arm
@@ -1263,6 +1274,54 @@ def _clip_action(context):
     return action if action is not None and "cd_source" in action else None
 
 
+class CDANIM_OT_bake_chains(Operator):
+    """Simulate the selected character's chains, such as a flail's, over the scene's frames so they hang and swing
+    with the clip. Chains are keyed on an NLA track of their own, which export leaves out"""
+    bl_idname = "cd_animator.bake_chains"
+    bl_label = "Simulate chains"
+    bl_options = {"REGISTER", "UNDO"}
+
+    damping: FloatProperty(name="Damping", min=0.0, max=0.5, default=0.03,
+                           description="Share of the links' speed lost every quarter frame; more stops the swing sooner")
+    collide: BoolProperty(name="Collide", default=True,
+                          description="Keep the links out of the body and no lower than the feet")
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.object
+        if not (skeleton.is_cd_armature(obj) and chains.chain_bones(obj)):
+            cls.poll_message_set("Select an armature carrying a chain, such as a flail")
+            return False
+        return True
+
+    def execute(self, context):
+        arm = context.object
+        if arm.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        start, end = _chain_range(context, arm)
+        n = chains.bake(context, arm, start, end, damping=self.damping, collide=self.collide)
+        self.report({"INFO"}, f"Simulated {n} chain bones over frames {start} to {end}")
+        return {"FINISHED"}
+
+
+def _chain_range(context, arm):
+    """Frames to simulate chains over: the scene's while the armature plays
+    a clip, else only the current frame, where they hang still."""
+    ad = arm.animation_data
+    if ad is not None and ad.action is not None:
+        return context.scene.frame_start, context.scene.frame_end
+    return context.scene.frame_current, context.scene.frame_current
+
+
+def _hang_chains(context, arm):
+    """Simulate `arm`'s chains if it has any; returns a note or None."""
+    if not chains.chain_bones(arm):
+        return None
+    start, end = _chain_range(context, arm)
+    n = chains.bake(context, arm, start, end)
+    return ("INFO", f"{arm.name}: {n} chain bones simulated over frames {start} to {end}")
+
+
 class CDANIM_OT_seat_rider(Operator):
     """Parent the active armature to the other selected armature and place it by the active clip's first transform record"""
     bl_idname = "cd_animator.seat_rider"
@@ -1329,6 +1388,7 @@ class CDANIM_PT_panel(bpy.types.Panel):
         col.operator(CDANIM_OT_game_prop.bl_idname, text="Attach weapon or prop", icon="TOOL_SETTINGS")
         col.operator(CDANIM_OT_game_new_clip.bl_idname, text="New clip from a game clip", icon="ADD")
         col.separator()
+        col.operator(CDANIM_OT_bake_chains.bl_idname, icon="LINKED")
         col.operator(CDANIM_OT_seat_rider.bl_idname, icon="CONSTRAINT_BONE")
         col.operator(CDANIM_OT_unseat_rider.bl_idname, icon="X")
         obj = context.object
@@ -1384,7 +1444,7 @@ def _menu_import(self, context):
 
 
 _classes = (CDANIM_AP_prefs, CDANIM_OT_import_pab, CDANIM_OT_import_paa, CDANIM_OT_export_paa, CDANIM_OT_new_clip,
-            CDANIM_OT_game_skeleton, CDANIM_OT_game_clip, CDANIM_OT_game_new_clip, CDANIM_OT_game_mesh, CDANIM_OT_import_pac, CDANIM_OT_game_character, CDANIM_OT_game_characters, CDANIM_OT_game_prop,
+            CDANIM_OT_game_skeleton, CDANIM_OT_game_clip, CDANIM_OT_game_new_clip, CDANIM_OT_game_mesh, CDANIM_OT_import_pac, CDANIM_OT_game_character, CDANIM_OT_game_characters, CDANIM_OT_game_prop, CDANIM_OT_bake_chains,
             CDANIM_OT_set_length, CDANIM_OT_event_add, CDANIM_OT_event_remove, CDANIM_UL_events,
             CDANIM_OT_seat_rider, CDANIM_OT_unseat_rider, CDANIM_PT_panel)
 

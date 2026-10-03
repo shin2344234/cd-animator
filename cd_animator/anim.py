@@ -128,6 +128,10 @@ def import_clip(context, obj, path):
     scene.render.fps_base = 1.0
     scene.frame_start = 0
     scene.frame_end = max(last, 1)
+    # Chains swing with the new clip (chains.py).
+    from . import chains
+    if chains.chain_bones(obj):
+        chains.bake(context, obj, 0, max(last, 1))
     return action, unknown
 
 
