@@ -14,14 +14,16 @@ master looter's paz tools keeps only the top folder, which is not enough:
 26,553 clip names in 0009 appear in more than one folder with different data.
 
 The clips, skeletons, blends, metadata and charts the add-on reads are stored
-plain or as LZ4 blocks (compression type 2). Only XML-derived files are also
-encrypted, and the add-on reads none of those.
+plain or as LZ4 blocks (compression type 2). Meshes (.pac) are type 1: the
+file keeps its PAR header and each section inside it is an LZ4 block. Only
+XML-derived files are also encrypted, and the add-on reads none of those.
 """
 
 import os
 import struct
 from dataclasses import dataclass
 
+COMPRESSION_PAR = 1    # a PAR file whose sections are LZ4 blocks (meshes)
 COMPRESSION_LZ4 = 2
 
 
@@ -169,12 +171,38 @@ def lz4_block(src, size):
     return bytes(dst)
 
 
+def par_unpack(raw):
+    """A PAR file with its sections plain. Meshes (compression type 1 in the
+    index) keep the PAR header and table and store each section as an LZ4
+    block; the table holds (stored size, size) per section, a stored size of
+    0 meaning plain. The result has every section plain and every stored
+    size 0, the layout the game's offsets inside the file refer to."""
+    if raw[:4] != b"PAR " or len(raw) < 0x50:
+        raise ValueError("not a PAR file")
+    head = bytearray(raw[:0x50])
+    body = []
+    off = 0x50
+    for i in range(8):
+        stored, size = struct.unpack_from("<II", raw, 0x10 + 8 * i)
+        if not size:
+            continue
+        chunk = raw[off:off + (stored or size)]
+        body.append(lz4_block(chunk, size) if stored else bytes(chunk))
+        struct.pack_into("<I", head, 0x10 + 8 * i, 0)
+        off += stored or size
+    if off != len(raw):
+        raise ValueError(f"PAR sections end at {off}, the file at {len(raw)}")
+    return bytes(head) + b"".join(body)
+
+
 def read(entry):
     """The file's bytes, unpacked."""
     with open(entry.paz, "rb") as f:
         f.seek(entry.offset)
         data = f.read(entry.stored if entry.stored != entry.size else entry.size)
     if entry.stored != entry.size:
+        if entry.compression == COMPRESSION_PAR:
+            return par_unpack(data)
         if entry.compression != COMPRESSION_LZ4:
             raise ValueError(f"{entry.path} uses compression type {entry.compression}, which the add-on does not read")
         data = lz4_block(data, entry.size)

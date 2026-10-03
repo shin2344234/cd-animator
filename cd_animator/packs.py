@@ -1,7 +1,7 @@
 """The game's own files, read from its packs instead of from unpacked copies.
 
 The game folder comes from the add-on's preferences, or from Steam's library
-list when that is empty. The index of groups 0009 (clips, skeletons, blends)
+list when that is empty. The index of groups 0009 (clips, skeletons, meshes, blends)
 and 0010 (clip metadata, action charts) is read once per session, about
 3 seconds. Files taken from the packs are written to a cache in Blender's
 user folder: a clip, its LOD and its metadata side by side, so the importer
@@ -16,7 +16,7 @@ import bpy
 
 from .formats import paz
 
-GROUPS = {"0009": {"paa", "pab", "motionblending"}, "0010": {"paa_metabin", "paac"}}
+GROUPS = {"0009": {"paa", "pab", "pac", "motionblending"}, "0010": {"paa_metabin", "paac"}}
 MOTION = "character/motion/"
 MOTION_LOD = "character/motion/motion_lod__/"
 ANIMMETA = "actionchart/bin__/animmeta/"
@@ -81,8 +81,22 @@ class Index:
         self.clips = sorted(p[len(MOTION):-4] for p in self.by_path
                             if p.startswith(MOTION) and not p.startswith(MOTION_LOD) and p.endswith(".paa"))
         self.skeletons = sorted(p[:-4] for p in self.by_path if p.endswith(".pab"))
+        self.meshes = sorted(p[:-4] for p in self.by_path if p.endswith(".pac"))
+        self._bone_hashes = None
 
         self.stamp = _stamp(folder)
+
+
+    def bone_hashes(self):
+        """Every bone name hash of every skeleton in the game, read once."""
+        if self._bone_hashes is None:
+            from .formats import paa, paa_codec
+            out = set()
+            for name in self.skeletons:
+                for b in paa.read_pab(paz.read(self.by_path[name + ".pab"])).bones:
+                    out.add(paa_codec.bone_hash(b.name))
+            self._bone_hashes = out
+        return self._bone_hashes
 
 
 def _stamp(folder):
@@ -176,6 +190,15 @@ def fetch_clip(idx, name):
     if mb is not None:
         _write(stem + ".paa_metabin", paz.read(mb))
     return path
+
+
+def fetch_mesh(idx, name):
+    """Unpack mesh `name` (its game path without .pac) into the cache; its
+    local path."""
+    e = idx.by_path.get(name + ".pac")
+    if e is None:
+        raise PackError(f"no mesh {name} in the game")
+    return _write(os.path.join(cache_root(), "meshes", *name.split("/")) + ".pac", paz.read(e))
 
 
 def fetch_skeleton(idx, name):

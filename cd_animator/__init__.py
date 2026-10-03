@@ -8,16 +8,16 @@ from bpy.app.handlers import persistent
 from bpy.types import AddonPreferences, Operator, OperatorFileListElement, UIList
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 
-from . import anim, clip, export, meta, packs, skeleton
-from .formats import paa_codec
+from . import anim, clip, export, mesh, meta, packs, skeleton
+from .formats import pac, paa_codec
 
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 7, 0),
+    "version": (0, 8, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
-    "description": "Import Crimson Desert .pab skeletons and .paa animation clips, and export clips with their LOD and metadata",
+    "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
     "category": "Import-Export",
 }
 
@@ -251,6 +251,7 @@ class CDANIM_OT_game_skeleton(Operator):
         except (packs.PackError, ValueError, OSError) as exc:
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
+        obj["cd_game_path"] = name
         if odd_scale:
             self.report({"WARNING"}, f"{len(odd_scale)} bones with children have a bind scale. Their children sit where the game puts them, "
                                      "but keys that move those children are not scaled by it")
@@ -294,6 +295,107 @@ class CDANIM_OT_game_clip(Operator):
             self.report({"WARNING"}, f"{action.name}: {len(unknown)} animated bones are not in this skeleton and were skipped")
         self.report({"INFO"}, f"Imported {action.name}")
         return {"FINISHED"}
+
+
+def _mesh_names(self, context, edit_text):
+    try:
+        return packs.search(packs.index(context).meshes, edit_text)
+    except (packs.PackError, OSError):
+        return []
+
+
+def _import_mesh(op, context, data, name):
+    """Read mesh bytes `data` and put the mesh on the selected armature."""
+    arm = context.object
+    if arm.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    try:
+        try:
+            m = pac.read_pac(data, op.level, mesh.known_hashes(arm))
+        except ValueError as exc:
+            if "palette" not in str(exc):
+                raise
+            # The palette may name bones this skeleton lacks; try every bone in the game.
+            m = pac.read_pac(data, op.level, mesh.known_hashes(arm, packs.index(context).bone_hashes()))
+        obj, missing = mesh.build_mesh(context, arm, m, name)
+    except (ValueError, mesh.MeshError, packs.PackError, OSError) as exc:
+        op.report({"ERROR"}, f"Could not import {name}: {exc}")
+        return {"CANCELLED"}
+    count = sum(len(sb.positions) for sb in m.submeshes)
+    if missing:
+        op.report({"WARNING"}, f"{name}: {len(missing)} of its {len(m.palette)} bones are not in {arm.name}; "
+                               "vertices weighted to them follow their other bones only")
+    op.report({"INFO"}, f"Imported {name}: {count} vertices in {len(m.submeshes)} parts on {arm.name}")
+    return {"FINISHED"}
+
+
+_LEVEL = dict(name="Detail level", min=0, max=3, default=0,
+              description="0 is the most detailed; 3 is the coarsest the game draws far away")
+
+
+class CDANIM_OT_game_mesh(Operator):
+    """Import a mesh from the game's packs onto the selected armature, skinned to its bones"""
+    bl_idname = "cd_animator.game_mesh"
+    bl_label = "Import mesh from the game"
+    bl_options = {"REGISTER", "UNDO"}
+
+    mesh: StringProperty(
+        name="Mesh", search=_mesh_names, search_options={"SUGGESTION"},
+        description="A mesh in the game, such as nude_00_0001 for Kliff's body. "
+        "The field starts with the skeleton's folder; type words to search")
+    level: IntProperty(**_LEVEL)
+
+    @classmethod
+    def poll(cls, context):
+        if not skeleton.is_cd_armature(context.object):
+            cls.poll_message_set("Select an armature made by the .pab importer first")
+            return False
+        return True
+
+    def invoke(self, context, event):
+        if not _open_index(self, context):
+            return {"CANCELLED"}
+        if not self.mesh and "cd_game_path" in context.object:
+            self.mesh = context.object["cd_game_path"].rsplit("/", 1)[0] + "/ "
+        return context.window_manager.invoke_props_dialog(self, width=560)
+
+    def execute(self, context):
+        try:
+            idx = packs.index(context)
+            name = packs.resolve(idx.meshes, self.mesh, "mesh", ext=".pac")
+            with open(packs.fetch_mesh(idx, name), "rb") as f:
+                data = f.read()
+        except (packs.PackError, ValueError, OSError) as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        return _import_mesh(self, context, data, mesh.mesh_name(name))
+
+
+class CDANIM_OT_import_pac(Operator, ImportHelper):
+    """Import a Crimson Desert mesh (.pac) onto the selected armature, skinned to its bones"""
+    bl_idname = "cd_animator.import_pac"
+    bl_label = "Import Crimson Desert mesh"
+    bl_options = {"REGISTER", "UNDO"}
+
+    filename_ext = ".pac"
+    filter_glob: StringProperty(default="*.pac", options={"HIDDEN"})
+    level: IntProperty(**_LEVEL)
+
+    @classmethod
+    def poll(cls, context):
+        if not skeleton.is_cd_armature(context.object):
+            cls.poll_message_set("Select an armature made by the .pab importer first")
+            return False
+        return True
+
+    def execute(self, context):
+        try:
+            with open(self.filepath, "rb") as f:
+                data = f.read()
+        except OSError as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        return _import_mesh(self, context, data, mesh.mesh_name(self.filepath))
 
 
 class CDANIM_OT_game_new_clip(Operator):
@@ -487,12 +589,14 @@ class CDANIM_PT_panel(bpy.types.Panel):
         col = self.layout.column(align=True)
         col.operator(CDANIM_OT_import_pab.bl_idname, text="Import skeleton (.pab)", icon="ARMATURE_DATA")
         col.operator(CDANIM_OT_import_paa.bl_idname, text="Import animation (.paa)", icon="ACTION")
+        col.operator(CDANIM_OT_import_pac.bl_idname, text="Import mesh (.pac)", icon="MESH_DATA")
         col.operator(CDANIM_OT_export_paa.bl_idname, text="Export animation (.paa)", icon="EXPORT")
         col.operator(CDANIM_OT_new_clip.bl_idname, text="New clip from a template", icon="ADD")
         col.separator()
         col.label(text="From the game")
         col.operator(CDANIM_OT_game_skeleton.bl_idname, text="Import skeleton", icon="ARMATURE_DATA")
         col.operator(CDANIM_OT_game_clip.bl_idname, text="Import animation", icon="ACTION")
+        col.operator(CDANIM_OT_game_mesh.bl_idname, text="Import mesh", icon="MESH_DATA")
         col.operator(CDANIM_OT_game_new_clip.bl_idname, text="New clip from a game clip", icon="ADD")
         col.separator()
         col.operator(CDANIM_OT_seat_rider.bl_idname, icon="CONSTRAINT_BONE")
@@ -542,12 +646,14 @@ def _menu_export(self, context):
 def _menu_import(self, context):
     self.layout.operator(CDANIM_OT_import_pab.bl_idname, text="Crimson Desert skeleton (.pab)")
     self.layout.operator(CDANIM_OT_import_paa.bl_idname, text="Crimson Desert animation (.paa)")
+    self.layout.operator(CDANIM_OT_import_pac.bl_idname, text="Crimson Desert mesh (.pac)")
     self.layout.operator(CDANIM_OT_game_skeleton.bl_idname, text="Crimson Desert skeleton from the game")
     self.layout.operator(CDANIM_OT_game_clip.bl_idname, text="Crimson Desert animation from the game")
+    self.layout.operator(CDANIM_OT_game_mesh.bl_idname, text="Crimson Desert mesh from the game")
 
 
 _classes = (CDANIM_AP_prefs, CDANIM_OT_import_pab, CDANIM_OT_import_paa, CDANIM_OT_export_paa, CDANIM_OT_new_clip,
-            CDANIM_OT_game_skeleton, CDANIM_OT_game_clip, CDANIM_OT_game_new_clip,
+            CDANIM_OT_game_skeleton, CDANIM_OT_game_clip, CDANIM_OT_game_new_clip, CDANIM_OT_game_mesh, CDANIM_OT_import_pac,
             CDANIM_OT_set_length, CDANIM_OT_event_add, CDANIM_OT_event_remove, CDANIM_UL_events,
             CDANIM_OT_seat_rider, CDANIM_OT_unseat_rider, CDANIM_PT_panel)
 

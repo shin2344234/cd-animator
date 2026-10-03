@@ -84,6 +84,16 @@ The parser in master looter's paz tools joins only the top folder to each name. 
 
 Flags bits 16 to 19 give the compression; 2 is an LZ4 block, and a file is compressed when its stored size differs from its size. In a sample of 600 compressed entries of 0009 every clip, skeleton and blend decompressed as stored; only the XML-derived `.pac_xml` and `.paccd_xml` files were also encrypted. So `formats/paz.py` needs no ChaCha20, and its LZ4 decoder is plain Python.
 
+## Meshes
+
+`formats/pac.py` has the full layout of a `.pac` mesh. The 40-byte vertex record follows CrimsonForge (github.com/hzeemr/crimsonforge, MIT), whose author read it from the game's skinning shader. The rest was read from the files on 3 October 2026 and checked on all 12,963 meshes in group 0009. CrimsonForge finds a mesh's parts by searching for byte patterns, the split between vertices and indices by scoring candidates, and the bone palette by scanning for hashes; all three are fixed fields here, apart from the palette on meshes with cloth data.
+
+A mesh is a PAR file whose sections the packs store as LZ4 blocks inside it, compression type 1 in the index. Section 0 describes the parts and holds each detail level's vertex and index offsets; sections 1 to 4 are the levels. The vertex and index counts fill each level exactly. Each part has its own number of levels and a 4-byte map from the game's levels to its own, so an eye cover can have two while the head has three.
+
+A vertex names up to six bones by slot. The slots index the mesh's palette, a list of bone name hashes, the same hash the clips use for tracks. Kliff's body has 189 and every one is a bone of `phm_01`. A flags word at the start of section 0 says which blocks come before the palette: a bounding box tree (0x2000), an embedded bone list on props (0x1) and cloth data (0x100, 0x200, 0x1000, 0x8000, 0x4), whose layout varies. Where only the tree comes first the palette's place follows from the layout; otherwise the reader takes the first u16 count followed by that many known bone hashes. On the 5,778 meshes where both apply they agree. The reader takes 12,570 meshes and refuses the 392 props whose palettes name their own embedded bones.
+
+The mesh is in the skeleton's bind space, the space the armature's rest pose is built in, so the importer adds no offset. Swapping Y and Z into Blender mirrors it, so each triangle gets two corners swapped to keep facing outward; 99.8% of Kliff's triangles and all of the Wyvern's then face the way the file's normals do. Weights add up to 255 on 96% of vertices outside cloth meshes and are scaled to a sum of 1. Textures, the material files (`.pac_xml`, encrypted) and the Havok data after the palette are not read.
+
 ## Smaller points
 
 - In a LOD clip only the 8-bit blocks count 1/5 second ticks. Its half float blocks, which hold `Bip01`, `B_MoveControl_01` and the TL bones, keep 30 fps frame numbers. In the LOD run clip `B_MoveControl_01` ends on 48 while the 8-bit blocks end on tick 8. Version 0.1.0 scaled both and played LOD root motion six times too slowly.

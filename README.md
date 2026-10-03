@@ -1,12 +1,12 @@
 # CD Animator
 
-A Blender add-on for Crimson Desert animations. It imports skeletons (`.pab`) as armatures and animation clips (`.paa`, full and `_lod`) as actions. It exports an action back to a `.paa`, along with the `_lod.paa` and `.paa_metabin` the game loads with every clip. Its clips play in the game. Broomy 1.0.2's hover idle and level takeoff were made with it, and so were the raised-arm idles that first tested the loader. Version 0.4.0 starts new clips from shipped ones, at any length, and edits a clip's events. Version 0.5.0 bakes constraints and IK on export, and 0.6.0 reads skeletons and clips straight from the game's packs. Version 0.7.0 reads every skeleton in the game and every clip layout, so the Wyvern, the horses, the bear and facial clips import and export as Kliff and the broom do.
+A Blender add-on for Crimson Desert animations. It imports skeletons (`.pab`) as armatures, animation clips (`.paa`, full and `_lod`) as actions, and meshes (`.pac`) skinned to the armature, so a clip plays on the character's body. It exports an action back to a `.paa`, along with the `_lod.paa` and `.paa_metabin` the game loads with every clip. Its clips play in the game. Broomy 1.0.2's hover idle and level takeoff were made with it, and so were the raised-arm idles that first tested the loader. Version 0.4.0 starts new clips from shipped ones, at any length, and edits a clip's events. Version 0.5.0 bakes constraints and IK on export, and 0.6.0 reads skeletons and clips straight from the game's packs. Version 0.7.0 reads every skeleton in the game and every clip layout, so the Wyvern, the horses, the bear and facial clips import and export as Kliff and the broom do. Version 0.8.0 shows the game's meshes on the armature.
 
 It needs Blender 4.4 or newer and was built on 5.2.2.
 
 ## Install
 
-In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `dist/cd_animator-0.7.0.zip`. To rebuild the zip after changing the code:
+In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `dist/cd_animator-0.8.0.zip`. To rebuild the zip after changing the code:
 
 ```
 blender --command extension build --source-dir cd_animator --output-dir dist
@@ -15,6 +15,8 @@ blender --command extension build --source-dir cd_animator --output-dir dist
 ## Use
 
 The add-on reads skeletons and clips straight from the game's packs. In the CD Animator tab of the sidebar, under From the game, Import skeleton, Import animation and New clip from a game clip each open a search field: type words of a name, such as `broom idle`, and pick from the list, or paste a path from CDAnimator.log. Kliff is `phm_01`. The game folder is found through Steam's libraries; if it is somewhere else, set it in the add-on's preferences. The first search in a session reads the packs' index, about 6 seconds. A file taken from the packs goes to a cache in Blender's user folder, the clip with its LOD and metadata, and stays there as the template its action is exported against.
+
+Import mesh puts one of the game's meshes on the selected armature, skinned to its bones, so the clip on the armature moves it. The search field starts with the skeleton's folder; for Kliff, type `nude` and pick `nude/cd_phm_00_nude_00_0001`, his body with head shell and hands. The Wyvern's body is `cd_m0004_00_wyvern_00_0001`. Each part of a mesh gets a material named after the game's, with no textures yet. Detail level 0 is the most detailed of the four the game keeps. Clothing, armour, hair and beards are meshes of their own; import as many as you like onto one armature.
 
 The same commands are under File > Import with the file browser, for files unpacked on disk. The samples in `samples` were taken with `master looter/tools/crimson-desert-unpacker/python/paz_unpack.py`, the clips from pack group 0009 and their `.paa_metabin` files from group 0010, for example:
 
@@ -94,6 +96,12 @@ blender -b --factory-startup --python tests/check_skeletons.py
 ```
 
 It needs the game installed. It builds every skeleton in the game, 273 of them, and requires each bone to sit where the game's hierarchy puts it. Then it imports a clip of each header layout from the packs, on the Wyvern, the horse, the bear and Kliff, including a facial clip with animated scale, a clip with no lead records and one with a UTF-16 tag. Scale keys must show as pose scale, an unchanged export must give the game's clip and metadata back byte for byte, and the LOD must carry the game LOD's tracks and flags. Last it turns a Wyvern bone and requires the exported file to hold the turn and nothing else.
+
+```
+blender -b --factory-startup --python tests/check_mesh.py
+```
+
+It needs the game installed. It imports Kliff's body and the Wyvern's onto their skeletons and requires every vertex to be weighted, the triangles to face the way the file's normals do, the mesh not to move at the rest pose, and every vertex Blender deforms with a clip playing to sit where linear blend skinning in game space puts it. Kliff's 13,162 vertices are within 0.001 mm on three frames of a dismount, the Wyvern's 12,812 within 0.03 mm in its air idle. With `-- --all` it also reads every mesh in the game, which takes hours with Blender's plain Python LZ4.
 
 `tests/preview.py` opens Blender with the broom and Kliff seated on it for a look.
 
