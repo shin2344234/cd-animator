@@ -4,6 +4,7 @@
 #include <cstring>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "core/log.h"
 #include "core/paths.h"
@@ -82,8 +83,27 @@ namespace
         FindClose(h);
     }
 
+    // LogClips: every clip and blend the game loads, once, so a player can
+    // find the file behind what is on screen.
+    bool g_logClips = false;
+    SRWLOCK g_seenLock = SRWLOCK_INIT;
+    std::unordered_set<std::string> g_seen;
+    constexpr size_t kMaxSeen = 50000;
+
+    bool EndsWith(const char* s, const char* tail);
+
+    void Note(const char* path)
+    {
+        if (!(EndsWith(path, ".paa") && !EndsWith(path, "_lod.paa")) && !EndsWith(path, ".motionblending")) return;
+        AcquireSRWLockExclusive(&g_seenLock);
+        const bool fresh = g_seen.size() < kMaxSeen && g_seen.emplace(path).second;
+        ReleaseSRWLockExclusive(&g_seenLock);
+        if (fresh) LOG("[clip] %s", path);
+    }
+
     const std::string* Lookup(const char* path)
     {
+        if (g_logClips) Note(path);
         const char* slash = strrchr(path, '/');
         const char* leaf = slash ? slash + 1 : path;
         char key[260];
@@ -113,17 +133,46 @@ namespace
         return {};
     }
 
+    constexpr char kDefaultIni[] =
+        "; CD Animator Loader for Crimson Desert 2.03.02 (exe 1.0.0.2976).\r\n"
+        ";\r\n"
+        "; Every file in the CDAnimator folder beside the plugin goes to the game in\r\n"
+        "; place of the game's file of that name. The plugin writes what it does to\r\n"
+        "; CDAnimator.log, next to it in bin64.\r\n"
+        "\r\n"
+        "[settings]\r\n"
+        "; Log each animation clip and blend the game loads, once, as a [clip] line\r\n"
+        "; in CDAnimator.log. Play the moment you want to change and the log names\r\n"
+        "; the clips behind it. 1 on, 0 off. Read at startup.\r\n"
+        "LogClips=0\r\n";
+
+    // The documented ini, when there is none beside the plugin. An existing
+    // file is never touched.
+    void WriteDefaultIni()
+    {
+        const std::wstring path = cda::Paths::File(CDA_FILEBASE L".ini");
+        if (GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES) return;
+        FILE* f = nullptr;
+        if (_wfopen_s(&f, path.c_str(), L"wb") != 0 || !f) return;
+        fwrite(kDefaultIni, 1, sizeof kDefaultIni - 1, f);
+        fclose(f);
+        LOG("[ini] no CDAnimator.ini beside the plugin, so one was written with every setting at its default.");
+    }
+
     DWORD WINAPI Worker(LPVOID)
     {
         LOG("[mod] %s %s for Crimson Desert 2.03.02 (exe 1.0.0.2976).", CDA_NAME, CDA_VERSION);
         const std::wstring dir = cda::Paths::Dir() + L"CDAnimator\\";
+        WriteDefaultIni();
+        g_logClips = GetPrivateProfileIntW(L"settings", L"LogClips", 0, cda::Paths::File(CDA_FILEBASE L".ini").c_str()) != 0;
         Scan(dir, L"CDAnimator/");
-        if (g_files.empty())
+        if (g_files.empty() && !g_logClips)
         {
-            LOG("[mod] the CDAnimator folder beside the plugin has no files, so nothing is hooked and every file is "
-                "the game's own.");
+            LOG("[mod] the CDAnimator folder beside the plugin has no files and LogClips is off, so nothing is hooked "
+                "and every file is the game's own.");
             return 0;
         }
+        if (g_logClips) LOG("[mod] LogClips is on: each clip and blend the game loads is logged once, as a [clip] line.");
         // Broomy hooks the same four functions from its DllMain and finds
         // them by their first bytes, which these hooks overwrite. Its hooks
         // go in first, then these on top of them.
