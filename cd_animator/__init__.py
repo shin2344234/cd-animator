@@ -435,7 +435,7 @@ def _clip_action(context):
 
 
 class CDANIM_OT_seat_rider(Operator):
-    """Parent the active armature to the other selected armature and place it by the active clip's record A"""
+    """Parent the active armature to the other selected armature and place it by the active clip's first transform record"""
     bl_idname = "cd_animator.seat_rider"
     bl_label = "Seat rider on mount"
     bl_options = {"REGISTER", "UNDO"}
