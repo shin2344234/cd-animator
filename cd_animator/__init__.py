@@ -523,7 +523,7 @@ class CDANIM_PT_panel(bpy.types.Panel):
 
 @persistent
 def _reseat_on_frame(scene, _depsgraph=None):
-    """Keep seated riders on the record A of whichever clip is active, so
+    """Keep seated riders on the first transform record of whichever clip is active, so
     switching clips in the Action editor moves the rider too."""
     for obj in scene.objects:
         if not obj.get("cd_seated") or obj.animation_data is None:
