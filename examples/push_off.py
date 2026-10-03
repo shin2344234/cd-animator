@@ -54,11 +54,12 @@ KLIFF_NAME = "cd_phm_rd_broom_basic_00_00_nor_std_takeoff_00"
 KEEP = ("B_TL_Position_01", "B_TL_Position_02")
 
 KICK_FRAMES = 36
-# Kliff's lower chart only moves on when the broom changes state, never at
-# the end of a clip, so after the kick the clip carries his broom idle
-# itself: IDLE_LOOPS rounds of its IDLE_FRAMES, 31.2 s in all. The Broomy
-# test build gives FDA30B13 that length.
-IDLE_LOOPS = 9
+# Kliff's lower chart only moves on when one of the broom's charts commands
+# it, never at the end of a clip. The flight start now sends that command,
+# about 1.3 s in, so the clip carries one round of his broom idle after the
+# kick in case a takeoff ends some other way: 136 frames in all, the length
+# the Broomy test build gives FDA30B13.
+IDLE_LOOPS = 1
 IDLE_FRAMES = 100
 RISE_DELAY = 9          # Bip01 holds still this long, then rises as the climb does
 DIP = 0.42              # how far B_Body_00 sinks, metres
