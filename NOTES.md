@@ -35,6 +35,10 @@ Each rider clip's lead holds record A, a rotation and position. Putting the ride
 
 Record B, `ref_scale` and the four `B_TL_Position` bones are not used for display.
 
+## What shows in game on a mount
+
+The root bone's motion doesn't reach the screen while Broomy hovers in place. The shipped broom idle puts its whole 15 to 20 cm bob on Bip01, and edits there (a 25 degree roll, a 12 cm float with a 6 degree roll) changed nothing in game. The game seems to take Bip01 as movement of the broom itself and drop it at rest. A 40 cm float with a 15 degree roll on B_Body_00, the bone under Bip01, showed on 2 October 2026, and Kliff moved with it. He sits on B_Rider_01, a child of B_Body_00, so a mount's idle motion goes on B_Body_00 and the rider's clip needs no matching edit. `examples/hover_idle.py` works that way.
+
 ## Writing a clip back
 
 The exporter writes against the clip the action was imported from. It keeps that file's header, lead and block order, and fits new bones into section 1 after the last template bone that comes before them in the skeleton. An imported clip exported without edits is byte for byte the original in all 44 cases, which `tests/check_export.py` checks.

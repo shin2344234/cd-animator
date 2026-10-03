@@ -2,16 +2,20 @@
 
     blender -b --factory-startup --python examples/hover_idle.py -- [out folder]
 
-The shipped idle bobs the broom about 7 cm. This adds a slower float of
-FLOAT_CM on top, and a side to side roll of ROLL_DEG about the seat a
-quarter cycle behind it, so the broom drifts in a slow figure of eight.
-Kliff's clip carries the broom's motion itself (his pelvis stays 6 cm above
-B_Rider_01 through the whole idle), so the same motion goes onto his Bip01
-and he stays in the seat. B_MoveControl_01 and the TL bones are untouched,
-the clip keeps its 100 frames, and so both metadata files stay the game's.
+The shipped idle bobs the broom on Bip01, its root bone. In game the root
+bone's motion moves the broom as a whole, and while Broomy hovers in place
+the game throws that away (a 25 degree roll and a 12 cm float on Bip01 both
+showed nothing). B_Body_00, the bone under it, does show, and Kliff sits on
+B_Rider_01 under that, so he goes with it (a 40 cm probe on 2 October 2026).
 
-Writes both clips with their _lod.paa and .paa_metabin, named as the shipped
-idles so they replace them, and hover_idle.blend for a look.
+So this adds a slow float of FLOAT_CM to B_Body_00, with a side to side roll
+of ROLL_DEG about the seat a quarter cycle behind it and a small pitch, so
+the broom drifts in a slow figure of eight. Kliff's clip stays the game's.
+Bip01, B_MoveControl_01 and the TL bones are untouched, the clip keeps its
+100 frames, and so its metadata stays the game's.
+
+Writes the broom's clip with its _lod.paa and .paa_metabin, named as the
+shipped idle so it replaces it, and hover_idle.blend for a look.
 """
 
 import math
@@ -49,29 +53,25 @@ def hover(frame, pivot):
     return rise @ about
 
 
-def rekey_root(obj, bone_name, to_mount, frames, pivot):
-    """Key `bone_name` (a root bone) on every frame so its pose, seen from
-    the broom's object space, moves by hover(). to_mount takes the
-    armature's space to the broom's."""
-    pb = obj.pose.bones[bone_name]
-    rest = obj.data.bones[bone_name].matrix_local
-    from_mount = to_mount.inverted()
-    poses = []
+def rekey_body(obj, frames, pivot):
+    """Key B_Body_00 on every frame so its pose, in the armature's space,
+    moves by hover(). Bip01 above it keeps its own keys."""
+    pb = obj.pose.bones["B_Body_00"]
+    bases = []
     for f in frames:
         bpy.context.scene.frame_set(f)
         bpy.context.view_layer.update()
-        poses.append(pb.matrix_basis.copy())
+        pb.matrix = hover(f, pivot) @ pb.matrix
+        bpy.context.view_layer.update()
+        bases.append(pb.matrix_basis.copy())
     action = obj.animation_data.action
     bag = export._channelbag(obj, action)
-    for prop in ("rotation_quaternion", "location"):
-        for fc in [c for c in bag.fcurves if c.data_path == f'pose.bones["{bone_name}"].{prop}']:
-            bag.fcurves.remove(fc)
+    prefix = 'pose.bones["B_Body_00"]'
+    for fc in [c for c in bag.fcurves if c.data_path.startswith(prefix)]:
+        bag.fcurves.remove(fc)
     prev = None
-    for f, basis in zip(frames, poses):
-        world = to_mount @ rest @ basis
-        moved = hover(f, pivot) @ world
-        new_basis = rest.inverted() @ from_mount @ moved
-        loc, rot, _scale = new_basis.decompose()
+    for f, basis in zip(frames, bases):
+        loc, rot, _scale = basis.decompose()
         if prev is not None and prev.dot(rot) < 0:
             rot.negate()
         prev = rot
@@ -80,7 +80,7 @@ def rekey_root(obj, bone_name, to_mount, frames, pivot):
         pb.keyframe_insert("location", frame=f)
         pb.keyframe_insert("rotation_quaternion", frame=f)
     for fc in bag.fcurves:
-        if fc.data_path.startswith(f'pose.bones["{bone_name}"]'):
+        if fc.data_path.startswith(prefix):
             for p in fc.keyframe_points:
                 p.interpolation = "LINEAR"
 
@@ -99,26 +99,21 @@ def main():
     broom_action, _u = anim.import_clip(ctx, broom, os.path.join(S, BROOM_CLIP + ".paa"))
     bpy.ops.cd_animator.import_pab(filepath=os.path.join(S, "phm_01.pab"))
     kliff = ctx.object
-    kliff_action, _u = anim.import_clip(ctx, kliff, os.path.join(S, KLIFF_CLIP + ".paa"))
+    anim.import_clip(ctx, kliff, os.path.join(S, KLIFF_CLIP + ".paa"))
     anim.seat_rider(kliff, broom)
     ctx.view_layer.update()
 
     # Roll about the seat: B_Rider_01's head at frame 0, in broom space.
     ctx.scene.frame_set(0)
     pivot = broom.pose.bones["B_Rider_01"].head.copy()
-    frames = list(range(0, FRAMES + 1))
-    rekey_root(broom, "Bip01", Matrix.Identity(4), frames, pivot)
-    rekey_root(kliff, "Bip01", kliff.matrix_basis.copy(), frames, pivot)
+    rekey_body(broom, list(range(0, FRAMES + 1)), pivot)
     broom_action.name = BROOM_CLIP + "_hover"
-    kliff_action.name = KLIFF_CLIP + "_hover"
 
-    for obj, name in ((broom, BROOM_CLIP), (kliff, KLIFF_CLIP)):
-        written, problems = export.export_with_companions(obj, obj.animation_data.action,
-                                                          os.path.join(out, name + ".paa"))
-        for p in written:
-            print(f"wrote {os.path.relpath(p, ROOT)} ({os.path.getsize(p)} bytes)")
-        for p in problems:
-            print("  note:", p)
+    written, problems = export.export_with_companions(broom, broom_action, os.path.join(out, BROOM_CLIP + ".paa"))
+    for p in written:
+        print(f"wrote {os.path.relpath(p, ROOT)} ({os.path.getsize(p)} bytes)")
+    for p in problems:
+        print("  note:", p)
 
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(out, "hover_idle.blend"))
     sys.stdout.flush()
