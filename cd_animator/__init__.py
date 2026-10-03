@@ -5,16 +5,16 @@ import os
 import bpy
 from bpy.props import BoolProperty, CollectionProperty, EnumProperty, IntProperty, StringProperty
 from bpy.app.handlers import persistent
-from bpy.types import Operator, OperatorFileListElement, UIList
+from bpy.types import AddonPreferences, Operator, OperatorFileListElement, UIList
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 
-from . import anim, clip, export, meta, skeleton
+from . import anim, clip, export, meta, packs, skeleton
 from .formats import paa_codec
 
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 5, 0),
+    "version": (0, 6, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert .pab skeletons and .paa animation clips, and export clips with their LOD and metadata",
@@ -169,22 +169,189 @@ class CDANIM_OT_new_clip(Operator, ImportHelper):
         return True
 
     def execute(self, context):
+        return _start_clip(self, context, self.filepath)
+
+
+def _start_clip(op, context, template):
+    obj = context.object
+    if obj.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    stem = os.path.splitext(os.path.basename(template))[0]
+    name = op.clip_name.strip() or stem + "_new"
+    try:
+        frames = op.frames
+        if not frames:
+            with open(template, "rb") as f:
+                frames = round(paa_codec.decode_file(f.read())[1].lead.duration * anim.FPS)
+        action = clip.new_clip(context, obj, template, name, frames, op.start == "HOLD", op.stretch_events)
+    except (ValueError, OSError) as exc:
+        op.report({"ERROR"}, f"Could not start a clip from {os.path.basename(template)}: {exc}")
+        return {"CANCELLED"}
+    op.report({"INFO"}, f"{action.name}: {frames} frames from {stem}")
+    return {"FINISHED"}
+
+
+def _clip_names(self, context, edit_text):
+    try:
+        return packs.search(packs.index(context).clips, edit_text)
+    except (packs.PackError, OSError):
+        return []
+
+
+def _skeleton_names(self, context, edit_text):
+    try:
+        return packs.search(packs.index(context).skeletons, edit_text)
+    except (packs.PackError, OSError):
+        return []
+
+
+def _open_index(op, context):
+    """Read the game's index before a search field needs it; False after
+    reporting why it could not be read."""
+    if not packs.loaded():
+        context.window.cursor_set("WAIT")
+    try:
+        packs.index(context)
+    except (packs.PackError, OSError, ValueError) as exc:
+        op.report({"ERROR"}, str(exc))
+        return False
+    finally:
+        context.window.cursor_set("DEFAULT")
+    return True
+
+
+_GAME_CLIP = ("A clip in the game. Type words of its name to search, such as broom idle, "
+              "or paste a path from CDAnimator.log")
+
+
+class CDANIM_OT_game_skeleton(Operator):
+    """Import a skeleton straight from the game's packs"""
+    bl_idname = "cd_animator.game_skeleton"
+    bl_label = "Import skeleton from the game"
+    bl_options = {"REGISTER", "UNDO"}
+
+    skeleton: StringProperty(
+        name="Skeleton", search=_skeleton_names, search_options={"SUGGESTION"},
+        description="A skeleton in the game, such as phm_01 for Kliff or cd_r0032_00_broom. Type words to search")
+
+    def invoke(self, context, event):
+        if not _open_index(self, context):
+            return {"CANCELLED"}
+        return context.window_manager.invoke_props_dialog(self, width=560)
+
+    def execute(self, context):
+        if context.object and context.object.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        try:
+            idx = packs.index(context)
+            name = packs.resolve(idx.skeletons, self.skeleton, "skeleton", ext=".pab")
+            path = packs.fetch_skeleton(idx, name)
+            obj, odd_scale = skeleton.build_armature(context, path)
+        except (packs.PackError, ValueError, OSError) as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        if odd_scale:
+            self.report({"WARNING"}, f"{len(odd_scale)} bones with children have a bind scale other than 1, which the importer ignores")
+        self.report({"INFO"}, f"Imported {obj['cd_bone_count']} bones from {name}")
+        return {"FINISHED"}
+
+
+class CDANIM_OT_game_clip(Operator):
+    """Import an animation clip straight from the game's packs onto the selected armature"""
+    bl_idname = "cd_animator.game_clip"
+    bl_label = "Import animation from the game"
+    bl_options = {"REGISTER", "UNDO"}
+
+    clip: StringProperty(name="Clip", search=_clip_names, search_options={"SUGGESTION"}, description=_GAME_CLIP)
+
+    @classmethod
+    def poll(cls, context):
+        if not skeleton.is_cd_armature(context.object):
+            cls.poll_message_set("Select an armature made by the .pab importer first")
+            return False
+        return True
+
+    def invoke(self, context, event):
+        if not _open_index(self, context):
+            return {"CANCELLED"}
+        return context.window_manager.invoke_props_dialog(self, width=560)
+
+    def execute(self, context):
         obj = context.object
         if obj.mode != "OBJECT":
             bpy.ops.object.mode_set(mode="OBJECT")
-        stem = os.path.splitext(os.path.basename(self.filepath))[0]
-        name = self.clip_name.strip() or stem + "_new"
         try:
-            frames = self.frames
-            if not frames:
-                with open(self.filepath, "rb") as f:
-                    frames = round(paa_codec.decode_file(f.read())[1].lead.duration * anim.FPS)
-            action = clip.new_clip(context, obj, self.filepath, name, frames, self.start == "HOLD", self.stretch_events)
-        except (ValueError, OSError) as exc:
-            self.report({"ERROR"}, f"Could not start a clip from {os.path.basename(self.filepath)}: {exc}")
+            idx = packs.index(context)
+            name = packs.resolve(idx.clips, self.clip, "clip", prefix=packs.MOTION, ext=".paa")
+            path = packs.fetch_clip(idx, name)
+            action, unknown = anim.import_clip(context, obj, path)
+        except (packs.PackError, ValueError, OSError) as exc:
+            self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
-        self.report({"INFO"}, f"{action.name}: {frames} frames from {stem}")
+        if unknown:
+            self.report({"WARNING"}, f"{action.name}: {len(unknown)} animated bones are not in this skeleton and were skipped")
+        self.report({"INFO"}, f"Imported {action.name}")
         return {"FINISHED"}
+
+
+class CDANIM_OT_game_new_clip(Operator):
+    """Start a new clip from one of the game's clips: its bone layout, header and metadata, under a new name and length"""
+    bl_idname = "cd_animator.game_new_clip"
+    bl_label = "New clip from a game clip"
+    bl_options = {"REGISTER", "UNDO"}
+
+    clip: StringProperty(name="Template", search=_clip_names, search_options={"SUGGESTION"}, description=_GAME_CLIP)
+    clip_name: StringProperty(
+        name="Name", description="The new clip's name, which is also its file name on export. "
+        "Empty gives the template's name with _new")
+    frames: IntProperty(
+        name="Length", min=0, soft_max=3000, default=0,
+        description="Frames at 30 fps. 0 keeps the template's length")
+    start: EnumProperty(
+        name="Start from", default="MOTION",
+        items=[("MOTION", "Template's motion", "Keep every key of the template clip"),
+               ("HOLD", "Template's first frame", "Every bone holds the template's first frame for the whole clip")])
+    stretch_events: BoolProperty(
+        name="Stretch events", default=True,
+        description="Scale the template's events and phases to the new length")
+
+    @classmethod
+    def poll(cls, context):
+        if not skeleton.is_cd_armature(context.object):
+            cls.poll_message_set("Select an armature made by the .pab importer first")
+            return False
+        return True
+
+    def invoke(self, context, event):
+        if not _open_index(self, context):
+            return {"CANCELLED"}
+        return context.window_manager.invoke_props_dialog(self, width=560)
+
+    def execute(self, context):
+        try:
+            idx = packs.index(context)
+            name = packs.resolve(idx.clips, self.clip, "clip", prefix=packs.MOTION, ext=".paa")
+            path = packs.fetch_clip(idx, name)
+        except (packs.PackError, ValueError, OSError) as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        return _start_clip(self, context, path)
+
+
+class CDANIM_AP_prefs(AddonPreferences):
+    bl_idname = __package__
+
+    game_folder: StringProperty(
+        name="Game folder", subtype="DIR_PATH",
+        description="Crimson Desert's install folder, the one holding 0009 and 0010. "
+        "Empty looks for it in Steam's libraries")
+
+    def draw(self, context):
+        self.layout.prop(self, "game_folder")
+        if not self.game_folder:
+            found = packs.find_game()
+            self.layout.label(text=f"Found: {found}" if found else "Not found in Steam's libraries; set it above",
+                              icon="CHECKMARK" if found else "ERROR")
 
 
 class CDANIM_OT_set_length(Operator):
@@ -321,6 +488,11 @@ class CDANIM_PT_panel(bpy.types.Panel):
         col.operator(CDANIM_OT_export_paa.bl_idname, text="Export animation (.paa)", icon="EXPORT")
         col.operator(CDANIM_OT_new_clip.bl_idname, text="New clip from a template", icon="ADD")
         col.separator()
+        col.label(text="From the game")
+        col.operator(CDANIM_OT_game_skeleton.bl_idname, text="Import skeleton", icon="ARMATURE_DATA")
+        col.operator(CDANIM_OT_game_clip.bl_idname, text="Import animation", icon="ACTION")
+        col.operator(CDANIM_OT_game_new_clip.bl_idname, text="New clip from a game clip", icon="ADD")
+        col.separator()
         col.operator(CDANIM_OT_seat_rider.bl_idname, icon="CONSTRAINT_BONE")
         col.operator(CDANIM_OT_unseat_rider.bl_idname, icon="X")
         obj = context.object
@@ -368,9 +540,12 @@ def _menu_export(self, context):
 def _menu_import(self, context):
     self.layout.operator(CDANIM_OT_import_pab.bl_idname, text="Crimson Desert skeleton (.pab)")
     self.layout.operator(CDANIM_OT_import_paa.bl_idname, text="Crimson Desert animation (.paa)")
+    self.layout.operator(CDANIM_OT_game_skeleton.bl_idname, text="Crimson Desert skeleton from the game")
+    self.layout.operator(CDANIM_OT_game_clip.bl_idname, text="Crimson Desert animation from the game")
 
 
-_classes = (CDANIM_OT_import_pab, CDANIM_OT_import_paa, CDANIM_OT_export_paa, CDANIM_OT_new_clip,
+_classes = (CDANIM_AP_prefs, CDANIM_OT_import_pab, CDANIM_OT_import_paa, CDANIM_OT_export_paa, CDANIM_OT_new_clip,
+            CDANIM_OT_game_skeleton, CDANIM_OT_game_clip, CDANIM_OT_game_new_clip,
             CDANIM_OT_set_length, CDANIM_OT_event_add, CDANIM_OT_event_remove, CDANIM_UL_events,
             CDANIM_OT_seat_rider, CDANIM_OT_unseat_rider, CDANIM_PT_panel)
 

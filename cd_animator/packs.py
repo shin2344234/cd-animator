@@ -1,0 +1,186 @@
+"""The game's own files, read from its packs instead of from unpacked copies.
+
+The game folder comes from the add-on's preferences, or from Steam's library
+list when that is empty. The index of groups 0009 (clips, skeletons, blends)
+and 0010 (clip metadata, action charts) is read once per session, about
+3 seconds. Files taken from the packs are written to a cache in Blender's
+user folder: a clip, its LOD and its metadata side by side, so the importer
+and exporter find them as they would unpacked copies, and the cached clip
+stays the template its action is written against.
+"""
+
+import os
+import re
+
+import bpy
+
+from .formats import paz
+
+GROUPS = {"0009": {"paa", "pab", "motionblending"}, "0010": {"paa_metabin", "paac"}}
+MOTION = "character/motion/"
+MOTION_LOD = "character/motion/motion_lod__/"
+ANIMMETA = "actionchart/bin__/animmeta/"
+GAME = "Crimson Desert"
+
+
+class PackError(Exception):
+    pass
+
+
+def _steam_libraries():
+    roots = []
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as k:
+            roots.append(winreg.QueryValueEx(k, "SteamPath")[0])
+    except (ImportError, OSError):
+        pass
+    roots += [r"C:\Program Files (x86)\Steam", os.path.expanduser("~/.steam/steam")]
+    found = []
+    for root in roots:
+        found.append(root)
+        vdf = os.path.join(root, "steamapps", "libraryfolders.vdf")
+        try:
+            with open(vdf, encoding="utf-8", errors="replace") as f:
+                found += [p.replace("\\\\", "\\") for p in re.findall(r'"path"\s+"([^"]+)"', f.read())]
+        except OSError:
+            pass
+    return found
+
+
+def find_game():
+    """The game folder from Steam's libraries, or None."""
+    for lib in _steam_libraries():
+        folder = os.path.join(lib, "steamapps", "common", GAME)
+        if os.path.isfile(os.path.join(folder, "0009", "0.pamt")):
+            return folder
+    return None
+
+
+def game_folder(context=None):
+    prefs = None
+    try:
+        prefs = (context or bpy.context).preferences.addons[__package__].preferences
+    except (KeyError, AttributeError):
+        pass
+    folder = getattr(prefs, "game_folder", "") if prefs else ""
+    folder = bpy.path.abspath(folder) if folder else find_game()
+    if not folder or not os.path.isfile(os.path.join(folder, "0009", "0.pamt")):
+        raise PackError("Crimson Desert's folder was not found; set it in the add-on's preferences")
+    return folder
+
+
+class Index:
+    def __init__(self, folder):
+        self.folder = folder
+        self.by_path = {}
+        for group, keep in GROUPS.items():
+            for e in paz.read_index(os.path.join(folder, group, "0.pamt"), keep):
+                self.by_path[e.path.lower()] = e
+        # Clips by their path under character/motion/, without .paa; LODs left out.
+        self.clips = sorted(p[len(MOTION):-4] for p in self.by_path
+                            if p.startswith(MOTION) and not p.startswith(MOTION_LOD) and p.endswith(".paa"))
+        self.skeletons = sorted(p[:-4] for p in self.by_path if p.endswith(".pab"))
+
+        self.stamp = _stamp(folder)
+
+
+def _stamp(folder):
+    return tuple(os.path.getmtime(os.path.join(folder, g, "0.pamt")) for g in GROUPS)
+
+
+_index = None
+
+
+def index(context=None):
+    """The index for the current game folder, read on first use and again
+    after a game update changes it."""
+    global _index
+    folder = game_folder(context)
+    if _index is None or _index.folder != folder or _index.stamp != _stamp(folder):
+        _index = Index(folder)
+    return _index
+
+
+def loaded():
+    return _index is not None
+
+
+def search(names, text, limit=300):
+    """Names holding every word of `text`, at most `limit`."""
+    words = text.lower().replace("\\", "/").split()
+    out = []
+    for n in names:
+        if all(w in n for w in words):
+            out.append(n)
+            if len(out) >= limit:
+                break
+    return out
+
+
+def resolve(names, text, kind, prefix="", ext=""):
+    """One name from `names` for what the user typed: the name itself, its
+    game path (`prefix` + name + `ext`, as the loader's log prints it), or a
+    unique ending such as the file name alone."""
+    t = text.strip().lower().replace("\\", "/")
+    if prefix and t.startswith(prefix):
+        t = t[len(prefix):]
+    if ext and t.endswith(ext):
+        t = t[:-len(ext)]
+    if not t:
+        raise PackError(f"no {kind} named")
+    lookup = set(names)
+    if t in lookup:
+        return t
+    hits = [n for n in names if n == t or n.endswith("/" + t)]
+    if len(hits) == 1:
+        return hits[0]
+    if not hits:
+        raise PackError(f"no {kind} in the game is called {text.strip()}")
+    raise PackError(f"{len(hits)} {kind}s end in {text.strip()}; pick one with its folder, such as {hits[0]}")
+
+
+def cache_root():
+    try:
+        return bpy.utils.extension_path_user(__package__, path="game", create=True)
+    except (ValueError, AttributeError, KeyError):
+        return bpy.utils.user_resource("DATAFILES", path=os.path.join("cd_animator", "game"), create=True)
+
+
+def _write(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    try:
+        with open(path, "rb") as f:
+            if f.read() == data:
+                return path
+    except OSError:
+        pass
+    with open(path, "wb") as f:
+        f.write(data)
+    return path
+
+
+def fetch_clip(idx, name):
+    """Unpack clip `name` (a path under character/motion/, no extension) with
+    its LOD and metadata into the cache; the clip's local path."""
+    e = idx.by_path.get(MOTION + name + ".paa")
+    if e is None:
+        raise PackError(f"no clip {name} in the game")
+    folder = os.path.join(cache_root(), "clips", *os.path.dirname(name).split("/"))
+    stem = os.path.join(folder, os.path.basename(name))
+    path = _write(stem + ".paa", paz.read(e))
+    lod = idx.by_path.get(MOTION_LOD + name + "_lod.paa")
+    if lod is not None:
+        _write(stem + "_lod.paa", paz.read(lod))
+    mb = idx.by_path.get(ANIMMETA + name + ".paa_metabin")
+    if mb is not None:
+        _write(stem + ".paa_metabin", paz.read(mb))
+    return path
+
+
+def fetch_skeleton(idx, name):
+    """Unpack skeleton `name` (its game path without .pab) into the cache."""
+    e = idx.by_path.get(name + ".pab")
+    if e is None:
+        raise PackError(f"no skeleton {name} in the game")
+    return _write(os.path.join(cache_root(), "skeletons", os.path.basename(name) + ".pab"), paz.read(e))

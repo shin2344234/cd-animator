@@ -1,12 +1,12 @@
 # CD Animator
 
-A Blender add-on for Crimson Desert animations. It imports skeletons (`.pab`) as armatures and animation clips (`.paa`, full and `_lod`) as actions. It exports an action back to a `.paa`, along with the `_lod.paa` and `.paa_metabin` the game loads with every clip. Its clips play in the game. Broomy 1.0.2's hover idle and level takeoff were made with it, and so were the raised-arm idles that first tested the loader. Version 0.4.0 starts new clips from shipped ones, at any length, and edits a clip's events. Version 0.5.0 bakes constraints and IK on export.
+A Blender add-on for Crimson Desert animations. It imports skeletons (`.pab`) as armatures and animation clips (`.paa`, full and `_lod`) as actions. It exports an action back to a `.paa`, along with the `_lod.paa` and `.paa_metabin` the game loads with every clip. Its clips play in the game. Broomy 1.0.2's hover idle and level takeoff were made with it, and so were the raised-arm idles that first tested the loader. Version 0.4.0 starts new clips from shipped ones, at any length, and edits a clip's events. Version 0.5.0 bakes constraints and IK on export, and 0.6.0 reads skeletons and clips straight from the game's packs.
 
 It needs Blender 4.4 or newer and was built on 5.2.2.
 
 ## Install
 
-In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `dist/cd_animator-0.5.0.zip`. To rebuild the zip after changing the code:
+In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `dist/cd_animator-0.6.0.zip`. To rebuild the zip after changing the code:
 
 ```
 blender --command extension build --source-dir cd_animator --output-dir dist
@@ -14,7 +14,9 @@ blender --command extension build --source-dir cd_animator --output-dir dist
 
 ## Use
 
-The add-on reads files already unpacked from the game. Broomy's samples were taken with `master looter/tools/crimson-desert-unpacker/python/paz_unpack.py`, the clips from pack group 0009 and their `.paa_metabin` files from group 0010, for example:
+The add-on reads skeletons and clips straight from the game's packs. In the CD Animator tab of the sidebar, under From the game, Import skeleton, Import animation and New clip from a game clip each open a search field: type words of a name, such as `broom idle`, and pick from the list, or paste a path from CDAnimator.log. Kliff is `phm_01`. The game folder is found through Steam's libraries; if it is somewhere else, set it in the add-on's preferences. The first search in a session reads the packs' index, about 6 seconds. A file taken from the packs goes to a cache in Blender's user folder, the clip with its LOD and metadata, and stays there as the template its action is exported against.
+
+The same commands are under File > Import with the file browser, for files unpacked on disk. The samples in `samples` were taken with `master looter/tools/crimson-desert-unpacker/python/paz_unpack.py`, the clips from pack group 0009 and their `.paa_metabin` files from group 0010, for example:
 
 ```
 py -3 paz_unpack.py "D:/SteamLibrary/steamapps/common/Crimson Desert/0009/0.pamt" --paz-dir "D:/SteamLibrary/steamapps/common/Crimson Desert/0009" -o samples --filter "*cd_phm_rd_broom_basic_*"
@@ -79,6 +81,12 @@ blender -b --factory-startup --python tests/check_bake.py
 ```
 
 It gives Kliff's standing idle an IK arm reaching for a moving empty, a head copying an animated empty's rotation, a spine keyed in Euler angles and a driver on the left clavicle. It exports with baking and imports the clip onto a second Kliff with none of that. Every bone must match within 3 mm. An export without baking must miss by more than 10 cm, so a bake that changes nothing fails.
+
+```
+blender -b --factory-startup --python tests/check_packs.py
+```
+
+It needs the game installed. It reads the packs' index, requires Kliff's skeleton and his broom idle with its LOD and metadata to come out of the packs byte for byte as the unpacked samples, imports both through the From the game commands and requires the same pose as the sample import, and requires an unchanged export of the game's clip to give the game's bytes back. It also checks the name search and that a clip name two folders share is refused until its folder is given.
 
 `tests/preview.py` opens Blender with the broom and Kliff seated on it for a look.
 

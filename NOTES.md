@@ -76,6 +76,14 @@ Events may run past a clip's end. The standing idle's three events run to frame 
 
 A new clip is a template imported under a new name. It keeps the template's header, lead, bone layout and metadata. The game only asks for a new name once an action chart points at it. Kliff's push-off was the first: on 3 October 2026 it played as `cd_phm_rd_broom_basic_00_00_nor_std_takeoff_00`, after the Broomy test build wrote that path into his lower chart as the file was read (the chart hashes its paths when it parses), with the loader serving the files through its stand-ins. Cutting it short trims each track at the new end and adds a key there holding the pose the template had on that frame. Holding the first frame leaves each track two keys with the same value, which the exporter writes as they are.
 
+## The game's packs
+
+Each group folder (0000 to 0035) has an index, 0.pamt, and data files 0.paz, 1.paz and so on. Clips, skeletons and blends are in group 0009 (549,104 of those files), clip metadata and action charts in 0010 (280,569). The index holds a header with the number of .paz files and their table, a tree of folder name fragments, a tree of file name fragments, folder records of 16 bytes (folder node, first file, file count, hash) and file records of 20 bytes (file name node, offset, stored size, size, flags). A file's path is its folder's path, a slash and its name, which gives the paths the game's logs print, such as `character/motion/1_pc/1_phm/00_riding/cd_phm_rd_broom_basic_00_00_nor_std_idle_01.paa`.
+
+The parser in master looter's paz tools joins only the top folder to each name. That is not enough here: 26,553 clip names in 0009 are in more than one folder with different data, such as the mace kick in `1_pc/14_ptm/00_mon` and another folder. With full paths no two entries collide.
+
+Flags bits 16 to 19 give the compression; 2 is an LZ4 block, and a file is compressed when its stored size differs from its size. In a sample of 600 compressed entries of 0009 every clip, skeleton and blend decompressed as stored; only the XML-derived `.pac_xml` and `.paccd_xml` files were also encrypted. So `formats/paz.py` needs no ChaCha20, and its LZ4 decoder is plain Python.
+
 ## Smaller points
 
 - In a LOD clip only section 1 counts 1/5 second ticks. Section 2 (`Bip01`, `B_MoveControl_01`, the TL bones) keeps 30 fps frame numbers: in the LOD run clip `B_MoveControl_01` ends on 48 while section 1 ends on tick 8. Version 0.1.0 scaled section 2 as well and played LOD root motion six times too slowly.

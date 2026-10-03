@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "cd_animator"
-version = "0.5.0"
+version = "0.6.0"
 name = "CD Animator"
 tagline = "Import and export Crimson Desert animation clips"
 maintainer = "Seth"
@@ -9,3 +9,6 @@ type = "add-on"
 blender_version_min = "4.4.0"
 license = ["SPDX:MIT"]
 tags = ["Animation", "Import-Export"]
+
+[permissions]
+files = "Reads clips from the game's packs and caches them"
