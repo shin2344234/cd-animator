@@ -43,15 +43,16 @@ The loader in `loader/` is an ASI plugin, `CDAnimator.asi`, that hands the game 
 
 ## Examples
 
-All three run headless and write into `out/`:
+All four run headless and write into `out/`:
 
 ```
 blender -b --factory-startup --python examples/hover_idle.py
 blender -b --factory-startup --python examples/level_takeoff.py
 blender -b --factory-startup --python examples/raise_arm.py
+blender -b --factory-startup --python examples/push_off.py
 ```
 
-`hover_idle.py` adds a 12 cm float with a small roll and pitch to the broom's idle, on B_Body_00, starting and ending on the shipped pose. `level_takeoff.py` makes a takeoff that holds the idle's first frame and keeps the climb's rise, so flight starts with no jump. Broomy 1.0.2 carries both. `raise_arm.py` turns Kliff's right arm up over his head in his two standing idles and his desert fidget, for the loader; other clips of his can be named on the command line.
+`hover_idle.py` adds a 12 cm float with a small roll and pitch to the broom's idle, on B_Body_00, starting and ending on the shipped pose. `level_takeoff.py` makes a takeoff that holds the idle's first frame and keeps the climb's rise, so flight starts with no jump. Broomy 1.0.2 carries both. `raise_arm.py` turns Kliff's right arm up over his head in his two standing idles and his desert fidget, for the loader; other clips of his can be named on the command line. `push_off.py` is Kliff's kick as Broomy takes off, a new clip holding his broom idle's first frame with IK legs that export bakes. It played in game on 2 October through the Broomy test build, which points Kliff's takeoff at a spare action of his whose clip it replaces.
 
 ## Check
 
