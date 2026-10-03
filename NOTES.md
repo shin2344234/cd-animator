@@ -102,9 +102,23 @@ The material map (`_sp`) was read from the textures. On a sword handle, B is 1 o
 
 Normal maps are DirectX style. Wherever a height map exists for comparison, red follows minus the height's slope across the texture and green minus its slope down the rows, the same sign for both on every sampled pair, so green points down the texture and is inverted for Blender.
 
+Eyes keep the iris and pupil in textures of their own. Both use the eyeball's UV square: the iris texture's alpha is the iris disc and the pupil texture's alpha the pupil disc, so the add-on lays them over the eyeball by those alphas. Kliff's eye cover, the film over the eyes, names only a normal map; with no alpha texture the add-on makes the cover clear.
+
+Two-sided cards, such as eyebrows, list some triangles twice, once per side. Blender holds one face per set of corners and draws both sides, so the importer drops the repeat; Kliff's eyebrows had 80 of 4,592.
+
 Hair and beard textures are near white; `_hairDyeingColor`, a sandy brown for Kliff, multiplies them.
 
 The layered shaders, names ending in `_Ver2` and about 40% of all materials, have no base colour. A mask texture (`_ma`) splits the part into layers by its R, G and B channels. Each layer names a tint colour and a set of small tiling textures from a shared library (`cd_texturelayer_*`). Layer R's tiling comes from `_dyeingTransformProperty0`, G's from 1 and B's from 3: in 1,500 files, a part with only layer R writes only property 0, one with R and G writes 0 and 1. The first byte is the tile size as a fraction of the UV square, so a layer repeats 255 / byte times. Across 5,776 uses, the same tiling texture gets a smaller byte on meshes with more metres per UV unit (log-log slope -0.22), which only holds if a smaller byte means more repeats. A second mask (`_mg`) holds edge wear in R and grime in G, and grime and scratch textures and colours go with it. How the game's shader combines all this is not known. The add-on multiplies each layer's tint by its tiling colour texture, mixes the layers by the mask, takes roughness and metal from each layer's tiling material map, and leaves out grime, scratches, dye and the detail normals.
+
+## Characters
+
+A character's look is an appearance file, `character/appearance/<group>/<name>.app_xml`, encrypted like the material files. It lists prefabs in sections (Nude, Head, Hair, Armor), some with attributes such as CharacterScale and HeadScale, and some outfit prefabs marked Preview. Kliff's is `cd_phm_macduff_00000`: the macduff appearances use `meshparam_example_kliff.xml` and the voice event `vce_pc_kliff`.
+
+A prefab, `character/bin__/prefab/.../<name>.prefab`, is a binary reflection dump of a scene object. Its type table names the fields (SkinnedMeshComponent, _skinnedMeshFile, _modelPropertyIndex and so on), and each component stores its name followed by the bytes 01 01 00 01 03 and then, after a u32 length, its mesh's game path. `formats/appearance.py` reads only those two strings. The field values are written sparsely, so the variant index `_modelPropertyIndex` is not read and every part uses variant 0.
+
+The appearance lists Kliff's plain inner layers first (`cd_phm_00_ub_inner_0054` and others) and the outfit after them, and each outfit component carries the same name as the inner one it covers, such as CD_Upperbody. Applying prefabs in order with a later component replacing an earlier one of the same name gives his default look. Of 5,667 appearance files, one is not well-formed XML; the rest resolve to 42,013 meshes, all in the packs. Hidden components are those named for the flight cloak, the hyperspace plug line and docking bags.
+
+The body prefab's data file, `character/prefab/.../<name>.prefabdata_xml`, names the skeleton (`1_pc/1_phm/phm_01.pab` for Kliff) and a skeleton variation, `cd_phm_00_nude_01_0002.pabc`. The variation holds 420 bone records with bind matrices, his proportions over the shared skeleton. It is not read yet, nor is the 1.02571 character scale or 0.92 head scale.
 
 ## Smaller points
 

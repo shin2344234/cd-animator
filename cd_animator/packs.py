@@ -2,7 +2,7 @@
 
 The game folder comes from the add-on's preferences, or from Steam's library
 list when that is empty. The index of groups 0009 (clips, skeletons, meshes,
-their materials and textures, blends)
+their materials and textures, characters' appearances and prefabs, blends)
 and 0010 (clip metadata, action charts) is read once per session, about
 3 seconds. Files taken from the packs are written to a cache in Blender's
 user folder: a clip, its LOD and its metadata side by side, so the importer
@@ -17,12 +17,15 @@ import bpy
 
 from .formats import paz
 
-GROUPS = {"0009": {"paa", "pab", "pac", "pac_xml", "dds", "motionblending"}, "0010": {"paa_metabin", "paac"}}
+GROUPS = {"0009": {"paa", "pab", "pac", "pac_xml", "dds", "app_xml", "prefab", "prefabdata_xml", "motionblending"},
+          "0010": {"paa_metabin", "paac"}}
 MOTION = "character/motion/"
 MOTION_LOD = "character/motion/motion_lod__/"
 ANIMMETA = "actionchart/bin__/animmeta/"
 MODEL = "character/model/"
 MODEL_PROPERTY = "character/modelproperty/"
+APPEARANCE = "character/appearance/"
+PREFAB = "character/bin__/prefab/"
 GAME = "Crimson Desert"
 
 
@@ -85,6 +88,16 @@ class Index:
                             if p.startswith(MOTION) and not p.startswith(MOTION_LOD) and p.endswith(".paa"))
         self.skeletons = sorted(p[:-4] for p in self.by_path if p.endswith(".pab"))
         self.meshes = sorted(p[:-4] for p in self.by_path if p.endswith(".pac"))
+        # Characters by their path under character/appearance/, without .app_xml.
+        self.appearances = sorted(p[len(APPEARANCE):-8] for p in self.by_path
+                                  if p.startswith(APPEARANCE) and p.endswith(".app_xml"))
+        # Prefabs and their data files by name; a few names repeat, and the first is kept.
+        self.prefabs, self.prefab_data = {}, {}
+        for p in sorted(self.by_path):
+            if p.startswith(PREFAB) and p.endswith(".prefab"):
+                self.prefabs.setdefault(p.rsplit("/", 1)[-1][:-7], p)
+            elif p.endswith(".prefabdata_xml"):
+                self.prefab_data.setdefault(p.rsplit("/", 1)[-1][:-15], p)
         self._bone_hashes = None
         self.stamp = _stamp(folder)
 
@@ -228,6 +241,34 @@ def fetch_texture(idx, path):
     if os.path.isfile(local) and os.path.getsize(local) == e.size:
         return local
     return _write(local, paz.read(e))
+
+
+def character(idx, name):
+    """The meshes of character appearance `name` (its path under
+    character/appearance/, without .app_xml): (skeleton game path without
+    .pab, [(component, mesh game path without .pac)], hidden components
+    skipped, missing prefabs)."""
+    from .formats import appearance
+    e = idx.by_path.get(APPEARANCE + name + ".app_xml")
+    if e is None:
+        raise PackError(f"no character {name} in the game")
+    app = appearance.read_appearance(paz.read(e))
+
+    def parts_of(prefab):
+        path = idx.prefabs.get(prefab.lower())
+        return appearance.prefab_parts(paz.read(idx.by_path[path])) if path else None
+
+    meshes, skipped, missing = appearance.assemble(app, parts_of)
+    skel = None
+    data = idx.prefab_data.get((app.nude or "").lower())
+    if data:
+        skel = appearance.skeleton_of(paz.read(idx.by_path[data]))
+    if not skel:
+        raise PackError(f"{name} names no skeleton for its body")
+    skel = (MODEL + skel.lower()).rsplit(".", 1)[0]
+    if skel + ".pab" not in idx.by_path:
+        raise PackError(f"{name}'s skeleton {skel} is not in the game")
+    return skel, [(c, m.lower()[:-4]) for c, m in meshes], skipped, missing
 
 
 def fetch_skeleton(idx, name):

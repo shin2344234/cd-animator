@@ -14,7 +14,7 @@ from .formats import material, pac, paa_codec
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 9, 0),
+    "version": (0, 10, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -304,7 +304,7 @@ def _mesh_names(self, context, edit_text):
         return []
 
 
-def _game_materials(op, context, name, game_path):
+def _game_materials(op, context, name, game_path, variant):
     """(materials, texture loader, variant count, note) for a mesh, from its
     material file in the packs; no materials when textures are off or the
     file is not found."""
@@ -316,7 +316,7 @@ def _game_materials(op, context, name, game_path):
         data = packs.material_file(idx, game_path) if game_path else None
         if data is None:
             return None, None, 0, "no material file found in the game, so no textures"
-        mats, variants = material.read_materials(data, op.variant)
+        mats, variants = material.read_materials(data, variant)
     except (packs.PackError, ValueError, OSError, SyntaxError) as exc:
         return None, None, 0, f"its material file could not be read ({exc}), so no textures"
 
@@ -343,38 +343,120 @@ def _game_materials(op, context, name, game_path):
     return mats, load, variants, ""
 
 
+def _place_mesh(op, context, arm, data, name, game_path=None, variant=0):
+    """Read mesh bytes `data` and put the mesh on armature `arm`. Returns
+    (object, vertex count, part count, [(level, message)]); raises
+    ValueError, mesh.MeshError, packs.PackError or OSError."""
+    try:
+        m = pac.read_pac(data, op.level, mesh.known_hashes(arm))
+    except ValueError as exc:
+        if "palette" not in str(exc):
+            raise
+        # The palette may name bones this skeleton lacks; try every bone in the game.
+        m = pac.read_pac(data, op.level, mesh.known_hashes(arm, packs.index(context).bone_hashes()))
+    mats, load, variants, note = _game_materials(op, context, name, game_path, variant)
+    obj, missing = mesh.build_mesh(context, arm, m, name, mats, load)
+    notes = []
+    if note:
+        notes.append(("WARNING", f"{name}: {note}"))
+    if load is not None and load.failed:
+        notes.append(("WARNING", f"{name}: {len(load.failed)} textures are not in the packs or could not be read, "
+                                 f"such as {sorted(load.failed)[0]}"))
+    if variants > 1:
+        obj["cd_variant"] = min(variant, variants - 1)
+        notes.append(("INFO", f"{name} has {variants} colour variants; this is variant {obj['cd_variant']}"))
+    if missing:
+        notes.append(("WARNING", f"{name}: {len(missing)} of its {len(m.palette)} bones are not in {arm.name}; "
+                                 "vertices weighted to them follow their other bones only"))
+    return obj, sum(len(sb.positions) for sb in m.submeshes), len(m.submeshes), notes
+
+
 def _import_mesh(op, context, data, name, game_path=None):
     """Read mesh bytes `data` and put the mesh on the selected armature."""
     arm = context.object
     if arm.mode != "OBJECT":
         bpy.ops.object.mode_set(mode="OBJECT")
     try:
-        try:
-            m = pac.read_pac(data, op.level, mesh.known_hashes(arm))
-        except ValueError as exc:
-            if "palette" not in str(exc):
-                raise
-            # The palette may name bones this skeleton lacks; try every bone in the game.
-            m = pac.read_pac(data, op.level, mesh.known_hashes(arm, packs.index(context).bone_hashes()))
-        mats, load, variants, note = _game_materials(op, context, name, game_path)
-        obj, missing = mesh.build_mesh(context, arm, m, name, mats, load)
+        _obj, count, parts, notes = _place_mesh(op, context, arm, data, name, game_path, op.variant)
     except (ValueError, mesh.MeshError, packs.PackError, OSError) as exc:
         op.report({"ERROR"}, f"Could not import {name}: {exc}")
         return {"CANCELLED"}
-    count = sum(len(sb.positions) for sb in m.submeshes)
-    if note:
-        op.report({"WARNING"}, f"{name}: {note}")
-    if load is not None and load.failed:
-        op.report({"WARNING"}, f"{name}: {len(load.failed)} textures are not in the packs or could not be read, "
-                               f"such as {sorted(load.failed)[0]}")
-    if variants > 1:
-        obj["cd_variant"] = min(op.variant, variants - 1)
-        op.report({"INFO"}, f"{name} has {variants} colour variants; this is variant {obj['cd_variant']}")
-    if missing:
-        op.report({"WARNING"}, f"{name}: {len(missing)} of its {len(m.palette)} bones are not in {arm.name}; "
-                               "vertices weighted to them follow their other bones only")
-    op.report({"INFO"}, f"Imported {name}: {count} vertices in {len(m.submeshes)} parts on {arm.name}")
+    for level, text in notes:
+        op.report({level}, text)
+    op.report({"INFO"}, f"Imported {name}: {count} vertices in {parts} parts on {arm.name}")
     return {"FINISHED"}
+
+
+def _character_names(self, context, edit_text):
+    try:
+        return packs.search(packs.index(context).appearances, edit_text)
+    except (packs.PackError, OSError):
+        return []
+
+
+KLIFF = "1_pc/1_phm/cd_phm_macduff/cd_phm_macduff_00000"
+
+
+class CDANIM_OT_game_character(Operator):
+    """Build a character from the game: its skeleton and every mesh of its look, textured"""
+    bl_idname = "cd_animator.game_character"
+    bl_label = "Import character from the game"
+    bl_options = {"REGISTER", "UNDO"}
+
+    character: StringProperty(
+        name="Character", search=_character_names, search_options={"SUGGESTION"}, default=KLIFF,
+        description="A character's appearance in the game. Kliff is cd_phm_macduff_00000; "
+        "other characters are under 1_pc, 3_npc, 2_mon and 4_riding. Type words to search")
+    level: IntProperty(name="Detail level", min=0, max=3, default=0,
+                       description="0 is the most detailed; 3 is the coarsest the game draws far away")
+    textures: BoolProperty(name="Textures", default=True,
+                           description="Give the parts the game's textures, from each mesh's material file")
+
+    def invoke(self, context, event):
+        if not _open_index(self, context):
+            return {"CANCELLED"}
+        return context.window_manager.invoke_props_dialog(self, width=560)
+
+    def execute(self, context):
+        if context.object and context.object.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        try:
+            idx = packs.index(context)
+            name = packs.resolve(idx.appearances, self.character, "character", prefix=packs.APPEARANCE, ext=".app_xml")
+            skel, parts, skipped, missing = packs.character(idx, name)
+            arm, _odd = skeleton.build_armature(context, packs.fetch_skeleton(idx, skel))
+        except (packs.PackError, ValueError, OSError, SyntaxError) as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        arm["cd_game_path"] = skel
+        arm["cd_character"] = name
+        arm.name = name.rsplit("/", 1)[-1]
+        failed, notes, placed = [], [], 0
+        for component, path in parts:
+            mesh_name = mesh.mesh_name(path)
+            try:
+                with open(packs.fetch_mesh(idx, path), "rb") as f:
+                    data = f.read()
+                obj, _count, _parts, more = _place_mesh(self, context, arm, data, mesh_name, path)
+            except (ValueError, mesh.MeshError, packs.PackError, OSError) as exc:
+                failed.append(f"{mesh_name} ({exc})")
+                continue
+            obj["cd_component"] = component
+            notes += [n for n in more if n[0] == "WARNING"]
+            placed += 1
+        for o in context.view_layer.objects:
+            o.select_set(o == arm)
+        context.view_layer.objects.active = arm
+        for level, text in notes:
+            self.report({level}, text)
+        if missing:
+            self.report({"WARNING"}, f"prefabs not in the game: {', '.join(missing)}")
+        if failed:
+            self.report({"WARNING"}, f"{len(failed)} meshes could not be read: {'; '.join(failed[:3])}")
+        if skipped:
+            self.report({"INFO"}, f"left out parts shown only in some states: {', '.join(skipped)}")
+        self.report({"INFO"}, f"Built {arm.name}: {placed} meshes on {skel.rsplit('/', 1)[-1]}")
+        return {"FINISHED"} if placed else {"CANCELLED"}
 
 
 _LEVEL = dict(name="Detail level", min=0, max=3, default=0,
@@ -653,6 +735,7 @@ class CDANIM_PT_panel(bpy.types.Panel):
         col.operator(CDANIM_OT_game_skeleton.bl_idname, text="Import skeleton", icon="ARMATURE_DATA")
         col.operator(CDANIM_OT_game_clip.bl_idname, text="Import animation", icon="ACTION")
         col.operator(CDANIM_OT_game_mesh.bl_idname, text="Import mesh", icon="MESH_DATA")
+        col.operator(CDANIM_OT_game_character.bl_idname, text="Import character", icon="OUTLINER_OB_ARMATURE")
         col.operator(CDANIM_OT_game_new_clip.bl_idname, text="New clip from a game clip", icon="ADD")
         col.separator()
         col.operator(CDANIM_OT_seat_rider.bl_idname, icon="CONSTRAINT_BONE")
@@ -706,10 +789,11 @@ def _menu_import(self, context):
     self.layout.operator(CDANIM_OT_game_skeleton.bl_idname, text="Crimson Desert skeleton from the game")
     self.layout.operator(CDANIM_OT_game_clip.bl_idname, text="Crimson Desert animation from the game")
     self.layout.operator(CDANIM_OT_game_mesh.bl_idname, text="Crimson Desert mesh from the game")
+    self.layout.operator(CDANIM_OT_game_character.bl_idname, text="Crimson Desert character from the game")
 
 
 _classes = (CDANIM_AP_prefs, CDANIM_OT_import_pab, CDANIM_OT_import_paa, CDANIM_OT_export_paa, CDANIM_OT_new_clip,
-            CDANIM_OT_game_skeleton, CDANIM_OT_game_clip, CDANIM_OT_game_new_clip, CDANIM_OT_game_mesh, CDANIM_OT_import_pac,
+            CDANIM_OT_game_skeleton, CDANIM_OT_game_clip, CDANIM_OT_game_new_clip, CDANIM_OT_game_mesh, CDANIM_OT_import_pac, CDANIM_OT_game_character,
             CDANIM_OT_set_length, CDANIM_OT_event_add, CDANIM_OT_event_remove, CDANIM_UL_events,
             CDANIM_OT_seat_rider, CDANIM_OT_unseat_rider, CDANIM_PT_panel)
 

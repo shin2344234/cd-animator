@@ -38,8 +38,14 @@ def build_mesh(context, armature, mesh, name, materials=None, load=None):
         normals += [convert.vec_in(n) for n in sm.normals]
         uvs += sm.uvs
         weights += sm.skin
+        seen = set()
         for a, b, c in sm.triangles:
-            if a != b and b != c and a != c:
+            # Two-sided cards (eyebrows) list a triangle twice, once per
+            # side. Blender keeps one face per set of corners and draws both
+            # sides of it, so the repeat is dropped.
+            key = frozenset((a, b, c))
+            if len(key) == 3 and key not in seen:
+                seen.add(key)
                 # The Y-Z swap into Blender mirrors the mesh, which turns
                 # each triangle inside out unless two corners trade places.
                 tris.append((base + a, base + c, base + b))

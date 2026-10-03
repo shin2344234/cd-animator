@@ -1,12 +1,12 @@
 # CD Animator
 
-A Blender add-on for Crimson Desert animations. It imports skeletons (`.pab`) as armatures, animation clips (`.paa`, full and `_lod`) as actions, and meshes (`.pac`) skinned to the armature, so a clip plays on the character's body. It exports an action back to a `.paa`, along with the `_lod.paa` and `.paa_metabin` the game loads with every clip. Its clips play in the game. Broomy 1.0.2's hover idle and level takeoff were made with it, and so were the raised-arm idles that first tested the loader. Version 0.4.0 starts new clips from shipped ones, at any length, and edits a clip's events. Version 0.5.0 bakes constraints and IK on export, and 0.6.0 reads skeletons and clips straight from the game's packs. Version 0.7.0 reads every skeleton in the game and every clip layout, so the Wyvern, the horses, the bear and facial clips import and export as Kliff and the broom do. Version 0.8.0 shows the game's meshes on the armature, and 0.9.0 gives them the game's textures.
+A Blender add-on for Crimson Desert animations. It imports skeletons (`.pab`) as armatures, animation clips (`.paa`, full and `_lod`) as actions, and meshes (`.pac`) skinned to the armature, so a clip plays on the character's body. It exports an action back to a `.paa`, along with the `_lod.paa` and `.paa_metabin` the game loads with every clip. Its clips play in the game. Broomy 1.0.2's hover idle and level takeoff were made with it, and so were the raised-arm idles that first tested the loader. Version 0.4.0 starts new clips from shipped ones, at any length, and edits a clip's events. Version 0.5.0 bakes constraints and IK on export, and 0.6.0 reads skeletons and clips straight from the game's packs. Version 0.7.0 reads every skeleton in the game and every clip layout, so the Wyvern, the horses, the bear and facial clips import and export as Kliff and the broom do. Version 0.8.0 shows the game's meshes on the armature, and 0.9.0 gives them the game's textures. Version 0.10.0 builds a whole character, Kliff in his default outfit included, in one step.
 
 It needs Blender 4.4 or newer and was built on 5.2.2.
 
 ## Install
 
-In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `dist/cd_animator-0.9.0.zip`. To rebuild the zip after changing the code:
+In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `dist/cd_animator-0.10.0.zip`. To rebuild the zip after changing the code:
 
 ```
 blender --command extension build --source-dir cd_animator --output-dir dist
@@ -17,6 +17,8 @@ blender --command extension build --source-dir cd_animator --output-dir dist
 The add-on reads skeletons and clips straight from the game's packs. In the CD Animator tab of the sidebar, under From the game, Import skeleton, Import animation and New clip from a game clip each open a search field: type words of a name, such as `broom idle`, and pick from the list, or paste a path from CDAnimator.log. Kliff is `phm_01`. The game folder is found through Steam's libraries; if it is somewhere else, set it in the add-on's preferences. The first search in a session reads the packs' index, about 6 seconds. A file taken from the packs goes to a cache in Blender's user folder, the clip with its LOD and metadata, and stays there as the template its action is exported against.
 
 Import mesh puts one of the game's meshes on the selected armature, skinned to its bones, so the clip on the armature moves it. The search field starts with the skeleton's folder; for Kliff, type `nude` and pick `nude/cd_phm_00_nude_00_0001`, his body with head shell and hands. The Wyvern's body is `cd_m0004_00_wyvern_00_0001`. Each part of a mesh gets a material named after the part, built from the mesh's material file in the packs: base colour, normal map, roughness and metal for most shaders, alpha for hair and eye covers, and the hair colour the game dyes hair with. Armour and cloth made with the game's layered shaders get an approximation, described in NOTES.md, so their colours may differ from the game's. Some meshes come in several colour variants; Colour variant picks one. Turn Textures off for plain materials. Textures are cached next to the meshes the first time they are used, so the first import of a mesh takes a few seconds longer. Detail level 0 is the most detailed of the four the game keeps. Clothing, armour, hair and beards are meshes of their own; import as many as you like onto one armature.
+
+Import character builds a character the way the game puts it together: the skeleton, then every mesh its appearance file lists, textured. The field starts on Kliff, whose appearance is `1_pc/1_phm/cd_phm_macduff/cd_phm_macduff_00000` (the game's files call him macduff). He comes out with his body, head, eyes, brows, lashes, teeth, stubble, hair and beard and his default outfit: coat, trousers, belt, both shoulder pieces, cloak, gloves and boots, 19 meshes. Type words to search for anyone else; the 5,667 appearances cover the playable characters under `1_pc`, people under `3_npc`, monsters under `2_mon` and mounts under `4_riding`. Parts the game shows only in some states (the flight cloak, the hyperspace line, bags for docking) are left out. Each mesh object keeps its slot name, such as CD_Upperbody, in the `cd_component` property. The skeleton uses the shared proportions; the character's own skeleton variation is not applied yet.
 
 The same commands are under File > Import with the file browser, for files unpacked on disk. The samples in `samples` were taken with `master looter/tools/crimson-desert-unpacker/python/paz_unpack.py`, the clips from pack group 0009 and their `.paa_metabin` files from group 0010, for example:
 
@@ -108,6 +110,12 @@ blender -b --factory-startup --python tests/check_textures.py
 ```
 
 It needs the game installed. It checks the ChaCha20 cipher against RFC 8439's test vector, decrypts and parses 200 material files and unpacks 200 compressed textures, then imports Kliff's body, head, hair and an upper-body armour piece and the Wyvern. Every part must get the material its file names, every texture must load with pixels, and the base colour or layer mask and the normal map must be connected.
+
+```
+blender -b --factory-startup --python tests/check_character.py
+```
+
+It needs the game installed. It resolves 300 appearance files to their skeletons and meshes and requires every mesh to be in the packs, then builds Kliff and requires exactly the 19 parts of his default look, each with the game's materials, and builds Damian on the female skeleton.
 
 `tests/preview.py` opens Blender with the broom and Kliff seated on it for a look.
 

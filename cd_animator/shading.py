@@ -11,6 +11,8 @@ lights the ears and other thin parts, so there it drives subsurface; R is
 near 1 on hard surfaces and holds pore detail on skin, and is used as the
 specular level. Hair, beard and fur textures are near white; the game
 colours them with _hairDyeingColor, which multiplies the base colour here.
+Eyes keep the iris and pupil in textures of their own, laid over the
+eyeball by their alpha.
 
 The layered shaders (names ending in _Ver2, and StaticStandard) have no
 base colour texture. A mask (_colorBlendingMaskTexture) splits the part
@@ -29,6 +31,8 @@ inverted for Blender. Textures load from the add-on's cache through
 """
 
 SKIN = {"SkinnedMeshSkin", "SkinnedMeshSkinWrinkle"}
+EYE = {"SkinnedMeshEye"}
+EYE_COVER = {"SkinnedMeshEyeCover"}
 LAYERS = (("R", 0), ("G", 1), ("B", 3))
 GREY = (0.5, 0.5, 0.5, 1.0)
 
@@ -130,6 +134,20 @@ class _Builder:
         self.link(nm.outputs["Normal"], self.bsdf.inputs["Normal"])
 
 
+def _eye(b, m, color):
+    """The eyeball's colour with the iris and pupil laid over it. Both
+    textures share the eyeball's UV square; the iris texture's alpha is the
+    iris disc and the pupil texture's alpha the pupil disc."""
+    iris = b.image(m.textures.get("_irisDiffuseTexture"), True, -1300, 700)
+    if iris is not None:
+        color = b.mix(color, iris.outputs["Color"], iris.outputs["Alpha"], -400, 600)
+    pupil = b.image(m.textures.get("_pupilTexture"), False, -1300, 1000)
+    if pupil is not None:
+        dark = _linear(m.colors.get("_pupilColor", (0.0, 0.0, 0.0, 1.0)))
+        color = b.mix(color, dark, pupil.outputs["Alpha"], -200, 600)
+    return color
+
+
 def _classic(b, m):
     base = b.image(m.textures.get("_baseColorTexture"), True, -900, 400)
     if base is not None:
@@ -137,12 +155,17 @@ def _classic(b, m):
         dye = m.colors.get("_hairDyeingColor")
         if dye is not None:
             color = b.mix(color, _linear(dye), 1.0, -600, 400, "MULTIPLY")
+        if m.shader in EYE:
+            color = _eye(b, m, color)
         b.link(color, b.bsdf.inputs["Base Color"])
     alpha_tex = b.image(m.textures.get("_alphaTexture"), False, -900, 700)
     if alpha_tex is not None:
         b.link(alpha_tex.outputs["Color"], b.bsdf.inputs["Alpha"])
     elif base is not None and m.switches.get("AlphaTest"):
         b.link(base.outputs["Alpha"], b.bsdf.inputs["Alpha"])
+    elif m.shader in EYE_COVER:
+        # The clear film over the eyes; Kliff's names only a normal map.
+        b.bsdf.inputs["Alpha"].default_value = 0.0
     sp = b.image(m.textures.get("_materialTexture"), False, -900, 50)
     if sp is not None:
         sep = b.separate(sp, -600, 50)
@@ -155,7 +178,7 @@ def _classic(b, m):
         if m.shader in SKIN:
             b.link(sep.outputs["Blue"], b.bsdf.inputs["Subsurface Weight"])
             b.bsdf.inputs["Subsurface Scale"].default_value = 0.01
-        else:
+        elif m.shader not in EYE:
             b.link(sep.outputs["Blue"], b.bsdf.inputs["Metallic"])
 
 
