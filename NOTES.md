@@ -37,7 +37,11 @@ Record B, `ref_scale` and the four `B_TL_Position` bones are not used for displa
 
 ## What shows in game on a mount
 
-The root bone's motion doesn't reach the screen while Broomy hovers in place. The shipped broom idle puts its whole 15 to 20 cm bob on Bip01, and edits there (a 25 degree roll, a 12 cm float with a 6 degree roll) changed nothing in game. The game seems to take Bip01 as movement of the broom itself and drop it at rest. A 40 cm float with a 15 degree roll on B_Body_00, the bone under Bip01, showed on 2 October 2026, and Kliff moved with it. He sits on B_Rider_01, a child of B_Body_00, so a mount's idle motion goes on B_Body_00 and the rider's clip needs no matching edit. `examples/hover_idle.py` works that way.
+Bip01, the broom's root bone, shows its rotation but not all of its motion. The 75 degree climb tips the broom on Bip01 and that tilt is plain to see during Broomy's takeoff, yet a 25 degree roll and a 12 cm float with a 6 degree roll on Bip01 in the idle changed nothing while hovering. The climb's 5.3 m rise on Bip01 never shows as an offset either, so the root bone's translation goes into moving the broom. In flight Broomy's aim IK also works on the broom, which may be what flattens a Bip01 roll there.
+
+B_Body_00, the bone under Bip01, does show. A 40 cm float with a 15 degree roll there showed on 2 October 2026, and Kliff moved with it: he sits on B_Rider_01, a child of B_Body_00, so a mount's idle motion goes on B_Body_00 and the rider's clip needs no matching edit. `examples/hover_idle.py` works that way. B_Rider_01 stays upright in every broom clip, so Kliff sits level however far Bip01 tips the broom.
+
+An idle with motion on B_Body_00 jumps whenever the game restarts it with a short blend, as at the end of the takeoff. `examples/level_takeoff.py` makes a takeoff that holds the idle's first frame, so flight starts from the pose the takeoff ends in.
 
 ## Writing a clip back
 
