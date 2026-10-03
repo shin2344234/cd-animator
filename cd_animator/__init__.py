@@ -10,14 +10,14 @@ from bpy.types import AddonPreferences, Operator, OperatorFileListElement, UILis
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 from mathutils import Matrix
 
-from . import anim, chains, clip, cloth, convert, export, mesh, meta, packs, skeleton
+from . import anim, chains, clip, cloth, convert, export, mesh, meta, packs, skeleton, sway
 from .formats import material, pac, paa_codec
 from .formats import sockets as sockets_format
 
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 16, 0),
+    "version": (0, 17, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -456,6 +456,8 @@ def _place_mesh(op, context, arm, data, name, game_path=None, variant=0,
         obj["cd_placement"] = [x for row in placement for x in row]
     if component:
         obj["cd_component"] = component
+    if getattr(op, "sway", True) and sway.add(context, arm, obj, m, name):
+        notes.append(("INFO", f"{name}: sways with {obj['cd_sway']} spring bones"))
     if getattr(op, "cloth", True):
         swinging = {h for h, n in (remap or {}).items() if arm.data.bones.get(n) and arm.data.bones[n].get("cd_chain")}
         made = cloth.setup(context, arm, obj, m, swinging)
@@ -756,6 +758,8 @@ _CHARACTER_OPTIONS = dict(
                description="0 is the most detailed; 3 is the coarsest the game draws far away"),
     textures=dict(name="Textures", default=True,
                   description="Give the parts the game's textures, from each mesh's material file"),
+    sway=dict(name="Hair sway", default=True,
+              description="Let hair lag behind the head and spring back, as much as the game lets each strand"),
     cloth=dict(name="Cloth", default=True,
                description="Let cloaks, coat tails and other cloth hang and flow with Blender's cloth simulation, "
                "held where the game holds them"),
@@ -793,6 +797,7 @@ class CDANIM_OT_game_character(Operator):
     proportions: BoolProperty(**_CHARACTER_OPTIONS["proportions"])
     gear: EnumProperty(**_CHARACTER_OPTIONS["gear"])
     cloth: BoolProperty(**_CHARACTER_OPTIONS["cloth"])
+    sway: BoolProperty(**_CHARACTER_OPTIONS["sway"])
 
     def invoke(self, context, event):
         if not _open_index(self, context):
@@ -858,6 +863,7 @@ class CDANIM_OT_game_prop(Operator):
     level: IntProperty(**_CHARACTER_OPTIONS["level"])
     textures: BoolProperty(**_CHARACTER_OPTIONS["textures"])
     cloth: BoolProperty(**_CHARACTER_OPTIONS["cloth"])
+    sway: BoolProperty(**_CHARACTER_OPTIONS["sway"])
 
     @classmethod
     def poll(cls, context):
@@ -962,6 +968,7 @@ class CDANIM_OT_game_characters(Operator):
     proportions: BoolProperty(**_CHARACTER_OPTIONS["proportions"])
     gear: EnumProperty(**_CHARACTER_OPTIONS["gear"])
     cloth: BoolProperty(**_CHARACTER_OPTIONS["cloth"])
+    sway: BoolProperty(**_CHARACTER_OPTIONS["sway"])
     gap: FloatProperty(name="Gap", default=0.5, min=0.0, unit="LENGTH",
                        description="Space left between neighbouring characters")
     folder: StringProperty(name="Save each to", subtype="DIR_PATH", default="",
@@ -1095,6 +1102,7 @@ class CDANIM_OT_game_mesh(Operator):
     textures: BoolProperty(**_TEXTURES)
     variant: IntProperty(**_VARIANT)
     cloth: BoolProperty(**_CHARACTER_OPTIONS["cloth"])
+    sway: BoolProperty(**_CHARACTER_OPTIONS["sway"])
 
     @classmethod
     def poll(cls, context):
@@ -1134,6 +1142,7 @@ class CDANIM_OT_import_pac(Operator, ImportHelper):
     textures: BoolProperty(**_TEXTURES)
     variant: IntProperty(**_VARIANT)
     cloth: BoolProperty(**_CHARACTER_OPTIONS["cloth"])
+    sway: BoolProperty(**_CHARACTER_OPTIONS["sway"])
 
     @classmethod
     def poll(cls, context):
@@ -1291,8 +1300,8 @@ def _clip_action(context):
 
 
 class CDANIM_OT_bake_chains(Operator):
-    """Simulate the selected character's chains, such as a flail's, and its cloth, such as a cloak, over the
-    scene's frames and store the result, so every frame shows it. Export leaves both out"""
+    """Simulate the selected character's chains, such as a flail's, its hair and its cloth, such as a cloak,
+    over the scene's frames and store the result, so every frame shows it. Export leaves them out"""
     bl_idname = "cd_animator.bake_chains"
     bl_label = "Simulate chains and cloth"
     bl_options = {"REGISTER", "UNDO"}
@@ -1308,7 +1317,7 @@ class CDANIM_OT_bake_chains(Operator):
     def poll(cls, context):
         obj = context.object
         if not (skeleton.is_cd_armature(obj) and (chains.chain_bones(obj) or cloth.cloth_objects(obj))):
-            cls.poll_message_set("Select an armature carrying a chain or cloth, such as a flail or a cloak")
+            cls.poll_message_set("Select an armature carrying a chain, hair or cloth, such as a flail or a cloak")
             return False
         return True
 

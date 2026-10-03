@@ -24,6 +24,7 @@ pivot, or the middle of its own vertices at the end of a chain, so that
 the weight sits where the ball is.
 """
 
+import math
 import re
 
 import bpy
@@ -315,6 +316,14 @@ def bake(context, arm, start=None, end=None, damping=0.03, collide=True, settle=
                     and (bones[n].head_local - bones[n].parent.tail_local).length < 1e-3) for n in order}
     inv_mass = {n: 1.0 / max(1.0, float(bones[n].get("cd_mass", 1))) for n in order}
     size = {n: float(bones[n].get("cd_radius", 0.01)) for n in order}
+    # A bone with a stiffness springs back to where its parent carries it,
+    # as hair does to its style (sway.py), with no gravity of its own. Its
+    # damping is a ratio of the spring's critical damping and works on its
+    # speed relative to that spot, not to the body's.
+    spring = {n: float(bones[n].get("cd_stiffness", 0.0)) for n in order}
+    spring_keep = {n: max(0.0, 1.0 - 2.0 * float(bones[n].get("cd_damping", 0.0)) * math.sqrt(spring[n]) * dt)
+                   for n in order}
+    limit = {n: math.radians(float(bones[n].get("cd_limit", 180.0))) for n in order}
     rel = {n: bones[n].parent.matrix_local.inverted() @ bones[n].matrix_local for n in order}
     current = {}
 
@@ -329,15 +338,20 @@ def bake(context, arm, start=None, end=None, damping=0.03, collide=True, settle=
         g = Vector((0.0, 0.0, -GRAVITY))
         for k in range(1, steps + 1):
             state = after if before is after else {n: before[n].lerp(after[n], k / steps) for n in after}
+            last = after if before is after else {n: before[n].lerp(after[n], (k - 1) / steps) for n in after}
             feet = [state[n].translation.z for n in _FEET if n in state]
             ground = min(feet) if feet else None
             caps = [(state[n].translation, (state[n] @ Matrix.Translation((0, bones[n].length, 0))).translation,
                      r * max(scale)) for n, r in capsules if n in state]
-            fixed = {}
+            fixed, target, carried = {}, {}, {}
             for n in order:
+                parent = state.get(bones[n].parent.name) or current.get(bones[n].parent.name, mw)
                 if not hung[n]:
-                    parent = state.get(bones[n].parent.name) or current.get(bones[n].parent.name, mw)
                     fixed[n] = (parent @ rel[n]).translation
+                if spring[n]:
+                    tip = rel[n] @ Matrix.Translation((0.0, bones[n].length, 0.0))
+                    target[n] = (parent @ tip).translation
+                    carried[n] = target[n] - (last.get(bones[n].parent.name, parent) @ tip).translation
             # The air moves with the body, so a running character's chains
             # are not dragged backwards; the pelvis stands for the body.
             body = state[_BODY].translation if _BODY in state else mw.translation
@@ -345,9 +359,16 @@ def bake(context, arm, start=None, end=None, damping=0.03, collide=True, settle=
             head_prev[_BODY] = body.copy()
             for n in order:
                 p = pos[n]
-                v = vh + ((p - prev[n]) - vh) * keep
+                if spring[n]:
+                    # The pull runs from where the link is heading, so the
+                    # spot's own move this substep is not counted twice.
+                    v = carried[n] + ((p - prev[n]) - carried[n]) * spring_keep[n]
+                    pull = (target[n] - p - v) * spring[n]
+                else:
+                    v = vh + ((p - prev[n]) - vh) * keep
+                    pull = g
                 prev[n] = p.copy()
-                pos[n] = p + v + g * dt * dt
+                pos[n] = p + v + pull * dt * dt
             for _ in range(10):
                 for n in order:
                     if hung[n]:
@@ -363,7 +384,15 @@ def bake(context, arm, start=None, end=None, damping=0.03, collide=True, settle=
                     pos[n] = pos[n] - fix * wb
                     if wa:
                         pos[bones[n].parent.name] = a + fix * wa
-                    if collide:
+                    if spring[n] and limit[n] < math.pi:
+                        # Keep the link within its cone around where the
+                        # parent carries it.
+                        aim, d = target[n] - a, pos[n] - a
+                        if d.length > 1e-9 and aim.length > 1e-9 and d.angle(aim) > limit[n]:
+                            axis = aim.cross(d)
+                            if axis.length > 1e-12:
+                                pos[n] = a + Matrix.Rotation(limit[n], 3, axis.normalized()) @ aim.normalized() * d.length
+                    if collide and not spring[n]:
                         p = pos[n]
                         reach = size[n] * scale.y
                         for ca, cc, r in caps:
@@ -398,16 +427,8 @@ def bake(context, arm, start=None, end=None, damping=0.03, collide=True, settle=
     # Settle with a little more damping than the clip gets, enough to stop
     # a chain that starts straight out within a second or two.
     solve(state, state, int(settle * FPS * SUBSTEPS), None, min(keep, 0.95))
-    # Then start the chain moving with what carries it.
-    scene.frame_set(min(start + 1, end))
-    ahead = frame_state()
     for n in order:
-        b = bones[n]
-        if b.parent and b.parent.name in state:
-            move = ahead[b.parent.name] @ state[b.parent.name].inverted()
-            prev[n] = pos[n] - (move @ pos[n] - pos[n]) / SUBSTEPS
-        else:
-            prev[n] = pos[n].copy()
+        prev[n] = pos[n].copy()
     head_prev.clear()
 
     keys = {n: [] for n in order}
@@ -415,6 +436,14 @@ def bake(context, arm, start=None, end=None, damping=0.03, collide=True, settle=
     for f in range(start, end + 1):
         scene.frame_set(f)
         after = frame_state()
+        if f == start + 1:
+            # The chain starts moving with what carries it, where the clip
+            # starts moving; within the first frame nothing moves yet.
+            for n in order:
+                parent = bones[n].parent.name if bones[n].parent else None
+                if parent in before and parent in after:
+                    move = after[parent] @ before[parent].inverted()
+                    prev[n] = pos[n] - (move @ pos[n] - pos[n]) / SUBSTEPS
         rot = {}
         solve(before if f > start else after, after, SUBSTEPS, rot, keep)
         before = after
