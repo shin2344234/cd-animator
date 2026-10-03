@@ -17,7 +17,7 @@ from .formats import sockets as sockets_format
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 20, 0),
+    "version": (0, 21, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -1571,6 +1571,99 @@ class CDANIM_OT_remove_from_game(Operator):
         return {"FINISHED"}
 
 
+def _clip_folder(obj):
+    """The clips folder of an armature's skeleton, such as 1_pc/1_phm/, or None."""
+    skel = obj.get("cd_game_path") if skeleton.is_cd_armature(obj) else None
+    if not skel or not skel.startswith(packs.MODEL):
+        return None
+    return skel[len(packs.MODEL):].rsplit("/", 1)[0] + "/"
+
+
+class CDANIM_OT_seen_in_game(Operator):
+    """List the clips the game played in its current or last session, newest first, as the CD Animator Loader logs
+    them; click one to import it onto the selected armature"""
+    bl_idname = "cd_animator.seen_in_game"
+    bl_label = "Seen in game"
+    bl_options = {"REGISTER"}
+
+    everyone: BoolProperty(name="All characters", default=False,
+                           description="List every clip, not only those of the selected armature's skeleton")
+    blocks: IntProperty(name="Moments", default=8, min=1, max=50,
+                        description="How many of the newest moments to list; a moment is the clips that loaded "
+                        "together, after 2 s with none")
+
+    _seen = {"blocks": [], "logging": None}
+
+    def invoke(self, context, event):
+        try:
+            b = ingame.bin64(context)
+            CDANIM_OT_seen_in_game._seen = {"blocks": ingame.read_clips(b), "logging": ingame.logging_clips(b)}
+        except (packs.PackError, OSError) as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        return context.window_manager.invoke_popup(self, width=620)
+
+    def execute(self, context):
+        return {"FINISHED"}
+
+    def draw(self, context):
+        layout = self.layout
+        seen = CDANIM_OT_seen_in_game._seen
+        if seen["logging"] is not True:
+            row = layout.row()
+            row.label(text="The loader is not logging clips; turn it on and restart the game", icon="ERROR")
+            row.operator(CDANIM_OT_log_clips.bl_idname, text="Turn on")
+        folder = _clip_folder(context.object)
+        row = layout.row()
+        row.prop(self, "everyone")
+        row.prop(self, "blocks")
+        if folder is None and not self.everyone:
+            layout.label(text="Select an armature from the game to see its clips, or tick All characters")
+            return
+        can_import = skeleton.is_cd_armature(context.object)
+        listed = 0
+        for when, gap, clips in reversed(seen["blocks"]):
+            shown = [c for c in clips if self.everyone or c.lower().startswith(folder)]
+            if not shown:
+                continue
+            box = layout.box()
+            box.label(text=f"{when:%H:%M:%S}, " + (f"after {gap:g} s with no new clip" if gap else "as the game started")
+                      + f": {len(shown)} clip{'s' if len(shown) != 1 else ''}", icon="TIME")
+            col = box.column(align=True)
+            col.enabled = can_import
+            col.operator_context = "EXEC_DEFAULT"
+            for c in shown[:12]:
+                face = "facial" in c.lower()
+                op = col.operator(CDANIM_OT_game_clip.bl_idname, text=c.rsplit("/", 1)[-1],
+                                  icon="USER" if face else "ACTION")
+                op.clip = c
+            if len(shown) > 12:
+                box.label(text=f"and {len(shown) - 12} more; type a name in Import animation for those")
+            listed += 1
+            if listed >= self.blocks:
+                break
+        if not listed:
+            layout.label(text="The game's log names no clips" + ("" if self.everyone else " of this skeleton"))
+
+
+class CDANIM_OT_log_clips(Operator):
+    """Turn on clip logging in the CD Animator Loader (LogClips=1 in CDAnimator.ini), so the game's log names each
+    clip it plays from its next start"""
+    bl_idname = "cd_animator.log_clips"
+    bl_label = "Turn on clip logging"
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        try:
+            ingame.log_clips(ingame.bin64(context), True)
+        except (ingame.SendError, packs.PackError, OSError) as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        CDANIM_OT_seen_in_game._seen["logging"] = True
+        self.report({"INFO"}, "The loader logs clips from the game's next start")
+        return {"FINISHED"}
+
+
 class CDANIM_OT_remove_face(Operator):
     """Take the facial clip off the selected armature's face, so the face goes back to rest, and its voice line out
     of the scene. The clip stays in the file as an action"""
@@ -1625,6 +1718,7 @@ class CDANIM_PT_panel(bpy.types.Panel):
         row = col.row(align=True)
         row.operator(CDANIM_OT_send_to_game.bl_idname, icon="PLAY")
         row.operator(CDANIM_OT_check_game.bl_idname, text="", icon="FILE_REFRESH")
+        col.operator(CDANIM_OT_seen_in_game.bl_idname, icon="VIEWZOOM")
         if _in_game["rows"] is None:
             col.label(text="Check the game to list the clips sent")
         else:
@@ -1702,7 +1796,8 @@ _classes = (CDANIM_AP_prefs, CDANIM_OT_import_pab, CDANIM_OT_import_paa, CDANIM_
             CDANIM_OT_game_skeleton, CDANIM_OT_game_clip, CDANIM_OT_game_new_clip, CDANIM_OT_game_mesh, CDANIM_OT_import_pac, CDANIM_OT_game_character, CDANIM_OT_game_characters, CDANIM_OT_game_prop, CDANIM_OT_bake_chains,
             CDANIM_OT_set_length, CDANIM_OT_event_add, CDANIM_OT_event_remove, CDANIM_UL_events,
             CDANIM_OT_seat_rider, CDANIM_OT_unseat_rider, CDANIM_OT_remove_face, CDANIM_OT_send_to_game,
-            CDANIM_OT_check_game, CDANIM_OT_remove_from_game, CDANIM_PT_panel)
+            CDANIM_OT_check_game, CDANIM_OT_remove_from_game, CDANIM_OT_seen_in_game, CDANIM_OT_log_clips,
+            CDANIM_PT_panel)
 
 
 def register():

@@ -191,3 +191,78 @@ def status(root, log):
         else:
             out.append((name, files, ("ready", found[main])))
     return out
+
+
+INI = "CDAnimator.ini"
+_CLIP = re.compile(r"^\[(\d\d):(\d\d):(\d\d)\.\d+\] \[[a-z ]+\] \[clip\] (.*)$")
+_GAP = re.compile(r"^---- ([\d.]+) s with no new clip ----$")
+
+
+def read_clips(bin64_path):
+    """The clips the game loaded in the current or last session, in the
+    blocks the loader logs: [(time, gap before it in seconds or None,
+    [clip paths under character/motion/ without .paa])], oldest first.
+    The loader logs a clip once a session, the first time the game loads
+    it, and starts a block wherever none has loaded for 2 s. Blends and
+    other files are left out."""
+    path = os.path.join(bin64_path, LOG)
+    if not os.path.isfile(path):
+        return []
+    start = datetime.datetime.fromtimestamp(os.path.getctime(path))
+    day, last = start.date(), None
+    blocks = []
+    with open(path, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            m = _CLIP.match(line.rstrip("\n"))
+            if not m:
+                continue
+            t = datetime.time(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            if last is not None and t < last:
+                day += datetime.timedelta(days=1)
+            last = t
+            when = datetime.datetime.combine(day, t)
+            rest = m.group(4).strip()
+            gap = _GAP.match(rest)
+            if gap:
+                blocks.append((when, float(gap.group(1)), []))
+                continue
+            low = rest.lower()
+            if not (low.startswith(packs.MOTION) and low.endswith(".paa")) or low.startswith(packs.MOTION_LOD):
+                continue
+            if not blocks:
+                blocks.append((when, None, []))
+            blocks[-1][2].append(rest[len(packs.MOTION):-len(".paa")])
+    return [b for b in blocks if b[2]]
+
+
+def logging_clips(bin64_path):
+    """True when the loader's ini has LogClips=1, False when 0 or missing,
+    None when there is no ini."""
+    path = os.path.join(bin64_path, INI)
+    if not os.path.isfile(path):
+        return None
+    with open(path, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            m = re.match(r"\s*LogClips\s*=\s*(\d+)", line)
+            if m:
+                return m.group(1) != "0"
+    return False
+
+
+def log_clips(bin64_path, on=True):
+    """Set LogClips in the loader's ini, keeping the rest of the file. The
+    loader reads it when the game starts."""
+    path = os.path.join(bin64_path, INI)
+    if not os.path.isfile(path):
+        raise SendError(f"the loader has not written {INI} yet; start the game once with it installed")
+    with open(path, encoding="utf-8", errors="replace", newline="") as f:
+        text = f.read()
+    value = "LogClips=1" if on else "LogClips=0"
+    new, n = re.subn(r"(?m)^\s*LogClips\s*=\s*\d+", value, text)
+    if not n:
+        nl = "\r\n" if "\r\n" in text else "\n"
+        new = re.sub(r"(?m)^\[settings\]\s*$", "[settings]" + nl + value, text, count=1)
+        if new == text:
+            new = text + nl + "[settings]" + nl + value + nl
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        f.write(new)
