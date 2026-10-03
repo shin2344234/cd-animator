@@ -9,8 +9,10 @@ showed nothing). B_Body_00, the bone under it, does show, and Kliff sits on
 B_Rider_01 under that, so he goes with it (a 40 cm probe on 2 October 2026).
 
 So this adds a slow float of FLOAT_CM to B_Body_00, with a side to side roll
-of ROLL_DEG about the seat a quarter cycle behind it and a small pitch, so
-the broom drifts in a slow figure of eight. Kliff's clip stays the game's.
+of ROLL_DEG about the seat at twice its rate and a small pitch, so the broom
+drifts in a slow figure of eight. Every part is zero on frame 0, so the clip
+starts on the shipped pose, the one examples/level_takeoff.py holds, and
+flight starts it with no jump. Kliff's clip stays the game's.
 Bip01, B_MoveControl_01 and the TL bones are untouched, the clip keeps its
 100 frames, and so its metadata stays the game's.
 
@@ -47,8 +49,8 @@ def hover(frame, pivot):
     axes: Z up, the broom flies along -Y)."""
     phase = 2.0 * math.pi * frame / FRAMES
     rise = Matrix.Translation((0.0, 0.0, FLOAT_CM / 100.0 * math.sin(phase)))
-    roll = Matrix.Rotation(math.radians(ROLL_DEG) * math.sin(phase - math.pi / 2), 4, "Y")
-    pitch = Matrix.Rotation(math.radians(PITCH_DEG) * math.cos(phase), 4, "X")
+    roll = Matrix.Rotation(math.radians(ROLL_DEG) * math.sin(2.0 * phase), 4, "Y")
+    pitch = Matrix.Rotation(math.radians(PITCH_DEG) * math.sin(phase), 4, "X")
     about = Matrix.Translation(pivot) @ roll @ pitch @ Matrix.Translation(-pivot)
     return rise @ about
 
