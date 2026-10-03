@@ -181,6 +181,10 @@ def main():
     rigs = [
         ("cd_r0032_00_broom.pab", "cd_rd_broom_basic_00_00_"),
         ("phm_01.pab", "cd_phm_rd_broom_basic_00_00_"),
+        # Kliff on foot: a standing idle with no tag in its header, and LODs
+        # whose lead names the skeleton.
+        ("phm_01.pab", "cd_phm_basic_00_00_nor_std_idle_0"),
+        ("phm_01.pab", "cd_kliff_basic_00_00_nor_so_std_idle_desert_"),
     ]
     for pab_name, prefix in rigs:
         pab_path = os.path.join(folder, pab_name)

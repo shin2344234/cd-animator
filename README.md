@@ -1,12 +1,12 @@
 # CD Animator
 
-A Blender add-on for Crimson Desert animations. It imports skeletons (`.pab`) as armatures and animation clips (`.paa`, full and `_lod`) as actions. It exports an action back to a `.paa`, along with the `_lod.paa` and `.paa_metabin` the game loads with every clip. Version 0.3.0 is the first whose clips have played in the game. Broomy 1.0.2's hover idle and level takeoff were made with it.
+A Blender add-on for Crimson Desert animations. It imports skeletons (`.pab`) as armatures and animation clips (`.paa`, full and `_lod`) as actions. It exports an action back to a `.paa`, along with the `_lod.paa` and `.paa_metabin` the game loads with every clip. Its clips play in the game. Broomy 1.0.2's hover idle and level takeoff were made with it, and so were the raised-arm idles that first tested the loader. Version 0.3.1 also reads Kliff's on-foot clips.
 
 It needs Blender 4.4 or newer and was built on 5.2.2.
 
 ## Install
 
-In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `dist/cd_animator-0.3.0.zip`. To rebuild the zip after changing the code:
+In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `dist/cd_animator-0.3.1.zip`. To rebuild the zip after changing the code:
 
 ```
 blender --command extension build --source-dir cd_animator --output-dir dist
@@ -41,14 +41,15 @@ The loader in `loader/` is an ASI plugin, `CDAnimator.asi`, that hands the game 
 
 ## Examples
 
-Both run headless and write into `out/`:
+All three run headless and write into `out/`:
 
 ```
 blender -b --factory-startup --python examples/hover_idle.py
 blender -b --factory-startup --python examples/level_takeoff.py
+blender -b --factory-startup --python examples/raise_arm.py
 ```
 
-`hover_idle.py` adds a 12 cm float with a small roll and pitch to the broom's idle, on B_Body_00, starting and ending on the shipped pose. `level_takeoff.py` makes a takeoff that holds the idle's first frame and keeps the climb's rise, so flight starts with no jump. Broomy 1.0.2 carries both.
+`hover_idle.py` adds a 12 cm float with a small roll and pitch to the broom's idle, on B_Body_00, starting and ending on the shipped pose. `level_takeoff.py` makes a takeoff that holds the idle's first frame and keeps the climb's rise, so flight starts with no jump. Broomy 1.0.2 carries both. `raise_arm.py` turns Kliff's right arm up over his head in his two standing idles and his desert fidget, for the loader; other clips of his can be named on the command line.
 
 ## Check
 
@@ -56,7 +57,7 @@ blender -b --factory-startup --python examples/level_takeoff.py
 blender -b --factory-startup --python tests/check_import.py
 ```
 
-It imports both rigs and all 44 broom riding clips from `samples/character`, then compares every bone at a set of frames and half frames with forward kinematics done in game space. It prints PASS when every bone is within 1 mm.
+It imports both rigs and the clips in `samples/character`, all 44 broom riding clips plus Kliff's two standing idles and the three parts of his desert fidget with their LODs, then compares every bone at a set of frames and half frames with forward kinematics done in game space. It prints PASS when every bone is within 1 mm.
 
 ```
 blender -b --factory-startup --python tests/check_export.py
