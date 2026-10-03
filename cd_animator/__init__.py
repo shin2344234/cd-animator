@@ -10,14 +10,14 @@ from bpy.types import AddonPreferences, Operator, OperatorFileListElement, UILis
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 from mathutils import Matrix
 
-from . import anim, chains, clip, convert, export, mesh, meta, packs, skeleton
+from . import anim, chains, clip, cloth, convert, export, mesh, meta, packs, skeleton
 from .formats import material, pac, paa_codec
 from .formats import sockets as sockets_format
 
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 15, 0),
+    "version": (0, 16, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -454,6 +454,13 @@ def _place_mesh(op, context, arm, data, name, game_path=None, variant=0,
         obj["cd_socket"] = where
         obj["cd_socket_bone"] = next(iter(remap.values()), "")
         obj["cd_placement"] = [x for row in placement for x in row]
+    if component:
+        obj["cd_component"] = component
+    if getattr(op, "cloth", True):
+        swinging = {h for h, n in (remap or {}).items() if arm.data.bones.get(n) and arm.data.bones[n].get("cd_chain")}
+        made = cloth.setup(context, arm, obj, m, swinging)
+        if made is not None:
+            notes.append(("INFO", f"{name}: {sum(1 for p in made.data.vertices)} vertices of cloth"))
     if note:
         notes.append(("WARNING", f"{name}: {note}"))
     if load is not None and load.failed:
@@ -569,6 +576,7 @@ def _build_character(op, context, idx, text, clip=""):
     pushed = _stack_gear(context, idx, arm)
     if pushed:
         notes.append(("INFO", f"{arm.name}: moved out over the clothes: {pushed}"))
+    cloth.collide_body(arm)
     if ch.missing:
         notes.append(("WARNING", f"{arm.name}: prefabs not in the game: {', '.join(ch.missing)}"))
     if failed:
@@ -748,6 +756,9 @@ _CHARACTER_OPTIONS = dict(
                description="0 is the most detailed; 3 is the coarsest the game draws far away"),
     textures=dict(name="Textures", default=True,
                   description="Give the parts the game's textures, from each mesh's material file"),
+    cloth=dict(name="Cloth", default=True,
+               description="Let cloaks, coat tails and other cloth hang and flow with Blender's cloth simulation, "
+               "held where the game holds them"),
     gear=dict(name="Gear", default="AWAY", items=(
         ("AWAY", "Put away", "Add the armour and weapons the game's character record gives the character, "
          "weapons sheathed or on the back"),
@@ -781,6 +792,7 @@ class CDANIM_OT_game_character(Operator):
     textures: BoolProperty(**_CHARACTER_OPTIONS["textures"])
     proportions: BoolProperty(**_CHARACTER_OPTIONS["proportions"])
     gear: EnumProperty(**_CHARACTER_OPTIONS["gear"])
+    cloth: BoolProperty(**_CHARACTER_OPTIONS["cloth"])
 
     def invoke(self, context, event):
         if not _open_index(self, context):
@@ -845,6 +857,7 @@ class CDANIM_OT_game_prop(Operator):
         description="Leave empty to use the game's socket for this weapon, or name one of the skeleton's sockets")
     level: IntProperty(**_CHARACTER_OPTIONS["level"])
     textures: BoolProperty(**_CHARACTER_OPTIONS["textures"])
+    cloth: BoolProperty(**_CHARACTER_OPTIONS["cloth"])
 
     @classmethod
     def poll(cls, context):
@@ -948,6 +961,7 @@ class CDANIM_OT_game_characters(Operator):
     textures: BoolProperty(**_CHARACTER_OPTIONS["textures"])
     proportions: BoolProperty(**_CHARACTER_OPTIONS["proportions"])
     gear: EnumProperty(**_CHARACTER_OPTIONS["gear"])
+    cloth: BoolProperty(**_CHARACTER_OPTIONS["cloth"])
     gap: FloatProperty(name="Gap", default=0.5, min=0.0, unit="LENGTH",
                        description="Space left between neighbouring characters")
     folder: StringProperty(name="Save each to", subtype="DIR_PATH", default="",
@@ -1080,6 +1094,7 @@ class CDANIM_OT_game_mesh(Operator):
     level: IntProperty(**_LEVEL)
     textures: BoolProperty(**_TEXTURES)
     variant: IntProperty(**_VARIANT)
+    cloth: BoolProperty(**_CHARACTER_OPTIONS["cloth"])
 
     @classmethod
     def poll(cls, context):
@@ -1118,6 +1133,7 @@ class CDANIM_OT_import_pac(Operator, ImportHelper):
     level: IntProperty(**_LEVEL)
     textures: BoolProperty(**_TEXTURES)
     variant: IntProperty(**_VARIANT)
+    cloth: BoolProperty(**_CHARACTER_OPTIONS["cloth"])
 
     @classmethod
     def poll(cls, context):
@@ -1275,22 +1291,24 @@ def _clip_action(context):
 
 
 class CDANIM_OT_bake_chains(Operator):
-    """Simulate the selected character's chains, such as a flail's, over the scene's frames so they hang and swing
-    with the clip. Chains are keyed on an NLA track of their own, which export leaves out"""
+    """Simulate the selected character's chains, such as a flail's, and its cloth, such as a cloak, over the
+    scene's frames and store the result, so every frame shows it. Export leaves both out"""
     bl_idname = "cd_animator.bake_chains"
-    bl_label = "Simulate chains"
+    bl_label = "Simulate chains and cloth"
     bl_options = {"REGISTER", "UNDO"}
 
-    damping: FloatProperty(name="Damping", min=0.0, max=0.5, default=0.03,
-                           description="Share of the links' speed lost every quarter frame; more stops the swing sooner")
+    damping: FloatProperty(name="Chain damping", min=0.0, max=0.5, default=0.03,
+                           description="Share of a chain's speed lost every quarter frame; more stops the swing sooner")
     collide: BoolProperty(name="Collide", default=True,
-                          description="Keep the links out of the body and no lower than the feet")
+                          description="Keep chains out of the body and no lower than the feet")
+    cloth: BoolProperty(name="Cloth", default=True, description="Simulate and store the cloth too; it takes "
+                        "a few seconds per second of clip")
 
     @classmethod
     def poll(cls, context):
         obj = context.object
-        if not (skeleton.is_cd_armature(obj) and chains.chain_bones(obj)):
-            cls.poll_message_set("Select an armature carrying a chain, such as a flail")
+        if not (skeleton.is_cd_armature(obj) and (chains.chain_bones(obj) or cloth.cloth_objects(obj))):
+            cls.poll_message_set("Select an armature carrying a chain or cloth, such as a flail or a cloak")
             return False
         return True
 
@@ -1300,7 +1318,14 @@ class CDANIM_OT_bake_chains(Operator):
             bpy.ops.object.mode_set(mode="OBJECT")
         start, end = _chain_range(context, arm)
         n = chains.bake(context, arm, start, end, damping=self.damping, collide=self.collide)
-        self.report({"INFO"}, f"Simulated {n} chain bones over frames {start} to {end}")
+        done = []
+        if n:
+            done.append(f"{n} chain bones")
+        if self.cloth and cloth.cloth_objects(arm):
+            cloth.set_range(arm, context.scene.frame_start, context.scene.frame_end)
+            done.append(f"{cloth.bake(context, arm)} cloth parts")
+        self.report({"INFO"}, f"Simulated {' and '.join(done) or 'nothing'} over frames "
+                              f"{context.scene.frame_start} to {context.scene.frame_end}")
         return {"FINISHED"}
 
 

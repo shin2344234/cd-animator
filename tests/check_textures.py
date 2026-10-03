@@ -94,7 +94,7 @@ def check_mesh(idx, rig, path):
     fails = 0
     bpy.context.view_layer.objects.active = rig
     before = set(rig.children)
-    res = bpy.ops.cd_animator.game_mesh(mesh=path)
+    res = bpy.ops.cd_animator.game_mesh(mesh=path, cloth=False)
     obj = next(o for o in rig.children if o not in before)
     mats, _n = material.read_materials(packs.material_file(idx, path))
     name = path.rsplit("/", 1)[-1]

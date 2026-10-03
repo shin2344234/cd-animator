@@ -86,7 +86,7 @@ def check_records(idx):
 
 
 def parts(arm):
-    return {o["cd_component"]: o for o in arm.children if "cd_component" in o}
+    return {o["cd_component"]: o for o in arm.children if "cd_component" in o and "cd_cloth_of" not in o}
 
 
 def check_kliff():
@@ -127,7 +127,7 @@ def check_soldier():
     got = parts(arm)
     shield = got.get("CD_MainWeapon_Shield_L")
     body = got.get("CD_Upperbody")
-    components = [o["cd_component"] for o in arm.children if "cd_component" in o]
+    components = [o["cd_component"] for o in arm.children if "cd_component" in o and "cd_cloth_of" not in o]
     twice = sorted({c for c in components if components.count(c) > 1})
     pushed = shield.get("cd_pushed", 0) if shield else 0
     return report(shield is not None and str(shield.get("cd_socket", "")).startswith("Spine2_B_Shield_Socket")

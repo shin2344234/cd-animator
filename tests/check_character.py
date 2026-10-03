@@ -95,7 +95,8 @@ def build(name):
 
 def check_kliff():
     res, arm, took = build("cd_phm_macduff_00000")
-    got = {o["cd_component"]: o for o in arm.children}
+    # A part's cloth, split off into an object of its own (cloth.py), is not a part.
+    got = {o["cd_component"]: o for o in arm.children if "cd_cloth_of" not in o}
     want = {c: "character/model/" + PHM + p for c, p in KLIFF.items()}
     wrong = [c for c in want if c not in got or got[c].name.split(".")[0] != want[c].rsplit("/", 1)[-1]]
     extra = [c for c in got if c not in want]
@@ -231,8 +232,9 @@ def check_proportions(idx):
 
 def check_damian():
     res, arm, took = build("1_pc/2_phw/cd_phw_damian/cd_phw_damian_00000")
-    return report(res == {"FINISHED"} and arm["cd_game_path"].endswith("/phw_01") and len(arm.children) == 16,
-                  f"Damian builds on phw_01 with {len(arm.children)} meshes ({took:.1f} s)")
+    parts = [o for o in arm.children if "cd_cloth_of" not in o]
+    return report(res == {"FINISHED"} and arm["cd_game_path"].endswith("/phw_01") and len(parts) == 16,
+                  f"Damian builds on phw_01 with {len(parts)} meshes ({took:.1f} s)")
 
 
 def main():

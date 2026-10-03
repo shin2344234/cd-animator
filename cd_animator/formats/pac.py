@@ -46,8 +46,16 @@ A vertex record is 40 bytes:
          sqrt(1 - x^2 - y^2), negative when bit 30 is set
     +20  2 x u32, three 10-bit palette slots in each
     +28  8 x u8 weights, the first six used
-    +36  3 bytes, +39 a byte whose low 6 bits are 63 when all six slots
-         count and anything else when only the first four do
+    +36  3 bytes, +39 a byte whose low 6 bits say how far the vertex
+         follows the skeleton (below)
+
+The low 6 bits of byte +39 are 63 on a vertex the skeleton moves alone,
+every vertex of a body, and 0 on one the game's cloth simulation moves
+freely: the hem of Kliff's cloak, 573 of its 1,990 vertices, all below the
+shoulders, 63 at the collar and 31 or 15 between. Only the first four
+weights count on a vertex below 63. Hair runs from 63 at the root to about
+32 at the tips, with no 0, for a sway the add-on does not simulate. 275 of
+700 sampled character meshes have vertices below 63.
 
 Weights add up to 255 on 96% of vertices outside cloth meshes and 92% in
 all; the rest add up to less, and the reader scales each vertex's weights to
@@ -116,6 +124,7 @@ class Submesh:
     uvs: list = field(default_factory=list)
     normals: list = field(default_factory=list)
     skin: list = field(default_factory=list)        # per vertex [(palette slot, weight 0..1)]
+    pins: list = field(default_factory=list)        # per vertex 0 (cloth) to 63 (skeleton only)
     triangles: list = field(default_factory=list)
 
 
@@ -290,7 +299,9 @@ def read_pac(data, level=0, known_hashes=None):
             nz = max(0.0, 1.0 - nx * nx - ny * ny) ** 0.5
             sb.normals.append((nx, ny, -nz if nrm & 0x40000000 else nz))
             slots = (lo & 0x3FF, (lo >> 10) & 0x3FF, (lo >> 20) & 0x3FF, hi & 0x3FF, (hi >> 10) & 0x3FF, (hi >> 20) & 0x3FF)
-            used = 6 if rec[16] & 0x3F == 63 else 4
+            pin = rec[16] & 0x3F
+            sb.pins.append(pin)
+            used = 6 if pin == 63 else 4
             total = sum(w[:used]) or 1
             sb.skin.append([(slots[j], w[j] / total) for j in range(used) if w[j]])
         idx = struct.unpack_from(f"<{ni}H", data, ibase)

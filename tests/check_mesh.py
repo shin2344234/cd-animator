@@ -101,7 +101,8 @@ def check_case(idx, skel, mesh_path, clip, frames):
     bpy.ops.cd_animator.game_skeleton(skeleton=skel)
     rig = bpy.context.object
     t = time.time()
-    res = bpy.ops.cd_animator.game_mesh(mesh=mesh_path)
+    # The mesh as the file has it; cloth would split off its free parts (cloth.py).
+    res = bpy.ops.cd_animator.game_mesh(mesh=mesh_path, cloth=False)
     obj = next(o for o in rig.children if o.type == "MESH")
     data = paz.read(idx.by_path[mesh_path + ".pac"])
     sk = paa.read_pab(paz.read(idx.by_path[skel + ".pab"]))

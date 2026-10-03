@@ -129,9 +129,11 @@ def import_clip(context, obj, path):
     scene.frame_start = 0
     scene.frame_end = max(last, 1)
     # Chains swing with the new clip (chains.py).
-    from . import chains
+    from . import chains, cloth
     if chains.chain_bones(obj):
         chains.bake(context, obj, 0, max(last, 1))
+    # Cloth simulates from the clip's first frame as it plays (cloth.py).
+    cloth.set_range(obj, 0, max(last, 1))
     return action, unknown
 
 
