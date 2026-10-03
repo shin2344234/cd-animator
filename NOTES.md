@@ -190,6 +190,23 @@ Blender does not reset a channel when the NLA stops animating it, so after a fac
 
 On the bandit phm_south_23002, the beard's springs hang on B_Forehead_15_C, which a spoken line moves up to 34 mm; the springs turn at most 6.3 degrees. The add-on does not load the voice audio of the spoken lines.
 
+## Voice
+
+The game's sound is Wwise. There are 390,308 `.wem` files and 3,288 `.bnk` banks. Group 0004 holds the banks and `sound/windows/media/`, numbered files for sound effects and music plus 25,511 numbered files in each language folder under it. The spoken lines are in one group per installed language, named: 0006 is `sound/windows/english(us)/` (60,461 lines), 0005 Korean, 0035 Chinese. A voice file's name is the name of its lip sync clip, so `99_autofacial/english(us)/<line>` plays `sound/windows/english(us)/<line>.wem`. For Kliff's skeleton 15,557 of the 21,413 English lip sync clips have one, 1,851 of Kliff's own 2,869. Three of Kliff's voice files are named by a number, such as `unique_kliff_15286332413776243713`, and the facial clips of those three have the same numbered names.
+
+Every voice file is Wwise Vorbis (codec 0xFFFF), mono at 48 kHz, with a 0x42-byte fmt chunk holding the Vorbis header and mod packets (signal 0xCB). Its setup packet names its codebooks by 10-bit index into Wwise's aoTuV 6.03 table, so the conversion needs that table; `formats/wwise.py` rebuilds the three Vorbis headers and the audio packets the way ww2ogg does. ww2ogg writes granule position 0 on every page of these files, which have none; the port counts the samples from the block sizes and puts the file's sample count on the last page, so players read the true length. 200 random English lines all convert, Blender's audio library and ffmpeg decode them without error to exactly the sample count in the file, and their levels are speech (one: mean -26 dB, peak -8 dB).
+
+The missing lines are not in the installed files. Every language has them: 16% of Kliff's skeleton's Chinese lip sync clips have no voice, 27% of English, 31% of Korean, and up to 43% for `14_ptm`, with DLC lines worst (1,205 of 2,935 English DLC clips). Of the 4,681 English scenes, 3,222 are fully voiced, 441 partly, with gaps scattered through them, and 1,018 not at all. Nothing else in the files holds them:
+
+- The numbered files in `sound/windows/media/<language>/` are efforts and grunts. They are 44.1 kHz where dialogue is 48 kHz, every language has its own 25,511 with no ID shared, and the `dialogvoiceinfo` table maps the 519 voice types (`Unique_Kliff`, `Unique_Damian`) to effort events such as `vce_effort_kliff`.
+- The 325 banks per language hold 55,339 HIRC objects, 34,503 of them sounds and 484 events, and no line name hashes to an event, sound or media ID under FNV-1, FNV-1a or hashlittle (seed 0 or 0xC5EDE), with or without `play_`, `vo_` or a path.
+- Matching on the name without its speaker type finds 492 more English files, but many are another character's voice for the same line: Oongka's face clip with Kliff's voice, Shane's with Dwayne's, Laurent's with Astin's. Among lines that do match exactly, 77 in 2,000 would also match some other file this way. The add-on does not guess.
+- The game's group list in `meta/0.papgt` names only the installed groups; 0018 and 0034 are absent from it and from the folder.
+
+So the game ships lip sync for more lines than it voices, and voices about 42,000 lines per language, battle calls and ambient talk among them, that have no lip sync clip. When a line has no voice in its own language, the add-on checks the other installed ones: 438 English misses for Kliff's skeleton are voiced in Korean and 60 in Chinese, and the warning names that language's lip sync clip, which plays the line with its own lips.
+
+Lip sync clips end on a whole frame. The voice runs on past the clip. In 80 matched lines it ran on a median 51 ms and at most 86 ms, and one clip was 1.9 s longer than its line; in 45 more it ran on 34 to 66 ms. Both start at frame 0; whether the game starts them together is not checked.
+
 ## Gear
 
 The game's data tables are in group 0008 as pairs of files, `gamedata/binarystaticinfo__/bin/<table>.staticinfoheader` and `.staticinfobody`. The header is a u16 record count, then each record's u32 key and u32 offset into the body; a record runs to the next offset. Each record starts with its key again and its name, a u32 length and the bytes. `formats/staticinfo.py` reads them and finds the fields it needs by their shape, checking each against the game's files, without decoding the rest.

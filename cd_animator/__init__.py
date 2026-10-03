@@ -10,14 +10,14 @@ from bpy.types import AddonPreferences, Operator, OperatorFileListElement, UILis
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 from mathutils import Matrix
 
-from . import anim, chains, clip, cloth, convert, export, mesh, meta, packs, skeleton, sway
+from . import anim, chains, clip, cloth, convert, export, mesh, meta, packs, skeleton, sway, voice
 from .formats import material, pac, paa_codec
 from .formats import sockets as sockets_format
 
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 18, 0),
+    "version": (0, 19, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -301,6 +301,8 @@ class CDANIM_OT_game_clip(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     clip: StringProperty(name="Clip", search=_clip_names, search_options={"SUGGESTION"}, description=_GAME_CLIP)
+    voice: BoolProperty(name="Voice", default=True,
+                        description="For a lip sync clip from 99_autofacial, play its voice line from frame 0")
 
     @classmethod
     def poll(cls, context):
@@ -332,6 +334,10 @@ class CDANIM_OT_game_clip(Operator):
             self.report({"INFO"}, f"Imported {action.name} on the face, over {obj.animation_data.action.name}")
         else:
             self.report({"INFO"}, f"Imported {action.name}")
+        if self.voice:
+            strip, note = voice.add_for_clip(context, idx, obj, name)
+            if note:
+                self.report({"INFO"} if strip else {"WARNING"}, note)
         return {"FINISHED"}
 
 
@@ -659,6 +665,10 @@ def _build_character(op, context, idx, text, clip=""):
             action, unknown = anim.import_clip(context, arm, packs.fetch_clip(idx, clip_name))
             on_face = anim.face_action(arm) is action
             notes.append(("INFO", f"{arm.name}: playing {action.name}{' on the face' if on_face else ''}"))
+            if getattr(op, "voice", True):
+                strip, note = voice.add_for_clip(context, idx, arm, clip_name)
+                if note:
+                    notes.append(("INFO" if strip else "WARNING", note))
             if unknown:
                 notes.append(("WARNING", f"{arm.name}: {len(unknown)} bones {action.name} animates are not in "
                                          f"this skeleton; it may be a clip for another one"))
@@ -815,6 +825,8 @@ _CHARACTER_OPTIONS = dict(
                description="0 is the most detailed; 3 is the coarsest the game draws far away"),
     textures=dict(name="Textures", default=True,
                   description="Give the parts the game's textures, from each mesh's material file"),
+    voice=dict(name="Voice", default=True,
+               description="For a lip sync clip from 99_autofacial, play its voice line from frame 0"),
     sway=dict(name="Hair sway", default=True,
               description="Let hair lag behind the head and spring back, as much as the game lets each strand"),
     cloth=dict(name="Cloth", default=True,
@@ -859,6 +871,7 @@ class CDANIM_OT_game_character(Operator):
     gear: EnumProperty(**_CHARACTER_OPTIONS["gear"])
     cloth: BoolProperty(**_CHARACTER_OPTIONS["cloth"])
     sway: BoolProperty(**_CHARACTER_OPTIONS["sway"])
+    voice: BoolProperty(**_CHARACTER_OPTIONS["voice"])
 
     def invoke(self, context, event):
         if not _open_index(self, context):
@@ -1031,6 +1044,7 @@ class CDANIM_OT_game_characters(Operator):
     gear: EnumProperty(**_CHARACTER_OPTIONS["gear"])
     cloth: BoolProperty(**_CHARACTER_OPTIONS["cloth"])
     sway: BoolProperty(**_CHARACTER_OPTIONS["sway"])
+    voice: BoolProperty(**_CHARACTER_OPTIONS["voice"])
     gap: FloatProperty(name="Gap", default=0.5, min=0.0, unit="LENGTH",
                        description="Space left between neighbouring characters")
     folder: StringProperty(name="Save each to", subtype="DIR_PATH", default="",
@@ -1462,8 +1476,8 @@ class CDANIM_OT_unseat_rider(Operator):
 
 
 class CDANIM_OT_remove_face(Operator):
-    """Take the facial clip off the selected armature's face, so the face goes back to rest. The clip stays in the
-    file as an action"""
+    """Take the facial clip off the selected armature's face, so the face goes back to rest, and its voice line out
+    of the scene. The clip stays in the file as an action"""
     bl_idname = "cd_animator.remove_face"
     bl_label = "Remove facial clip"
     bl_options = {"REGISTER", "UNDO"}
@@ -1478,6 +1492,7 @@ class CDANIM_OT_remove_face(Operator):
     def execute(self, context):
         name = anim.face_action(context.object).name
         anim.remove_face(context.object)
+        voice.remove(context.scene, context.object)
         self.report({"INFO"}, f"Took {name} off the face")
         return {"FINISHED"}
 
@@ -1513,6 +1528,9 @@ class CDANIM_PT_panel(bpy.types.Panel):
         face = anim.face_action(obj) if skeleton.is_cd_armature(obj) else None
         if face is not None:
             self.layout.label(text=f"Face: {face.name}, {int(face.frame_end)} frames", icon="USER")
+        strip = voice.strip_of(context.scene, obj) if skeleton.is_cd_armature(obj) else None
+        if strip is not None:
+            self.layout.label(text=f"Voice: {strip.get('cd_voice_line', strip.name)}", icon="SPEAKER")
         action = obj.animation_data.action if obj and obj.animation_data else None
         if action is not None and "cd_source" in action:
             box = self.layout.box()
