@@ -53,6 +53,12 @@ KLIFF_NAME = "cd_phm_rd_wyvern_basic_00_00_air_move_fall_walk_end_00"
 KEEP = ("B_TL_Position_01", "B_TL_Position_02")
 
 KICK_FRAMES = 36
+# Kliff's lower chart only moves on when the broom changes state, never at
+# the end of a clip, so after the kick the clip carries his broom idle
+# itself: IDLE_LOOPS rounds of its IDLE_FRAMES, 31.2 s in all. The Broomy
+# test build gives FDA30B13 that length.
+IDLE_LOOPS = 9
+IDLE_FRAMES = 100
 RISE_DELAY = 9          # Bip01 holds still this long, then rises as the climb does
 DIP = 0.42              # how far B_Body_00 sinks, metres
 # B_Body_00's drop by frame: ease down, sit, spring back as the rise starts.
@@ -227,6 +233,11 @@ def build_kliff(kliff, seat):
             t.keyframe_insert("location", frame=f)
         ik = calf.constraints.new("IK")
         ik.target, ik.chain_count = t, 2
+        # IK only for the kick; the idle after it is the idle's own keys.
+        ik.influence = 1.0
+        ik.keyframe_insert("influence", frame=KICK_FRAMES)
+        ik.influence = 0.0
+        ik.keyframe_insert("influence", frame=KICK_FRAMES + 1)
         targets[s] = (t, planted)
 
     # Walk each contact frame's target until the ball of the foot sits on the
@@ -245,7 +256,45 @@ def build_kliff(kliff, seat):
             if worst < 0.001:
                 break
         print(f"  frame {f}: feet within {worst * 1000:.1f} mm of the planted spot")
+    append_idle(kliff, action)
     return action
+
+
+def append_idle(kliff, action):
+    """After the kick, IDLE_LOOPS rounds of Kliff's broom idle, key for key.
+    The kick ends on the idle's frame 0, so the first round joins it."""
+    kick = {(fc.data_path, fc.array_index): fc for fc in export._channelbag(kliff, action).fcurves}
+    idle = anim.import_clip(bpy.context, kliff, os.path.join(S, KLIFF_IDLE + ".paa"))[0]
+    idle_curves = {(fc.data_path, fc.array_index): fc for fc in export._channelbag(kliff, idle).fcurves}
+    kliff.animation_data.action = action
+    slot = next((sl for sl in action.slots if sl.target_id_type == "OBJECT"), None)
+    if slot is not None:
+        kliff.animation_data.action_slot = slot
+    for key, fc in kick.items():
+        src = idle_curves.get(key)
+        if src is None:
+            continue
+        keys = [(p.co[0], p.co[1], p.interpolation) for p in fc.keyframe_points if p.co[0] < KICK_FRAMES]
+        for k in range(IDLE_LOOPS):
+            base = KICK_FRAMES + k * IDLE_FRAMES
+            for p in src.keyframe_points:
+                if p.co[0] >= IDLE_FRAMES and k < IDLE_LOOPS - 1:
+                    continue   # the next round's frame 0 takes this spot
+                keys.append((base + p.co[0], p.co[1], "LINEAR"))
+        pts = fc.keyframe_points
+        pts.clear()
+        pts.add(len(keys))
+        for pt, (f, v, interp) in zip(pts, keys):
+            pt.co = (f, v)
+            pt.handle_left = pt.handle_right = (f, v)
+            pt.interpolation = interp
+        fc.update()
+    bpy.data.actions.remove(idle)
+    total = KICK_FRAMES + IDLE_LOOPS * IDLE_FRAMES
+    clip.set_length(bpy.context, kliff, action, total)
+    for e in action.cd_meta.events:
+        e.end = max(e.end, total / anim.FPS)
+    print(f"  Kliff's clip: {KICK_FRAMES} frame kick, then {IDLE_LOOPS} rounds of his idle, {total} frames")
 
 
 def clearance(kliff, seat, frames):
