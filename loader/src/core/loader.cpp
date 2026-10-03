@@ -84,22 +84,34 @@ namespace
     }
 
     // LogClips: every clip and blend the game loads, once, so a player can
-    // find the file behind what is on screen. Finds and existence checks are
-    // left out: loading a save checks thousands of clips it never plays.
+    // find the file behind what is on screen. Loading a save loads some 3,000
+    // at once, Kliff's whole motion set; after that a clip loads when it first
+    // plays. A marker line after each quiet spell of kQuietMs keeps that
+    // batch apart from what happened next.
     bool g_logClips = false;
     SRWLOCK g_seenLock = SRWLOCK_INIT;
     std::unordered_set<std::string> g_seen;
+    ULONGLONG g_lastClip = 0;
     constexpr size_t kMaxSeen = 50000;
+    constexpr ULONGLONG kQuietMs = 2000;
 
     bool EndsWith(const char* s, const char* tail);
 
     void Note(const char* path)
     {
         if (!(EndsWith(path, ".paa") && !EndsWith(path, "_lod.paa")) && !EndsWith(path, ".motionblending")) return;
+        const ULONGLONG now = GetTickCount64();
         AcquireSRWLockExclusive(&g_seenLock);
         const bool fresh = g_seen.size() < kMaxSeen && g_seen.emplace(path).second;
+        const ULONGLONG quiet = fresh && g_lastClip ? now - g_lastClip : 0;
+        if (fresh)
+        {
+            g_lastClip = now;
+            // Under the lock, so the marker lands before the clip it heads.
+            if (quiet >= kQuietMs) LOG("[clip] ---- %.1f s with no new clip ----", quiet / 1000.0);
+            LOG("[clip] %s", path);
+        }
         ReleaseSRWLockExclusive(&g_seenLock);
-        if (fresh) LOG("[clip] %s", path);
     }
 
     const std::string* Lookup(const char* path)

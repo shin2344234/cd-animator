@@ -23,7 +23,7 @@ namespace cda::files
     // empty when there is none.
     typedef std::string (*StandIn)(const char* path);
     // Each file the game reads or loads, not the ones it only finds or checks
-    // for: loading a save checks every clip the charts name. May be null.
+    // for. May be null.
     typedef void (*Loaded)(const char* path);
 
     // Off the loader lock: Broomy hooks the same functions from its DllMain.
