@@ -11,3 +11,6 @@ __pycache__/
 .vscode/
 .idea/
 out/
+
+# The loader's build tree. Rebuild with loader\build.bat.
+loader/build/

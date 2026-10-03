@@ -203,9 +203,12 @@ class Animation:
                         # and equal to a field inside the sibling .paa_metabin,
                         # so it is schema/track-slot metadata, not a per-clip
                         # keyframe or bone count (the skeleton has 9 bones).
-    unk_u16: int        # header @0x12. Constant 0xc000 across all 11 clips.
+    unk_u16: int        # header @0x12. 0xc000 on every clip with a tag; 0 on
+                        # Kliff's standing idle cd_phm_basic_00_00_nor_std_idle_00,
+                        # which has no tag and no tag length, its scale at 0x14.
     tag: str            # header string, e.g. "남자;빗자루;"
-                        # ("male;broom;"). NUL-terminated in the file.
+                        # ("male;broom;"). NUL-terminated in the file. None
+                        # when unk_u16 is 0.
     scale: tuple         # 3 float32 right after the tag; always (1,1,1) here
     track_data: bytes    # opaque: per-bone keyframe region, NOT decoded (see
                           # module docstring and animation.md)
@@ -222,13 +225,16 @@ def read_paa(data: bytes) -> Animation:
 
     count_u16 = struct.unpack_from("<H", data, 0x10)[0]
     unk_u16 = struct.unpack_from("<H", data, 0x12)[0]
-    str_len = struct.unpack_from("<H", data, 0x14)[0]
-    tag_bytes = data[0x16:0x16 + str_len]
-    if tag_bytes[-1:] != b"\x00":
-        raise ValueError("tag string is not NUL-terminated where expected")
-    tag = tag_bytes[:-1].decode("utf-8")
-
-    after_str = 0x16 + str_len
+    if unk_u16 == 0:
+        tag = None
+        after_str = 0x14
+    else:
+        str_len = struct.unpack_from("<H", data, 0x14)[0]
+        tag_bytes = data[0x16:0x16 + str_len]
+        if tag_bytes[-1:] != b"\x00":
+            raise ValueError("tag string is not NUL-terminated where expected")
+        tag = tag_bytes[:-1].decode("utf-8")
+        after_str = 0x16 + str_len
     scale = struct.unpack_from("<3f", data, after_str)
     track_start = after_str + 12
 
@@ -236,7 +242,6 @@ def read_paa(data: bytes) -> Animation:
 
 
 def write_paa(anim: Animation) -> bytes:
-    tag_bytes = anim.tag.encode("utf-8") + b"\x00"
     out = bytearray()
     out += MAGIC
     out.append(TYPE_ANIMATION)
@@ -244,8 +249,10 @@ def write_paa(anim: Animation) -> bytes:
     out += CONST_BLOCK
     out += struct.pack("<H", anim.count_u16)
     out += struct.pack("<H", anim.unk_u16)
-    out += struct.pack("<H", len(tag_bytes))
-    out += tag_bytes
+    if anim.tag is not None:
+        tag_bytes = anim.tag.encode("utf-8") + b"\x00"
+        out += struct.pack("<H", len(tag_bytes))
+        out += tag_bytes
     out += struct.pack("<3f", *anim.scale)
     out += anim.track_data
     return bytes(out)

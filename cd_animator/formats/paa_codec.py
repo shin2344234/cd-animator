@@ -235,20 +235,21 @@ def _name_of(h):
 
 def read_track_data(t: bytes, lod: bool = False, flags: int = 0) -> TrackData:
     """Parse the track data region. `lod` selects the LOD clip layout;
-    `flags` is a full clip's header u16 at 0x10."""
+    `flags` is the header u16 at 0x10, a full clip's flags or a LOD's
+    marker; FLAG_SKELETON means the same in both."""
     n = len(t)
     rec = struct.unpack_from("<17f", t, 0)
     ref_scale = struct.unpack_from("<f", t, 68)[0]
     skeleton = None
     extra = 0
-    if not lod and flags & FLAG_SKELETON:
+    if flags & FLAG_SKELETON:
         k = t[72]
         skeleton = bytes(t[73:73 + k])
         extra = 1 + k
     duration = struct.unpack_from("<f", t, 72 + extra)[0]
     if lod:
-        lod_const, a, b, lod_zero, c = struct.unpack_from("<IHHII", t, 76)
-        off = LOD_LEAD_SIZE
+        lod_const, a, b, lod_zero, c = struct.unpack_from("<IHHII", t, 76 + extra)
+        off = LOD_LEAD_SIZE + extra
     else:
         lod_const, lod_zero = LOD_TAIL_CONST, 0
         a, b, c = struct.unpack_from("<HHI", t, 76 + extra)
@@ -362,7 +363,8 @@ def write_track_data(td: TrackData) -> bytes:
 class LodHeader:
     """Container fields of a _lod.paa (paa.read_paa rejects these files)."""
     version: int
-    marker: int           # u16 at 0x10, 415 in every sample
+    marker: int           # u16 at 0x10: 415 (0x19F), or 0x1DF with FLAG_SKELETON
+                          # on clips whose lead names the skeleton
     zero: int             # u16 at 0x12
     source_hash: int      # u32 at 0x14: hashlittle(full clip bytes, 0xC5EDE)
     scale: tuple
@@ -370,7 +372,7 @@ class LodHeader:
 
 def is_lod(data: bytes) -> bool:
     return (data[:4] == _paa.MAGIC and data[4] == _paa.TYPE_ANIMATION
-            and struct.unpack_from("<H", data, 0x10)[0] == LOD_MARKER)
+            and struct.unpack_from("<H", data, 0x10)[0] & ~FLAG_SKELETON == LOD_MARKER)
 
 
 def decode_file(data: bytes):
@@ -382,7 +384,7 @@ def decode_file(data: bytes):
         marker, zero, src = struct.unpack_from("<HHI", data, 0x10)
         scale = struct.unpack_from("<3f", data, 0x18)
         hdr = LodHeader(data[5], marker, zero, src, scale)
-        return hdr, read_track_data(data[0x24:], lod=True)
+        return hdr, read_track_data(data[0x24:], lod=True, flags=marker)
     anim = _paa.read_paa(data)
     return anim, read_track_data(anim.track_data, flags=anim.count_u16)
 
@@ -534,8 +536,9 @@ def make_lod(full_bytes: bytes, template_lod_bytes: bytes | None = None, rot_tol
             bt = BoneTrack(f.name, f.name_hash, 0, rot, pos, False, 0, 2, ROT_HALF, POS_HALF)
         out.append(bt)
     ld = ftd.lead
-    lead = Lead(ld.rec_a, ld.rec_b, ld.ref_scale, ld.duration, LOD_TAIL_CONST, 0)
-    hdr = LodHeader(3, LOD_MARKER, 0, lod_source_hash(full_bytes), (1.0, 1.0, 1.0))
+    lead = Lead(ld.rec_a, ld.rec_b, ld.ref_scale, ld.duration, LOD_TAIL_CONST, 0, ld.skeleton)
+    marker = LOD_MARKER | (FLAG_SKELETON if ld.skeleton is not None else 0)
+    hdr = LodHeader(3, marker, 0, lod_source_hash(full_bytes), (1.0, 1.0, 1.0))
     return encode_file(hdr, TrackData(lead, out, True))
 
 
