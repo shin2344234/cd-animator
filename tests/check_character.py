@@ -87,7 +87,8 @@ def check_survey(idx):
 
 def build(name):
     t = time.time()
-    res = bpy.ops.cd_animator.game_character(character=name)
+    # The appearance alone; tests/check_gear.py checks the gear.
+    res = bpy.ops.cd_animator.game_character(character=name, gear="NONE")
     arm = bpy.context.view_layer.objects.active
     return res, arm, time.time() - t
 

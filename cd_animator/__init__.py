@@ -1,6 +1,7 @@
 """CD Animator: Crimson Desert skeletons and animations in Blender."""
 
 import os
+import re
 
 import bpy
 from bpy.props import BoolProperty, CollectionProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
@@ -16,7 +17,7 @@ from .formats import sockets as sockets_format
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 13, 0),
+    "version": (0, 14, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -371,19 +372,32 @@ def _child_matrix(m, socket):
     return convert.SWAP @ game @ convert.SWAP @ local
 
 
-def _socket_layout(context, arm, m, name, component, socket_file, drawn, socket):
+def _part_rule(context, arm, component):
+    """The socket rule for prefab component `component` on armature `arm`,
+    or None."""
+    skel = arm.get("cd_game_path")
+    if not (skel and component):
+        return None
+    playable = str(arm.get("cd_character", "")).startswith("1_pc/")
+    return packs.part_rules(packs.index(context), skel, playable, arm.get("cd_description")).get(component)
+
+
+def _socket_layout(context, arm, m, name, component, socket_file, drawn, socket, follow=None):
     """(bone map, placement, where) to put mesh `m` rigidly at a socket of
     armature `arm`: the socket `socket` names, or else the one the part
     rules give component `component`, drawn or put away. The mesh's own
-    socket named by the same rule, from `socket_file`, lands on it."""
+    socket named by the same rule, from `socket_file`, lands on it. A part
+    with no rule takes `follow`, (bone, placement, where) of another part
+    of its prefab, as the arrows in a quiver do."""
     idx = packs.index(context)
     skel = arm.get("cd_game_path")
     if not skel:
         raise packs.PackError(f"{name} has bones of its own and goes to a socket, which needs a skeleton "
                               "imported from the game")
-    playable = str(arm.get("cd_character", "")).startswith("1_pc/")
-    rule = packs.part_rules(idx, skel, playable).get(component) if component else None
-    where, child_name = sockets_format.placement(rule, drawn)
+    where, child_name = sockets_format.placement(_part_rule(context, arm, component), drawn)
+    if not (where or socket) and follow:
+        bone, placement, where = follow
+        return {h: bone for h in m.palette}, placement, where
     own = packs.sockets(idx, socket_file) if socket_file else {}
     if socket:
         where = socket
@@ -405,11 +419,13 @@ def _socket_layout(context, arm, m, name, component, socket_file, drawn, socket)
 
 
 def _place_mesh(op, context, arm, data, name, game_path=None, variant=0,
-                component=None, socket_file=None, drawn=True, socket=None):
+                component=None, socket_file=None, drawn=True, socket=None, follow=None):
     """Read mesh bytes `data` and put the mesh on armature `arm`. A mesh
     with bones of its own follows the armature's bones of the same names;
     one whose root the armature lacks, such as a weapon, goes rigidly to a
     socket (_socket_layout), as does any mesh when `socket` names one.
+    `follow` is for _socket_layout. The object keeps its socket in
+    cd_socket and cd_socket_bone, and its placement in cd_placement.
     Returns (object, vertex count, part count, [(level, message)]); raises
     ValueError, mesh.MeshError, packs.PackError or OSError."""
     try:
@@ -425,12 +441,14 @@ def _place_mesh(op, context, arm, data, name, game_path=None, variant=0,
     if m.bones or socket:
         remap = mesh.own_bone_map(arm, m) if m.bones and not socket else None
         if remap is None:
-            remap, placement, where = _socket_layout(context, arm, m, name, component, socket_file, drawn, socket)
+            remap, placement, where = _socket_layout(context, arm, m, name, component, socket_file, drawn, socket,
+                                                     follow)
             notes.append(("INFO", f"{name} at {where}"))
     mats, load, variants, note = _game_materials(op, context, name, game_path, variant)
     obj, missing = mesh.build_mesh(context, arm, m, name, mats, load, remap, placement)
     if where:
         obj["cd_socket"] = where
+        obj["cd_socket_bone"] = next(iter(remap.values()), "")
         obj["cd_placement"] = [x for row in placement for x in row]
     if note:
         notes.append(("WARNING", f"{name}: {note}"))
@@ -498,22 +516,35 @@ def _character_clip_names(self, context, edit_text):
 
 def _build_character(op, context, idx, text, clip=""):
     """Build character `text` (a name the character search accepts) with
-    the options on `op` (level, textures, proportions), and put clip `clip`
+    the options on `op` (level, textures, proportions, gear), and put clip `clip`
     on it when given. Returns (armature, meshes placed, [(level, message)]);
     raises packs.PackError, ValueError, OSError or SyntaxError when the
     character cannot be built at all."""
     name = packs.resolve(idx.appearances, text, "character", prefix=packs.APPEARANCE, ext=".app_xml")
     ch = packs.character(idx, name)
+    gear = packs.gear(idx, name)
+    items = _gear_parts(idx, gear) if gear and op.gear != "NONE" else []
+    # A playable character's look is its gear. Anyone else keeps the
+    # outfit of its appearance and gets only the weapons and props; their
+    # records' armour is the wearable version, the one they drop.
+    playable = name.startswith("1_pc/")
+    worn = {c for _item, prefabs in items for _prefab, parts in prefabs for c, _p, _f in parts} if playable else set()
     varied = skeleton.variation_in(packs.variation(idx, ch.variations)) if op.proportions else None
     arm, _odd = skeleton.build_armature(context, packs.fetch_skeleton(idx, ch.skeleton), variation=varied)
     arm["cd_game_path"] = ch.skeleton
     arm["cd_character"] = name
+    if gear:
+        arm["cd_record"] = gear.record
+        if gear.description:
+            arm["cd_description"] = gear.description
     if varied:
         arm["cd_variations"] = [p.rsplit("/", 1)[-1] for p in ch.variations]
         arm.scale = (ch.scale, ch.scale, ch.scale)
     arm.name = name.rsplit("/", 1)[-1]
     failed, notes, placed = [], [], 0
     for component, path in ch.parts:
+        if component in worn:
+            continue
         mesh_name = mesh.mesh_name(path)
         try:
             with open(packs.fetch_mesh(idx, path), "rb") as f:
@@ -526,6 +557,14 @@ def _build_character(op, context, idx, text, clip=""):
         obj["cd_component"] = component
         notes += [n for n in more if n[0] == "WARNING"]
         placed += 1
+    if items:
+        more, count = _place_gear(op, context, idx, arm, items, failed, armour=playable,
+                                  have=set() if playable else {c for c, _p in ch.parts})
+        notes += more
+        placed += count
+    pushed = _stack_gear(context, idx, arm)
+    if pushed:
+        notes.append(("INFO", f"{arm.name}: moved out over the clothes: {pushed}"))
     if ch.missing:
         notes.append(("WARNING", f"{arm.name}: prefabs not in the game: {', '.join(ch.missing)}"))
     if failed:
@@ -554,11 +593,162 @@ def _build_character(op, context, idx, text, clip=""):
     return arm, placed, notes
 
 
+def _gear_parts(idx, gear):
+    """[(item name, [(prefab, [(component, mesh path, socket file)])])] of
+    `gear` (packs.Gear), leaving out empty models and parts shown only in
+    some states."""
+    from .formats import appearance
+    out = []
+    for item, prefabs in gear.items:
+        found = []
+        for prefab in prefabs:
+            if prefab.startswith("cd_t9999_") or prefab not in idx.prefabs:
+                continue
+            parts = [(c, m, f) for c, m, f in packs.prefab(idx, prefab) if not appearance.hidden(c)]
+            if parts:
+                found.append((prefab, parts))
+        if found:
+            out.append((item, found))
+    return out
+
+
+def _hand(skeleton_sockets, socket):
+    """"L" or "R" for a socket on a bone of one side, such as LForearm_Socket
+    on Bip_Shield_L, so that a shield and a bow both count as the left
+    hand; otherwise the socket's own name."""
+    bone = skeleton_sockets[socket].parent if socket in skeleton_sockets else ""
+    side = re.search(r"[_ ]([LR])$", bone)
+    return side.group(1) if side else socket
+
+
+def _place_gear(op, context, idx, arm, items, failed, armour=True, have=()):
+    """Put gear `items` (_gear_parts) on `arm`: armour on the bones and
+    each weapon at its socket. With op.gear "DRAWN" a weapon goes in hand
+    when no earlier one holds that side, and is put away otherwise, as
+    Kliff's bow is behind his sword and shield; a scabbard stays where it
+    is put away. A part whose rule says Visible="Out", as most of a
+    player's weapons do, shows only in use, and an item none of whose
+    parts shows is left out. So is an item put away at a socket an earlier
+    item holds, one with a part whose component is in `have`, as a guard's
+    spear already in its appearance, and with `armour` False every item
+    with no socket rule.
+    Returns ([(level, message)], meshes placed); adds unreadable meshes to
+    `failed`."""
+    skeleton_sockets = packs.sockets(idx, arm["cd_game_path"])
+    hands, taken, notes, placed, skipped, unseen = set(), set(), [], 0, [], []
+    for item, prefabs in items:
+        rules = {c: _part_rule(context, arm, c) for _prefab, parts in prefabs for c, _p, _f in parts}
+        ruled = [r for r in rules.values() if r]
+        if not (ruled or armour) or any(c in have for c in rules):
+            continue
+        out = next((r["OutSocketBone"] for r in ruled if r.get("OutSocketBone")), None)
+        away = next((r["InSocketBone"] for r in ruled if r.get("InSocketBone")), None)
+        hand = _hand(skeleton_sockets, out) if out else None
+        drawn = op.gear == "DRAWN" and out is not None and hand not in hands
+        shown = {c for c, r in rules.items() if drawn or not (r and r.get("Visible") == "Out")}
+        if ruled and not any(rules[c] for c in shown):
+            unseen.append(item)
+            continue
+        if not drawn and away in taken:
+            skipped.append(f"{item} ({away})")
+            continue
+        if drawn:
+            hands.add(hand)
+        if away:
+            taken.add(away)
+        follow = None
+        for prefab, parts in prefabs:
+            for component, path, socket_file in parts:
+                if component not in shown:
+                    continue
+                mesh_name = mesh.mesh_name(path)
+                try:
+                    with open(packs.fetch_mesh(idx, path), "rb") as f:
+                        data = f.read()
+                    obj, _count, _parts, more = _place_mesh(
+                        op, context, arm, data, mesh_name, path, component=component, socket_file=socket_file,
+                        drawn=drawn, follow=follow)
+                except (ValueError, mesh.MeshError, packs.PackError, OSError) as exc:
+                    failed.append(f"{mesh_name} ({exc})")
+                    continue
+                obj["cd_component"] = component
+                obj["cd_item"] = item
+                if follow is None and "cd_placement" in obj:
+                    flat = obj["cd_placement"]
+                    follow = (obj["cd_socket_bone"], Matrix([flat[0:4], flat[4:8], flat[8:12], flat[12:16]]),
+                              obj["cd_socket"])
+                notes += [n for n in more if n[0] == "WARNING"]
+                placed += 1
+    notes.append(("INFO", f"{arm.name}: gear of {arm.get('cd_record')}: {', '.join(i for i, _p in items)}"))
+    if unseen:
+        notes.append(("INFO", f"{arm.name}: left out gear the game shows only in use: {', '.join(unseen)}"))
+    if skipped:
+        notes.append(("INFO", f"{arm.name}: left out gear whose socket is taken: {', '.join(skipped)}"))
+    return notes, placed
+
+
+def _stack_gear(context, idx, arm, radius=0.1):
+    """Move equipment at stacked sockets (formats/sockets.py, Stack) out
+    over the clothes, as the game does with a shield on the back over the
+    cloak. Each object moves once; it keeps the distance in cd_pushed. How far is how much further the stack's inner parts stand out
+    than the bare body along the origin bone's axis, within `radius` of
+    that axis line, at rest. Returns a summary such as "Back 12.1 cm", or
+    ""."""
+    parts = {}
+    for o in arm.children:
+        if o.type == "MESH" and "cd_component" in o:
+            parts.setdefault(o["cd_component"], []).append(o)
+    done = []
+    for stack in packs.stacks(idx, arm["cd_game_path"]):
+        movers = [o for o in arm.children if str(o.get("cd_socket", "")).split(" ", 1)[0] in stack.sockets
+                  and "cd_pushed" not in o]
+        bone = arm.data.bones.get(stack.origin)
+        if not movers or bone is None:
+            continue
+        frame = bone.matrix_local @ convert.AXIS_CORRECTION[bone.get("cd_axis", "+Y")].to_matrix().to_4x4().inverted()
+        origin = frame.translation
+        axis = (frame.to_3x3() @ convert.vec_in(stack.axis)).normalized()
+
+        def reach(objects):
+            best = None
+            for o in objects:
+                for v in o.data.vertices:
+                    d = v.co - origin
+                    along = d.dot(axis)
+                    if (d - axis * along).length < radius and (best is None or along > best):
+                        best = along
+            return best
+
+        inner = reach(o for c in stack.inner for o in parts.get(c, ()))
+        body = reach(parts.get("CD_Nude", ()))
+        if inner is None or body is None or inner <= body:
+            continue
+        shift = Matrix.Translation(axis * (inner - body))
+        for o in movers:
+            o.data.transform(shift)
+            flat = o["cd_placement"]
+            moved = shift @ Matrix([flat[0:4], flat[4:8], flat[8:12], flat[12:16]])
+            o["cd_placement"] = [x for row in moved for x in row]
+            o["cd_pushed"] = inner - body
+            o.data.update()
+        done.append(f"{stack.name} {(inner - body) * 100:.1f} cm")
+    return ", ".join(done)
+
+
 _CHARACTER_OPTIONS = dict(
     level=dict(name="Detail level", min=0, max=3, default=0,
                description="0 is the most detailed; 3 is the coarsest the game draws far away"),
     textures=dict(name="Textures", default=True,
                   description="Give the parts the game's textures, from each mesh's material file"),
+    gear=dict(name="Gear", default="AWAY", items=(
+        ("AWAY", "Put away", "Add the armour and weapons the game's character record gives the character, "
+         "weapons sheathed or on the back"),
+        ("DRAWN", "In use", "Add the character's armour and weapons, weapons in hand. A weapon whose hand "
+         "is already taken is left out"),
+        ("NONE", "None", "Only the appearance's outfit, no gear")),
+        description="The armour and weapons from the character's record in the game's data. A playable "
+        "character's armour replaces the appearance's parts of the same kind; other characters keep their "
+        "outfit and get the weapons and props"),
     proportions=dict(name="Own proportions", default=True,
                      description="Build the skeleton with the character's own skeleton variation and "
                      "scale, as the game does, instead of the shared skeleton"),
@@ -582,6 +772,7 @@ class CDANIM_OT_game_character(Operator):
     level: IntProperty(**_CHARACTER_OPTIONS["level"])
     textures: BoolProperty(**_CHARACTER_OPTIONS["textures"])
     proportions: BoolProperty(**_CHARACTER_OPTIONS["proportions"])
+    gear: EnumProperty(**_CHARACTER_OPTIONS["gear"])
 
     def invoke(self, context, event):
         if not _open_index(self, context):
@@ -685,6 +876,9 @@ class CDANIM_OT_game_prop(Operator):
             obj["cd_component"] = component
             notes += more
             placed += 1
+        pushed = _stack_gear(context, idx, arm) if placed else ""
+        if pushed:
+            notes.append(("INFO", f"Moved out over the clothes: {pushed}"))
         for o in context.view_layer.objects:
             o.select_set(o == arm)
         context.view_layer.objects.active = arm
@@ -742,6 +936,7 @@ class CDANIM_OT_game_characters(Operator):
     level: IntProperty(**_CHARACTER_OPTIONS["level"])
     textures: BoolProperty(**_CHARACTER_OPTIONS["textures"])
     proportions: BoolProperty(**_CHARACTER_OPTIONS["proportions"])
+    gear: EnumProperty(**_CHARACTER_OPTIONS["gear"])
     gap: FloatProperty(name="Gap", default=0.5, min=0.0, unit="LENGTH",
                        description="Space left between neighbouring characters")
     folder: StringProperty(name="Save each to", subtype="DIR_PATH", default="",

@@ -25,9 +25,23 @@ character/descriptors/characterdescription/*.xml, named by creature type
 
 PartName is a prefab component's name. "Out" is drawn, in use; "In" is put
 away. The weapon goes where its child socket lands on the character's
-socket. No file names which description a character uses, so the add-on
-merges them, the character's own family first; a part listed twice, as
-Kliff's spear is, takes each attribute from its first listing.
+socket. A character's record in the data tables names its description
+(formats/staticinfo.py); the add-on reads that one first and the rest
+after it, the character's own family first, so that a part the record's
+file leaves out still finds a rule. The first file to define a part gives
+its whole rule; a part listed twice in one file, as Kliff's spear is,
+takes each attribute from its first listing.
+
+After the SocketList a skeleton's socket file groups some sockets for
+stacking over clothes:
+
+    <StackEquipInfo Count="5" EquipTypeName="Back"
+        InnerPartNames="CD_Cloak CD_Upperbody"
+        OriginBoneName="Bip_Weapon_Attach_In_02" Axis="z" ...>
+        <Socket Name="Spine2_B_Shield_Socket"/> ...
+
+Equipment at those sockets moves out along the origin bone's axis, in the
+bone's own game frame, by as much as the inner parts stand out there.
 """
 
 import re
@@ -79,30 +93,57 @@ def read_sockets(data):
     return out
 
 
+@dataclass
+class Stack:
+    name: str            # EquipTypeName, such as Back
+    inner: tuple         # component names of the clothes under it
+    origin: str          # bone the sockets move out from
+    axis: tuple          # unit vector in the origin bone's game frame
+    sockets: tuple       # socket names
+
+
+_AXES = {"x": (1.0, 0.0, 0.0), "y": (0.0, 1.0, 0.0), "z": (0.0, 0.0, 1.0)}
+
+
+def read_stacks(data):
+    """[Stack] from a skeleton's .sockets.xml file."""
+    out = []
+    text = data.decode("utf-8-sig", "replace")
+    for head, body in re.findall(r"<StackEquipInfo\s([^>]*)>(.*?)</StackEquipInfo>", text, re.S):
+        e = dict(re.findall(r'(\w+)="([^"]*)"', head))
+        axis = e.get("Axis", "").strip().lower()
+        sign = -1.0 if axis.startswith("-") else 1.0
+        unit = _AXES.get(axis.lstrip("+-"))
+        names = tuple(re.findall(r'<Socket\s[^>]*?Name="([^"]+)"', body))
+        if unit and e.get("OriginBoneName") and names:
+            out.append(Stack(e.get("EquipTypeName", ""), tuple(e.get("InnerPartNames", "").split()),
+                             e["OriginBoneName"], tuple(sign * x for x in unit), names))
+    return out
+
+
 def read_part_sockets(data, into=None):
-    """{part name: {attribute: value}} from a character description,
-    added to `into` without replacing what it already holds."""
+    """{part name: {attribute: value}} from a character description, added
+    to `into`. A part `into` already holds is left as it is: the first file
+    to define a part decides all of its rule, so that a player file's
+    Visible="Out" does not reach an NPC's shield. Within one file a part
+    listed twice takes each attribute from its first listing."""
     out = {} if into is None else into
+    found = {}
     try:
-        root = _root(data)
+        elements = [dict(e.attrib) for e in _root(data).iter("PartInOutSocket")]
     except ET.ParseError:
         # A few descriptions are not well formed; take the elements anyway.
         text = data.decode("utf-8-sig", "replace")
-        for attrs in re.findall(r"<PartInOutSocket ([^>]*?)/?>", text):
-            pairs = dict(re.findall(r'(\w+)="([^"]*)"', attrs))
-            part = pairs.pop("PartName", None)
-            if part:
-                held = out.setdefault(part, {})
-                for k, v in pairs.items():
-                    held.setdefault(k, v)
-        return out
-    for e in root.iter("PartInOutSocket"):
-        part = e.get("PartName")
+        elements = [dict(re.findall(r'(\w+)="([^"]*)"', attrs))
+                    for attrs in re.findall(r"<PartInOutSocket ([^>]*?)/?>", text)]
+    for pairs in elements:
+        part = pairs.pop("PartName", None)
         if part:
-            held = out.setdefault(part, {})
-            for k, v in e.attrib.items():
-                if k != "PartName":
-                    held.setdefault(k, v)
+            held = found.setdefault(part, {})
+            for k, v in pairs.items():
+                held.setdefault(k, v)
+    for part, rule in found.items():
+        out.setdefault(part, rule)
     return out
 
 

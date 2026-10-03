@@ -1,10 +1,10 @@
 """The game's own files, read from its packs instead of from unpacked copies.
 
 The game folder comes from the add-on's preferences, or from Steam's library
-list when that is empty. The index of groups 0009 (clips, skeletons, meshes,
-their materials and textures, characters' appearances and prefabs, blends)
-and 0010 (clip metadata, action charts) is read once per session, about
-3 seconds. Files taken from the packs are written to a cache in Blender's
+list when that is empty. The index of groups 0008 (the data tables of
+characters and items), 0009 (clips, skeletons, meshes, their materials and
+textures, characters' appearances and prefabs, blends) and 0010 (clip
+metadata, action charts) is read once per session, about 3 seconds. Files taken from the packs are written to a cache in Blender's
 user folder: a clip, its LOD and its metadata side by side, so the importer
 and exporter find them as they would unpacked copies, and the cached clip
 stays the template its action is written against.
@@ -18,7 +18,8 @@ import bpy
 
 from .formats import paz
 
-GROUPS = {"0009": {"paa", "pab", "pabc", "pac", "pac_xml", "dds", "app_xml", "prefab", "prefabdata_xml",
+GROUPS = {"0008": {"staticinfoheader", "staticinfobody"},
+          "0009": {"paa", "pab", "pabc", "pac", "pac_xml", "dds", "app_xml", "prefab", "prefabdata_xml",
                    "motionblending", "xml"},
           "0010": {"paa_metabin", "paac"}}
 MOTION = "character/motion/"
@@ -31,6 +32,7 @@ PREFAB = "character/bin__/prefab/"
 VARIATION = "character/binary/skeletonvariation/"
 SOCKETS = "character/descriptors/socketbonedata/"
 DESCRIPTIONS = "character/descriptors/characterdescription/"
+TABLES = "gamedata/binarystaticinfo__/bin/"
 GAME = "Crimson Desert"
 
 
@@ -107,7 +109,21 @@ class Index:
         self._clips_by_folder = {}
         self._sockets = {}
         self._part_rules = {}
+        self._tables = {}
+        self._gear = {}
         self.stamp = _stamp(folder)
+
+    def table(self, name):
+        """{key: record bytes} of data table `name`, such as iteminfo, in
+        the header's order (formats/staticinfo.py)."""
+        if name not in self._tables:
+            from .formats import staticinfo
+            head = self.by_path.get(TABLES + name + ".staticinfoheader")
+            body = self.by_path.get(TABLES + name + ".staticinfobody")
+            if head is None or body is None:
+                raise PackError(f"no {name} table in the game")
+            self._tables[name] = dict(staticinfo.read_table(paz.read(head), paz.read(body)))
+        return self._tables[name]
 
     def bone_hashes(self):
         """Every bone name hash of every skeleton in the game, read once."""
@@ -328,6 +344,66 @@ def prefab(idx, name):
     return [(c, m.lower()[:-4], files.get(c)) for c, m in appearance.prefab_parts(data)]
 
 
+@dataclass
+class Gear:
+    record: str          # the character record's name, such as Kliff
+    description: str     # the character description it names, or None
+    items: list          # [(item name, [prefab name])], in the record's order
+
+
+def _name_hash(name):
+    from .formats.hashlittle import hashlittle
+    return hashlittle(name.lower().encode("utf-8"), 0xC5EDE)
+
+
+def gear(idx, name):
+    """The gear of character appearance `name` (as for character()): the
+    first character record in the table that names the appearance, and the
+    prefabs of its items as worn or held. None when no record names it or
+    the record has no gear."""
+    if name in idx._gear:
+        return idx._gear[name]
+    from .formats import staticinfo
+    chars, items = idx.table("characterinfo"), idx.table("iteminfo")
+    if "prefab" not in idx._tables:
+        idx._tables["prefab"] = {_name_hash(n): n for n in idx.prefabs}
+        idx._tables["description"] = {_name_hash(p.rsplit("/", 1)[-1][:-4]): p.rsplit("/", 1)[-1][:-4]
+                                      for p in idx.by_path if p.startswith(DESCRIPTIONS) and p.endswith(".xml")}
+        apps = {_name_hash(APPEARANCE + a + ".app_xml") for a in idx.appearances}
+        idx._tables["skeleton_of"] = {_name_hash(n + ".pab"): n for n in idx.skeletons}
+        skels = idx._tables["skeleton_of"]
+        # The first record naming an appearance is its character: Kliff
+        # before Kliff_AI and Kliff_Clone.
+        first = {}
+        for rec in chars.values():
+            files = staticinfo.character_files(rec, apps.__contains__, skels.__contains__)
+            if files:
+                first.setdefault(files[1], (rec, files[0], files[2]))
+        idx._tables["record"] = first
+    prefab_of = idx._tables["prefab"]
+    found = idx._tables["record"].get(_name_hash(APPEARANCE + name + ".app_xml"))
+    out = None
+    if found:
+        rec, description, skeleton_hash = found
+
+        def worn(key):
+            sets = staticinfo.model_sets(items[key], prefab_of.__contains__)
+            return [prefab_of[h] for h in sets[0][1]] if sets else []
+
+        # A record lists its loot the same way; the gear is the first list
+        # with a model made for the character's family, cd_phm_... for a
+        # man, and not only props (cd_t...) or another creature's things.
+        skeleton = idx._tables["skeleton_of"][skeleton_hash]
+        family = "cd_" + skeleton.rsplit("/", 1)[-1].split("_", 1)[0] + "_"
+        for _offset, keys in staticinfo.item_lists(rec, items.__contains__):
+            models = [(staticinfo.record_name(items[k]), worn(k)) for k in keys]
+            if any(p.startswith(family) for _n, ps in models for p in ps):
+                out = Gear(staticinfo.record_name(rec), idx._tables["description"].get(description), models)
+                break
+    idx._gear[name] = out
+    return out
+
+
 def sockets(idx, path):
     """{name: formats.sockets.Socket} of a socket file (its game path), or
     of skeleton `path` (game path without .pab); empty when there is none."""
@@ -340,14 +416,23 @@ def sockets(idx, path):
     return idx._sockets[path]
 
 
-def part_rules(idx, skeleton, playable=False):
+def stacks(idx, skeleton):
+    """[formats.sockets.Stack] of skeleton `skeleton` (game path without
+    .pab); empty when it has no socket file."""
+    from .formats import sockets as sockets_format
+    e = idx.by_path.get(SOCKETS + skeleton[len(MODEL):] + ".pab.sockets.xml") if skeleton.startswith(MODEL) else None
+    return sockets_format.read_stacks(paz.read(e)) if e is not None else []
+
+
+def part_rules(idx, skeleton, playable=False, description=None):
     """{part name: its socket rule}, merged from every character
-    description, those of the skeleton's family first (phm for phm_01), and
+    description: `description` first when the character's record names one
+    (gear()), then those of the skeleton's family (phm for phm_01), and
     within them the player files first for a playable character and last
-    for anyone else. No file says which description a character uses."""
+    for anyone else."""
     from .formats import sockets as sockets_format
     family = skeleton.rsplit("/", 1)[-1].split("_", 1)[0]
-    key = (family, playable)
+    key = (family, playable, (description or "").lower())
     if key not in idx._part_rules:
         files = sorted(p for p in idx.by_path if p.startswith(DESCRIPTIONS) and p.endswith(".xml"))
 
@@ -355,7 +440,7 @@ def part_rules(idx, skeleton, playable=False):
             base = p.rsplit("/", 1)[-1]
             own = base.startswith(family + "_")
             player = "player" in base
-            return (not own, player != playable, base)
+            return (base[:-4] != key[2], not own, player != playable, base)
 
         rules = {}
         for p in sorted(files, key=order):
