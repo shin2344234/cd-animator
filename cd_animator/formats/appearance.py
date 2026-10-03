@@ -92,6 +92,24 @@ def skeleton_of(prefabdata):
     return m.group(1) if m else None
 
 
+def variation_of(prefabdata):
+    """The skeleton variation path a prefab's data file names, such as
+    1_pc/1_phm/nude/cd_phm_00_nude_01_0002.pabc, or None."""
+    m = re.search(r'<SkeletonVariationName FileName="([^"]+)"', prefabdata.decode("utf-8-sig", "replace"))
+    return m.group(1) if m else None
+
+
+def character_scale(app):
+    """The body prefab's CharacterScale, 1.0 when it has none."""
+    for section, _name, attributes in app.prefabs:
+        if section == "Nude":
+            try:
+                return float(attributes.get("CharacterScale", 1.0))
+            except ValueError:
+                return 1.0
+    return 1.0
+
+
 def hidden(component):
     c = component.lower()
     return any(h in c for h in HIDDEN)

@@ -13,6 +13,7 @@ plain, and keep the game's material name in "cd_material".
 import os
 
 import bpy
+from mathutils import Matrix
 
 from . import convert, shading
 from .formats import paa_codec
@@ -52,6 +53,7 @@ def build_mesh(context, armature, mesh, name, materials=None, load=None):
                 mat_index.append(i)
     if not tris:
         raise MeshError("the mesh has no triangles at this detail level")
+    _fit_to_rest(armature, mesh, bone_of, verts, normals, weights)
 
     me = bpy.data.meshes.new(name)
     me.from_pydata([tuple(v) for v in verts], [], tris)
@@ -102,6 +104,40 @@ def build_mesh(context, armature, mesh, name, materials=None, load=None):
             g.add([v], w, "ADD")
     obj["cd_pac"] = name
     return obj, missing
+
+
+def _fit_to_rest(armature, mesh, bone_of, verts, normals, weights):
+    """Move vertices from the shared skeleton's bind space onto an armature
+    built with a skeleton variation (skeleton.py), in place. Each vertex
+    goes where the game's skinning puts it at rest, the weighted sum of its
+    bones' rest offsets applied to it. Under a pose Blender then skins the
+    moved vertex, where the game skins the stored one with each offset
+    separately; the two differ only where a vertex follows bones whose
+    offsets differ and that bend against each other."""
+    offsets = {}
+    for h in set(mesh.palette):
+        bone = armature.data.bones.get(bone_of.get(h, ""))
+        flat = bone.get("cd_rest_offset") if bone is not None else None
+        if flat is not None:
+            offsets[h] = Matrix([flat[0:4], flat[4:8], flat[8:12], flat[12:16]])
+    if not offsets:
+        return
+    turns = {h: m.to_3x3().inverted_safe().transposed() for h, m in offsets.items()}
+    palette = mesh.palette
+    for v, skin in enumerate(weights):
+        hit = [(palette[s], w) for s, w in skin if s < len(palette) and palette[s] in offsets]
+        if not hit:
+            continue
+        rest = sum(w for _s, w in skin)
+        p, n = verts[v], normals[v]
+        moved = p * (rest - sum(w for _h, w in hit))
+        turned = n * (rest - sum(w for _h, w in hit))
+        for h, w in hit:
+            moved += (offsets[h] @ p) * w
+            turned += (turns[h] @ n) * w
+        verts[v] = moved / rest if rest else p
+        if turned.length > 1e-9:
+            normals[v] = turned.normalized()
 
 
 def known_hashes(armature, extra=()):

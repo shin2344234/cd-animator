@@ -14,7 +14,7 @@ from .formats import material, pac, paa_codec
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 10, 0),
+    "version": (0, 11, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -411,6 +411,9 @@ class CDANIM_OT_game_character(Operator):
                        description="0 is the most detailed; 3 is the coarsest the game draws far away")
     textures: BoolProperty(name="Textures", default=True,
                            description="Give the parts the game's textures, from each mesh's material file")
+    proportions: BoolProperty(name="Own proportions", default=True,
+                              description="Build the skeleton with the character's own skeleton variation and "
+                              "scale, as the game does, instead of the shared skeleton")
 
     def invoke(self, context, event):
         if not _open_index(self, context):
@@ -423,13 +426,18 @@ class CDANIM_OT_game_character(Operator):
         try:
             idx = packs.index(context)
             name = packs.resolve(idx.appearances, self.character, "character", prefix=packs.APPEARANCE, ext=".app_xml")
-            skel, parts, skipped, missing = packs.character(idx, name)
-            arm, _odd = skeleton.build_armature(context, packs.fetch_skeleton(idx, skel))
+            ch = packs.character(idx, name)
+            varied = skeleton.variation_in(packs.variation(idx, ch.variations)) if self.proportions else None
+            arm, _odd = skeleton.build_armature(context, packs.fetch_skeleton(idx, ch.skeleton), variation=varied)
         except (packs.PackError, ValueError, OSError, SyntaxError) as exc:
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
+        skel, parts, skipped, missing = ch.skeleton, ch.parts, ch.skipped, ch.missing
         arm["cd_game_path"] = skel
         arm["cd_character"] = name
+        if varied:
+            arm["cd_variations"] = [p.rsplit("/", 1)[-1] for p in ch.variations]
+            arm.scale = (ch.scale, ch.scale, ch.scale)
         arm.name = name.rsplit("/", 1)[-1]
         failed, notes, placed = [], [], 0
         for component, path in parts:
@@ -455,6 +463,9 @@ class CDANIM_OT_game_character(Operator):
             self.report({"WARNING"}, f"{len(failed)} meshes could not be read: {'; '.join(failed[:3])}")
         if skipped:
             self.report({"INFO"}, f"left out parts shown only in some states: {', '.join(skipped)}")
+        if varied:
+            self.report({"INFO"}, f"own proportions from {', '.join(arm['cd_variations'])}, "
+                                  f"{arm.get('cd_varied_bones', 0)} bones; scale {ch.scale:g}")
         self.report({"INFO"}, f"Built {arm.name}: {placed} meshes on {skel.rsplit('/', 1)[-1]}")
         return {"FINISHED"} if placed else {"CANCELLED"}
 

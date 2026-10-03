@@ -1,4 +1,13 @@
-"""Build a Blender armature from a .pab skeleton."""
+"""Build a Blender armature from a .pab skeleton.
+
+With a skeleton variation (formats/pabc.py) the rest pose is the
+character's own: each bone the variation names sits at its world bind
+matrix there. Clip keys sit on top of the rest pose, so they then sit on the
+character's bind as in the game. Meshes are stored in the shared skeleton's
+bind space, so each bone also keeps its rest offset, the variation's world
+bind times the inverse of the shared one, both with scale; the mesh importer
+moves vertices by it (mesh.py).
+"""
 
 import os
 
@@ -7,6 +16,7 @@ from mathutils import Matrix
 
 from . import convert
 from .formats import paa as paa_format
+from .formats import paa_codec
 
 # Names that mark helper bones. A chain bone prefers a child without these
 # when it picks which way to point.
@@ -16,13 +26,22 @@ MIN_LENGTH = 0.02
 LEAF_LENGTH = 0.05
 
 
-def _bind_world(skeleton):
+def _bind_world(skeleton, variation=None):
     """Blender-space bind matrices (4x4, armature space), in bone order,
-    without scale. A bone sits where the game's hierarchy puts it, its
-    parents' bind scale included: the horse's tail bones have a bind scale
-    of 1.85, 1.14, 1.17 and 1.16, and ignoring it left the tail 40% short."""
+    without scale and with it. A bone sits where the game's hierarchy puts
+    it, its parents' bind scale included: the horse's tail bones have a bind
+    scale of 1.85, 1.14, 1.17 and 1.16, and ignoring it left the tail 40%
+    short. `variation` maps bone name hashes to Blender-space world bind
+    matrices with scale that replace the skeleton's."""
     world, scaled = [], []
     for b in skeleton.bones:
+        v = variation.get(paa_codec.bone_hash(b.name)) if variation else None
+        if v is not None:
+            loc, rot, _size = v.decompose()
+            w = Matrix.Translation(loc) @ rot.to_matrix().to_4x4()
+            world.append(w)
+            scaled.append(v.copy())
+            continue
         local = convert.matrix_in(b.quat, b.trans)
         size = Matrix.Diagonal(convert.vec_in(b.scale).to_4d())
         size[3][3] = 1.0
@@ -34,7 +53,16 @@ def _bind_world(skeleton):
             w.translation = (scaled[b.parent] @ local).translation
         world.append(w)
         scaled.append(s)
-    return world
+    return world, scaled
+
+
+def variation_in(game):
+    """{bone hash: Blender-space Matrix} from formats.pabc.read_variation."""
+    out = {}
+    for h, m in game.items():
+        g = Matrix((m[0:4], m[4:8], m[8:12], m[12:16]))
+        out[h] = convert.SWAP @ g @ convert.SWAP
+    return out
 
 
 def _children(skeleton):
@@ -56,15 +84,16 @@ def _main_child(skeleton, i, kids, world):
     return best if best_len >= MIN_LENGTH else None
 
 
-def build_armature(context, path, skeleton=None):
+def build_armature(context, path, skeleton=None, variation=None):
     """Create an armature object for the .pab at `path` and link it to the
-    scene. Returns the object."""
+    scene. `variation` is a skeleton variation from variation_in. Returns
+    the object and the names of bones with children and a bind scale."""
     if skeleton is None:
         with open(path, "rb") as f:
             skeleton = paa_format.read_pab(f.read())
     name = os.path.splitext(os.path.basename(path))[0]
 
-    world = _bind_world(skeleton)
+    world, scaled = _bind_world(skeleton, variation)
     kids = _children(skeleton)
 
     # Pick each bone's direction and length. Bones without a usable child
@@ -117,6 +146,15 @@ def build_armature(context, path, skeleton=None):
         bone["cd_index"] = i
         bone["cd_bind_q"] = list(b.quat)
         bone["cd_bind_t"] = list(b.trans)
+    if variation:
+        _plain, shared = _bind_world(skeleton)
+        moved = 0
+        for i, b in enumerate(skeleton.bones):
+            offset = scaled[i] @ shared[i].inverted()
+            if any(abs(offset[r][c] - (r == c)) > 1e-6 for r in range(4) for c in range(4)):
+                arm.bones[b.name]["cd_rest_offset"] = [x for row in offset for x in row]
+                moved += 1
+        obj["cd_varied_bones"] = moved
     for pb in obj.pose.bones:
         pb.rotation_mode = "QUATERNION"
 

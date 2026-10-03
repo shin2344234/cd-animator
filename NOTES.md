@@ -118,7 +118,17 @@ A prefab, `character/bin__/prefab/.../<name>.prefab`, is a binary reflection dum
 
 The appearance lists Kliff's plain inner layers first (`cd_phm_00_ub_inner_0054` and others) and the outfit after them, and each outfit component carries the same name as the inner one it covers, such as CD_Upperbody. Applying prefabs in order with a later component replacing an earlier one of the same name gives his default look. Of 5,667 appearance files, one is not well-formed XML; the rest resolve to 42,013 meshes, all in the packs. Hidden components are those named for the flight cloak, the hyperspace plug line and docking bags.
 
-The body prefab's data file, `character/prefab/.../<name>.prefabdata_xml`, names the skeleton (`1_pc/1_phm/phm_01.pab` for Kliff) and a skeleton variation, `cd_phm_00_nude_01_0002.pabc`. The variation holds 420 bone records with bind matrices, his proportions over the shared skeleton. It is not read yet, nor is the 1.02571 character scale or 0.92 head scale.
+The body prefab's data file, `character/prefab/.../<name>.prefabdata_xml`, names the skeleton (`1_pc/1_phm/phm_01.pab` for Kliff) and a skeleton variation, `cd_phm_00_nude_01_0002.pabc`; the head prefab's names the face's, `cd_phm_macduff_head_0001.pabc`. The 0.92 head scale in the appearance is not applied.
+
+## Skeleton variations
+
+`formats/pabc.py` has the layout. Each record is a bone hash and three matrices: the world bind with scale, the local without scale, and a packed form holding rotation, position, scale and the inverse of the parent's scale. Chaining the packed form as parent world, times the inverse parent scale, times the bone's own transform gives the world matrix to 0.01 mm for most bones, but some records hang from another parent than the skeleton's: Kliff's clavicles from the neck instead of Spine2, the tongue from the lower teeth. The add-on uses the world matrix.
+
+Kliff's body variation moves no main joint. It scales bones across their length, thighs 1.12 thicker, the spine 0.91, the shoulder muscle helpers up to 1.66, and moves and turns helper bones by up to 31 mm; the head variation moves face bones by up to 14 mm. Over the 97 male variations, moves reach 163 mm and scales 1.87.
+
+The inverse parent scale in every record means children ignore their parent's scale, so a bone's scale shapes only its own vertices. The importer builds the rest pose from the variation's world matrices without scale, so clips sit on the character's own bind; keys need no change and export is untouched. Meshes are stored in the shared skeleton's bind space. In the game a vertex is skinned by its bones' posed matrices, each with the bone's own scale, times the inverse of the shared bind. That equals Blender's skinning times a fixed offset per bone, the variation's scaled world bind times the inverse of the shared one. Blender cannot hold an offset per bone, so the importer applies the weighted offsets to each vertex once, at import. At rest that is exact; under a pose it differs where a vertex follows bones whose offsets differ and that bend against each other. In a dismount Kliff's body is within 6.5 mm of the game's skinning on every vertex, 99% within 4.1 mm.
+
+CharacterScale, 1.02571 for Kliff, becomes the armature object's scale.
 
 ## Smaller points
 

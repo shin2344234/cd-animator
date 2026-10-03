@@ -12,12 +12,14 @@ stays the template its action is written against.
 
 import os
 import re
+from dataclasses import dataclass
 
 import bpy
 
 from .formats import paz
 
-GROUPS = {"0009": {"paa", "pab", "pac", "pac_xml", "dds", "app_xml", "prefab", "prefabdata_xml", "motionblending"},
+GROUPS = {"0009": {"paa", "pab", "pabc", "pac", "pac_xml", "dds", "app_xml", "prefab", "prefabdata_xml",
+                   "motionblending"},
           "0010": {"paa_metabin", "paac"}}
 MOTION = "character/motion/"
 MOTION_LOD = "character/motion/motion_lod__/"
@@ -26,6 +28,7 @@ MODEL = "character/model/"
 MODEL_PROPERTY = "character/modelproperty/"
 APPEARANCE = "character/appearance/"
 PREFAB = "character/bin__/prefab/"
+VARIATION = "character/binary/skeletonvariation/"
 GAME = "Crimson Desert"
 
 
@@ -243,11 +246,20 @@ def fetch_texture(idx, path):
     return _write(local, paz.read(e))
 
 
+@dataclass
+class Character:
+    skeleton: str        # game path without .pab
+    parts: list          # [(component, mesh game path without .pac)]
+    skipped: list        # components shown only in some states
+    missing: list        # prefabs the packs lack
+    variations: list     # skeleton variation game paths, body first
+    scale: float         # the body's CharacterScale
+
+
 def character(idx, name):
-    """The meshes of character appearance `name` (its path under
-    character/appearance/, without .app_xml): (skeleton game path without
-    .pab, [(component, mesh game path without .pac)], hidden components
-    skipped, missing prefabs)."""
+    """Character appearance `name` (its path under character/appearance/,
+    without .app_xml) resolved to its skeleton, meshes and skeleton
+    variations."""
     from .formats import appearance
     e = idx.by_path.get(APPEARANCE + name + ".app_xml")
     if e is None:
@@ -268,7 +280,28 @@ def character(idx, name):
     skel = (MODEL + skel.lower()).rsplit(".", 1)[0]
     if skel + ".pab" not in idx.by_path:
         raise PackError(f"{name}'s skeleton {skel} is not in the game")
-    return skel, [(c, m.lower()[:-4]) for c, m in meshes], skipped, missing
+
+    # Each prefab's data file may name a skeleton variation: the body's for
+    # the body, the head's for the face. Later ones win where they overlap.
+    variations = []
+    for _section, prefab, _attributes in app.prefabs:
+        data = idx.prefab_data.get(prefab.lower())
+        found = appearance.variation_of(paz.read(idx.by_path[data])) if data else None
+        path = VARIATION + found.lower() if found else None
+        if path and path in idx.by_path and path not in variations:
+            variations.append(path)
+    return Character(skel, [(c, m.lower()[:-4]) for c, m in meshes], skipped, missing,
+                     variations, appearance.character_scale(app))
+
+
+def variation(idx, paths):
+    """The merged skeleton variation of game paths `paths`, later ones
+    winning: {bone hash: world bind matrix, 16 floats, game space}."""
+    from .formats import pabc
+    out = {}
+    for path in paths:
+        out.update(pabc.read_variation(paz.read(idx.by_path[path])))
+    return out
 
 
 def fetch_skeleton(idx, name):
