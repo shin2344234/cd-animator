@@ -102,6 +102,7 @@ class Index:
             elif p.endswith(".prefabdata_xml"):
                 self.prefab_data.setdefault(p.rsplit("/", 1)[-1][:-15], p)
         self._bone_hashes = None
+        self._clips_by_folder = {}
         self.stamp = _stamp(folder)
 
     def bone_hashes(self):
@@ -135,6 +136,18 @@ def index(context=None):
 
 def loaded():
     return _index is not None
+
+
+def clips_for(idx, skeleton):
+    """The clips in skeleton `skeleton`'s own folder (its game path without
+    .pab), such as 1_pc/1_phm/ for Kliff's phm_01, or every clip when that
+    folder has none: 124 of the game's 273 skeletons have no clips of their
+    own folder, and some none at all."""
+    folder = skeleton[len(MODEL):].rsplit("/", 1)[0] + "/" if skeleton and skeleton.startswith(MODEL) else ""
+    if folder not in idx._clips_by_folder:
+        found = [c for c in idx.clips if c.startswith(folder)] if folder else []
+        idx._clips_by_folder[folder] = found or idx.clips
+    return idx._clips_by_folder[folder]
 
 
 def search(names, text, limit=300):

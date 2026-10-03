@@ -3,7 +3,7 @@
 import os
 
 import bpy
-from bpy.props import BoolProperty, CollectionProperty, EnumProperty, IntProperty, StringProperty
+from bpy.props import BoolProperty, CollectionProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
 from bpy.app.handlers import persistent
 from bpy.types import AddonPreferences, Operator, OperatorFileListElement, UIList
 from bpy_extras.io_utils import ExportHelper, ImportHelper
@@ -14,7 +14,7 @@ from .formats import material, pac, paa_codec
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 11, 0),
+    "version": (0, 12, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -193,8 +193,12 @@ def _start_clip(op, context, template):
 
 
 def _clip_names(self, context, edit_text):
+    """Clips for the selected armature's skeleton when it came from the game."""
     try:
-        return packs.search(packs.index(context).clips, edit_text)
+        idx = packs.index(context)
+        obj = context.object
+        skel = obj.get("cd_game_path") if skeleton.is_cd_armature(obj) else None
+        return packs.search(packs.clips_for(idx, skel) if skel else idx.clips, edit_text)
     except (packs.PackError, OSError):
         return []
 
@@ -395,10 +399,102 @@ def _character_names(self, context, edit_text):
 
 
 KLIFF = "1_pc/1_phm/cd_phm_macduff/cd_phm_macduff_00000"
+_character_skeletons = {}
+
+
+def _character_skeleton(context, text):
+    """The skeleton game path of the character `text` names, or None."""
+    key = text.strip().lower()
+    if key not in _character_skeletons:
+        try:
+            idx = packs.index(context)
+            name = packs.resolve(idx.appearances, key, "character", prefix=packs.APPEARANCE, ext=".app_xml")
+            _character_skeletons[key] = packs.character(idx, name).skeleton
+        except (packs.PackError, ValueError, OSError, SyntaxError):
+            _character_skeletons[key] = None
+    return _character_skeletons[key]
+
+
+def _character_clip_names(self, context, edit_text):
+    """Clips for the skeleton of the character in the same dialog."""
+    try:
+        idx = packs.index(context)
+        skel = _character_skeleton(context, self.character)
+        return packs.search(packs.clips_for(idx, skel) if skel else idx.clips, edit_text)
+    except (packs.PackError, OSError):
+        return []
+
+
+def _build_character(op, context, idx, text, clip=""):
+    """Build character `text` (a name the character search accepts) with
+    the options on `op` (level, textures, proportions), and put clip `clip`
+    on it when given. Returns (armature, meshes placed, [(level, message)]);
+    raises packs.PackError, ValueError, OSError or SyntaxError when the
+    character cannot be built at all."""
+    name = packs.resolve(idx.appearances, text, "character", prefix=packs.APPEARANCE, ext=".app_xml")
+    ch = packs.character(idx, name)
+    varied = skeleton.variation_in(packs.variation(idx, ch.variations)) if op.proportions else None
+    arm, _odd = skeleton.build_armature(context, packs.fetch_skeleton(idx, ch.skeleton), variation=varied)
+    arm["cd_game_path"] = ch.skeleton
+    arm["cd_character"] = name
+    if varied:
+        arm["cd_variations"] = [p.rsplit("/", 1)[-1] for p in ch.variations]
+        arm.scale = (ch.scale, ch.scale, ch.scale)
+    arm.name = name.rsplit("/", 1)[-1]
+    failed, notes, placed = [], [], 0
+    for component, path in ch.parts:
+        mesh_name = mesh.mesh_name(path)
+        try:
+            with open(packs.fetch_mesh(idx, path), "rb") as f:
+                data = f.read()
+            obj, _count, _parts, more = _place_mesh(op, context, arm, data, mesh_name, path)
+        except (ValueError, mesh.MeshError, packs.PackError, OSError) as exc:
+            failed.append(f"{mesh_name} ({exc})")
+            continue
+        obj["cd_component"] = component
+        notes += [n for n in more if n[0] == "WARNING"]
+        placed += 1
+    if ch.missing:
+        notes.append(("WARNING", f"{arm.name}: prefabs not in the game: {', '.join(ch.missing)}"))
+    if failed:
+        notes.append(("WARNING", f"{arm.name}: {len(failed)} meshes could not be read: {'; '.join(failed[:3])}"))
+    if ch.skipped:
+        notes.append(("INFO", f"{arm.name}: left out parts shown only in some states: {', '.join(ch.skipped)}"))
+    if varied:
+        notes.append(("INFO", f"{arm.name}: own proportions from {', '.join(arm['cd_variations'])}, "
+                              f"{arm.get('cd_varied_bones', 0)} bones; scale {ch.scale:g}"))
+    if clip.strip():
+        try:
+            # A short name may end several clips' paths; the skeleton's own
+            # clips are tried first, then every clip.
+            try:
+                clip_name = packs.resolve(packs.clips_for(idx, ch.skeleton), clip, "clip", prefix=packs.MOTION, ext=".paa")
+            except packs.PackError:
+                clip_name = packs.resolve(idx.clips, clip, "clip", prefix=packs.MOTION, ext=".paa")
+            action, unknown = anim.import_clip(context, arm, packs.fetch_clip(idx, clip_name))
+            notes.append(("INFO", f"{arm.name}: playing {action.name}"))
+            if unknown:
+                notes.append(("WARNING", f"{arm.name}: {len(unknown)} bones {action.name} animates are not in "
+                                         f"this skeleton; it may be a clip for another one"))
+        except (packs.PackError, ValueError, OSError) as exc:
+            notes.append(("WARNING", f"{arm.name}: clip not imported: {exc}"))
+    notes.append(("INFO", f"Built {arm.name}: {placed} meshes on {ch.skeleton.rsplit('/', 1)[-1]}"))
+    return arm, placed, notes
+
+
+_CHARACTER_OPTIONS = dict(
+    level=dict(name="Detail level", min=0, max=3, default=0,
+               description="0 is the most detailed; 3 is the coarsest the game draws far away"),
+    textures=dict(name="Textures", default=True,
+                  description="Give the parts the game's textures, from each mesh's material file"),
+    proportions=dict(name="Own proportions", default=True,
+                     description="Build the skeleton with the character's own skeleton variation and "
+                     "scale, as the game does, instead of the shared skeleton"),
+)
 
 
 class CDANIM_OT_game_character(Operator):
-    """Build a character from the game: its skeleton and every mesh of its look, textured"""
+    """Build a character from the game: its skeleton and every mesh of its look, textured, with an optional clip"""
     bl_idname = "cd_animator.game_character"
     bl_label = "Import character from the game"
     bl_options = {"REGISTER", "UNDO"}
@@ -407,13 +503,13 @@ class CDANIM_OT_game_character(Operator):
         name="Character", search=_character_names, search_options={"SUGGESTION"}, default=KLIFF,
         description="A character's appearance in the game. Kliff is cd_phm_macduff_00000; "
         "other characters are under 1_pc, 3_npc, 2_mon and 4_riding. Type words to search")
-    level: IntProperty(name="Detail level", min=0, max=3, default=0,
-                       description="0 is the most detailed; 3 is the coarsest the game draws far away")
-    textures: BoolProperty(name="Textures", default=True,
-                           description="Give the parts the game's textures, from each mesh's material file")
-    proportions: BoolProperty(name="Own proportions", default=True,
-                              description="Build the skeleton with the character's own skeleton variation and "
-                              "scale, as the game does, instead of the shared skeleton")
+    clip: StringProperty(
+        name="Clip", search=_character_clip_names, search_options={"SUGGESTION"}, default="",
+        description="A clip to play on the character, optional. The search lists the clips made for "
+        "the character's skeleton; type words to narrow it")
+    level: IntProperty(**_CHARACTER_OPTIONS["level"])
+    textures: BoolProperty(**_CHARACTER_OPTIONS["textures"])
+    proportions: BoolProperty(**_CHARACTER_OPTIONS["proportions"])
 
     def invoke(self, context, event):
         if not _open_index(self, context):
@@ -425,49 +521,175 @@ class CDANIM_OT_game_character(Operator):
             bpy.ops.object.mode_set(mode="OBJECT")
         try:
             idx = packs.index(context)
-            name = packs.resolve(idx.appearances, self.character, "character", prefix=packs.APPEARANCE, ext=".app_xml")
-            ch = packs.character(idx, name)
-            varied = skeleton.variation_in(packs.variation(idx, ch.variations)) if self.proportions else None
-            arm, _odd = skeleton.build_armature(context, packs.fetch_skeleton(idx, ch.skeleton), variation=varied)
+            arm, placed, notes = _build_character(self, context, idx, self.character, self.clip)
         except (packs.PackError, ValueError, OSError, SyntaxError) as exc:
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
-        skel, parts, skipped, missing = ch.skeleton, ch.parts, ch.skipped, ch.missing
-        arm["cd_game_path"] = skel
-        arm["cd_character"] = name
-        if varied:
-            arm["cd_variations"] = [p.rsplit("/", 1)[-1] for p in ch.variations]
-            arm.scale = (ch.scale, ch.scale, ch.scale)
-        arm.name = name.rsplit("/", 1)[-1]
-        failed, notes, placed = [], [], 0
-        for component, path in parts:
-            mesh_name = mesh.mesh_name(path)
-            try:
-                with open(packs.fetch_mesh(idx, path), "rb") as f:
-                    data = f.read()
-                obj, _count, _parts, more = _place_mesh(self, context, arm, data, mesh_name, path)
-            except (ValueError, mesh.MeshError, packs.PackError, OSError) as exc:
-                failed.append(f"{mesh_name} ({exc})")
-                continue
-            obj["cd_component"] = component
-            notes += [n for n in more if n[0] == "WARNING"]
-            placed += 1
         for o in context.view_layer.objects:
             o.select_set(o == arm)
         context.view_layer.objects.active = arm
         for level, text in notes:
             self.report({level}, text)
-        if missing:
-            self.report({"WARNING"}, f"prefabs not in the game: {', '.join(missing)}")
-        if failed:
-            self.report({"WARNING"}, f"{len(failed)} meshes could not be read: {'; '.join(failed[:3])}")
-        if skipped:
-            self.report({"INFO"}, f"left out parts shown only in some states: {', '.join(skipped)}")
-        if varied:
-            self.report({"INFO"}, f"own proportions from {', '.join(arm['cd_variations'])}, "
-                                  f"{arm.get('cd_varied_bones', 0)} bones; scale {ch.scale:g}")
-        self.report({"INFO"}, f"Built {arm.name}: {placed} meshes on {skel.rsplit('/', 1)[-1]}")
         return {"FINISHED"} if placed else {"CANCELLED"}
+
+
+LIST_TEXT = "CD characters"
+LIST_TEMPLATE = """# Characters for Build characters, one per line: the character, then a clip
+# to play on it if you want one. Either name can be a unique ending of its
+# path, as the Import character and Import animation searches show them.
+# Lines starting with # are skipped. Run Build characters again when done.
+cd_phm_macduff_00000  1_pc/1_phm/00_riding/cd_phm_rd_broom_basic_00_00_nor_std_idle_01
+cd_m0004_00_wyvern_0001_00000  cd_rd_wyvern_basic_00_00_air_std_idle_00
+"""
+
+
+def read_list(text):
+    """[(character, clip)] from the lines of a character list."""
+    rows = []
+    for line in text.splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line:
+            words = line.split()
+            rows.append((words[0], words[1] if len(words) > 1 else ""))
+    return rows
+
+
+def _text_names(self, context, edit_text):
+    return [t.name for t in bpy.data.texts if edit_text.lower() in t.name.lower()]
+
+
+def _width(arm):
+    """The character's extent along X from its meshes, scaled, and the
+    leftmost point, both in metres."""
+    lo, hi = 0.0, 0.0
+    for o in arm.children:
+        if o.type == "MESH":
+            xs = [c[0] for c in o.bound_box]
+            lo, hi = min(lo, min(xs)), max(hi, max(xs))
+    return (hi - lo) * arm.scale[0], lo * arm.scale[0]
+
+
+class CDANIM_OT_game_characters(Operator):
+    """Build every character in a list, each in its own collection side by side, with the clip given for it.
+    The list is a text block; the first run writes one to fill in"""
+    bl_idname = "cd_animator.game_characters"
+    bl_label = "Build characters from a list"
+    bl_options = {"REGISTER", "UNDO"}
+
+    text: StringProperty(name="List", search=_text_names, default=LIST_TEXT,
+                         description="The text block holding the list, one character and optional clip per line")
+    level: IntProperty(**_CHARACTER_OPTIONS["level"])
+    textures: BoolProperty(**_CHARACTER_OPTIONS["textures"])
+    proportions: BoolProperty(**_CHARACTER_OPTIONS["proportions"])
+    gap: FloatProperty(name="Gap", default=0.5, min=0.0, unit="LENGTH",
+                       description="Space left between neighbouring characters")
+    folder: StringProperty(name="Save each to", subtype="DIR_PATH", default="",
+                           description="A folder to also write each character to, as a .blend of its own that "
+                           "opens on a scene holding it. Empty keeps them in this file only")
+
+    def invoke(self, context, event):
+        if not _open_index(self, context):
+            return {"CANCELLED"}
+        if self.text not in bpy.data.texts:
+            t = bpy.data.texts.new(self.text or LIST_TEXT)
+            t.write(LIST_TEMPLATE)
+            self.text = t.name
+            self.report({"WARNING"}, f"Wrote a list to fill in, the text block {t.name}: open it in a Text Editor, "
+                                     "put one character per line, then run Build characters again")
+            return {"CANCELLED"}
+        return context.window_manager.invoke_props_dialog(self, width=560)
+
+    def execute(self, context):
+        text = bpy.data.texts.get(self.text)
+        if text is None:
+            self.report({"ERROR"}, f"No text block called {self.text}")
+            return {"CANCELLED"}
+        rows = read_list(text.as_string())
+        if not rows:
+            self.report({"ERROR"}, f"{self.text} lists no characters")
+            return {"CANCELLED"}
+        if context.object and context.object.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        try:
+            idx = packs.index(context)
+        except (packs.PackError, OSError, ValueError) as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+        top = bpy.data.collections.get(LIST_TEXT)
+        if top is None:
+            top = bpy.data.collections.new(LIST_TEXT)
+            context.scene.collection.children.link(top)
+        before = context.view_layer.active_layer_collection
+        x = 0.0
+        built, failed, notes = [], [], []
+        for character, clip in rows:
+            coll = bpy.data.collections.new(character.rsplit("/", 1)[-1])
+            top.children.link(coll)
+            context.view_layer.active_layer_collection = _layer_collection(context.view_layer.layer_collection, coll)
+            try:
+                arm, placed, more = _build_character(self, context, idx, character, clip)
+            except (packs.PackError, ValueError, OSError, SyntaxError) as exc:
+                failed.append(f"{character} ({exc})")
+                for o in list(coll.all_objects):
+                    bpy.data.objects.remove(o)
+                bpy.data.collections.remove(coll)
+                continue
+            coll.name = arm.name
+            notes += [n for n in more if n[0] == "WARNING"]
+            width, left = _width(arm)
+            arm.location.x = x - left
+            x += width + self.gap
+            built.append((arm, coll))
+        context.view_layer.active_layer_collection = before
+
+        saved = 0
+        if self.folder and built:
+            folder = bpy.path.abspath(self.folder)
+            os.makedirs(folder, exist_ok=True)
+            for arm, coll in built:
+                scene = bpy.data.scenes.new(arm.name)
+                scene.collection.children.link(coll)
+                scene.render.fps = context.scene.render.fps
+                action = arm.animation_data.action if arm.animation_data else None
+                if action is not None:
+                    scene.frame_start, scene.frame_end = 0, int(action.frame_range[1])
+                # Blender 5.2 crashes writing a new scene whose view layer
+                # has not been synced with its collections yet.
+                scene.view_layers[0].update()
+                try:
+                    bpy.data.libraries.write(os.path.join(folder, arm.name + ".blend"), {scene},
+                                             path_remap="ABSOLUTE", compress=True)
+                    saved += 1
+                except (OSError, RuntimeError) as exc:
+                    failed.append(f"{arm.name} not saved ({exc})")
+                finally:
+                    bpy.data.scenes.remove(scene)
+
+        for o in context.view_layer.objects:
+            o.select_set(False)
+        if built:
+            context.view_layer.objects.active = built[-1][0]
+        for level, message in notes:
+            self.report({level}, message)
+        if failed:
+            self.report({"WARNING"}, f"{len(failed)} not built: {'; '.join(failed[:3])}")
+        done = f"Built {len(built)} of {len(rows)} characters"
+        if self.folder:
+            done += f", saved {saved} to {self.folder}"
+        self.report({"INFO"}, done)
+        return {"FINISHED"} if built else {"CANCELLED"}
+
+
+def _layer_collection(layer, coll):
+    """The view layer's entry for collection `coll`, searched from `layer`."""
+    if layer.collection == coll:
+        return layer
+    for child in layer.children:
+        found = _layer_collection(child, coll)
+        if found is not None:
+            return found
+    return None
 
 
 _LEVEL = dict(name="Detail level", min=0, max=3, default=0,
@@ -747,6 +969,7 @@ class CDANIM_PT_panel(bpy.types.Panel):
         col.operator(CDANIM_OT_game_clip.bl_idname, text="Import animation", icon="ACTION")
         col.operator(CDANIM_OT_game_mesh.bl_idname, text="Import mesh", icon="MESH_DATA")
         col.operator(CDANIM_OT_game_character.bl_idname, text="Import character", icon="OUTLINER_OB_ARMATURE")
+        col.operator(CDANIM_OT_game_characters.bl_idname, text="Build characters from a list", icon="COMMUNITY")
         col.operator(CDANIM_OT_game_new_clip.bl_idname, text="New clip from a game clip", icon="ADD")
         col.separator()
         col.operator(CDANIM_OT_seat_rider.bl_idname, icon="CONSTRAINT_BONE")
@@ -804,7 +1027,7 @@ def _menu_import(self, context):
 
 
 _classes = (CDANIM_AP_prefs, CDANIM_OT_import_pab, CDANIM_OT_import_paa, CDANIM_OT_export_paa, CDANIM_OT_new_clip,
-            CDANIM_OT_game_skeleton, CDANIM_OT_game_clip, CDANIM_OT_game_new_clip, CDANIM_OT_game_mesh, CDANIM_OT_import_pac, CDANIM_OT_game_character,
+            CDANIM_OT_game_skeleton, CDANIM_OT_game_clip, CDANIM_OT_game_new_clip, CDANIM_OT_game_mesh, CDANIM_OT_import_pac, CDANIM_OT_game_character, CDANIM_OT_game_characters,
             CDANIM_OT_set_length, CDANIM_OT_event_add, CDANIM_OT_event_remove, CDANIM_UL_events,
             CDANIM_OT_seat_rider, CDANIM_OT_unseat_rider, CDANIM_PT_panel)
 

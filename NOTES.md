@@ -112,6 +112,10 @@ The layered shaders, names ending in `_Ver2` and about 40% of all materials, hav
 
 ## Characters
 
+A skeleton's clips are in its folder under `character/motion/` named as under `character/model/`: `1_pc/1_phm/` holds 199,424 clips for phm_01 and `2_mon/cd_m0004_00_dragon/cd_m0004_00_wyvern/` 215 for the Wyvern. 124 of the 273 skeletons have no clips in that folder; for some, such as the hexe wolf, the snow golem and the cliff crab, no clip in the game names the creature at all.
+
+Writing a new scene with `bpy.data.libraries.write` crashes Blender 5.2 (an access violation in `BKE_view_layer_copy_data`) unless the scene's view layer has been updated first, which Build characters does before saving each character.
+
 A character's look is an appearance file, `character/appearance/<group>/<name>.app_xml`, encrypted like the material files. It lists prefabs in sections (Nude, Head, Hair, Armor), some with attributes such as CharacterScale and HeadScale, and some outfit prefabs marked Preview. Kliff's is `cd_phm_macduff_00000`: the macduff appearances use `meshparam_example_kliff.xml` and the voice event `vce_pc_kliff`.
 
 A prefab, `character/bin__/prefab/.../<name>.prefab`, is a binary reflection dump of a scene object. Its type table names the fields (SkinnedMeshComponent, _skinnedMeshFile, _modelPropertyIndex and so on), and each component stores its name followed by the bytes 01 01 00 01 03 and then, after a u32 length, its mesh's game path. `formats/appearance.py` reads only those two strings. The field values are written sparsely, so the variant index `_modelPropertyIndex` is not read and every part uses variant 0.
