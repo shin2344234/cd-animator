@@ -35,6 +35,10 @@ Clips whose header names the skeleton import and export too. That's header flag 
 
 Not every bone you animate shows. On a mount the root bone, Bip01, shows its rotation, but its translation moves the mount itself, and while Broomy hovers in place a roll or float on Bip01 shows nothing. Motion on the bone under it, B_Body_00 on the broom, does show, and a rider on a seat bone below that moves with it. When the game restarts a clip with a short blend, the pose jumps to frame 0, so a clip that follows another should start on the pose the other ends in. NOTES.md has the evidence for each of these.
 
+## Playing a clip in the game
+
+The loader in `loader/` is an ASI plugin, `CDAnimator.asi`, that hands the game every file in `bin64\CDAnimator` in place of the game's file of that name. Export a clip, drop its three files in that folder and start the game. With `LogClips=1` in its ini it also logs each clip the game loads, which is how to find the file behind a motion you see. `loader/README.md` has the rest.
+
 ## Examples
 
 Both run headless and write into `out/`:
