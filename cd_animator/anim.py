@@ -6,7 +6,7 @@ import os
 import bpy
 from bpy_extras import anim_utils
 
-from . import convert
+from . import convert, meta
 from .formats import paa_codec
 
 FPS = 30
@@ -104,6 +104,10 @@ def import_clip(context, obj, path):
     action["cd_rec_b"] = list(td.lead.rec_b)
     action["cd_ref_scale"] = td.lead.ref_scale
     action["cd_blocks"] = json.dumps(blocks)
+    metabin = None if td.lod else meta.companion(path, ".paa_metabin")
+    if metabin is not None:
+        with open(metabin, "rb") as f:
+            meta.load(action, f.read())
 
     reset_pose(obj)
     ad = obj.animation_data or obj.animation_data_create()

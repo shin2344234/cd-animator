@@ -55,6 +55,14 @@ Three things had to be exact for that:
 
 Blender gives new keys Bezier interpolation, and the game only interpolates in straight lines. The exporter writes a track's keys as they are when every key is linear, and otherwise samples it at every frame (every tick in LOD section 1) from its first key to its last. The edited idle in the test turns Spine1 20 degrees and adds a new eyeball track with Bezier keys; it re-imports within 0.17 mm of the edited action.
 
+## Metadata on the action
+
+Importing a full clip reads its `.paa_metabin` onto the action: the events and the phases, in seconds, stored as 32-bit floats like the file's own so an unedited clip writes the same numbers back. All 27 full clips in the samples come back byte for byte. The panel shows events in frames and snaps edits to half frames; every event in the shipped samples sits on a whole or half frame, such as 9.5 and 11.5 in `mount_l` and 14.5 in `dismount_r`.
+
+Events may run past a clip's end. The standing idle's three events run to frame 250 of 240, so a clip cut shorter keeps events that end after it, as the shipped ones do. Phases appear only in mount and dismount clips, two in each dismount and one in `mount_r`. The add-on scales and keeps them but does not edit them, since what the two selectors and the vector mean is not known.
+
+A new clip is a template imported under a new name. It keeps the template's header, lead, bone layout and metadata. No clip under a new name has played in game yet. The game only asks for a new name once an action chart points at it, and the loader's stand-in for new names is untested. Cutting it short trims each track at the new end and adds a key there holding the pose the template had on that frame. Holding the first frame leaves each track two keys with the same value, which the exporter writes as they are.
+
 ## Smaller points
 
 - In a LOD clip only section 1 counts 1/5 second ticks. Section 2 (`Bip01`, `B_MoveControl_01`, the TL bones) keeps 30 fps frame numbers: in the LOD run clip `B_MoveControl_01` ends on 48 while section 1 ends on tick 8. Version 0.1.0 scaled section 2 as well and played LOD root motion six times too slowly.

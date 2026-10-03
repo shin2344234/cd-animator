@@ -8,11 +8,10 @@ clips.
 """
 
 import json
-import os
 
 from bpy_extras import anim_utils
 
-from . import convert
+from . import convert, meta
 from .anim import FPS, frame_step
 from .formats import metabin_codec, paa_codec
 
@@ -184,16 +183,7 @@ def export_clip(obj, action, path):
     return data, problems
 
 
-def _companion(source, suffix):
-    """A file that goes with the clip at `source`: next to it, or in an
-    actionchart folder beside its folder (where paz_unpack puts metabins)."""
-    folder, leaf = os.path.split(source)
-    stem = leaf[:-len(".paa")] if leaf.lower().endswith(".paa") else leaf
-    for candidate in (os.path.join(folder, stem + suffix),
-                      os.path.join(os.path.dirname(folder), "actionchart", stem + suffix)):
-        if os.path.isfile(candidate):
-            return candidate
-    return None
+_companion = meta.companion
 
 
 def _track(td, name_hash):
@@ -207,12 +197,13 @@ def _same_keys(a, b):
         and [key(k) for k in a.pos_keys] == [key(k) for k in b.pos_keys]))
 
 
-def build_metabin(template_clip, template_metabin, clip):
-    """The .paa_metabin for `clip` (full clip bytes). Events, phases and the
-    two unexplained bytes come from the template clip's metabin, so a clip
-    that keeps its template's timing keeps its state changes. The motion
-    block is the clip's B_MoveControl_01 track; when that track is the
-    template's, the template's block is kept as it is."""
+def build_metabin(template_clip, template_metabin, clip, action=None):
+    """The .paa_metabin for `clip` (full clip bytes). The two unexplained
+    bytes come from the template clip's metabin, and so do the events and
+    phases unless `action` carries its own (meta.py), which it does once
+    imported from a clip that had a metabin. The motion block is the clip's
+    B_MoveControl_01 track; when that track is the template's, the
+    template's block is kept as it is."""
     _c, new = paa_codec.decode_file(clip)
     _t, old = paa_codec.decode_file(template_clip)
     move = paa_codec.bone_hash("B_MoveControl_01")
@@ -226,6 +217,8 @@ def build_metabin(template_clip, template_metabin, clip):
             [paa_codec.RotKey(k.frame, k.x, k.y, k.z, k.w) for k in new_move.rot_keys],
             [paa_codec.PosKey(k.frame, k.x, k.y, k.z) for k in new_move.pos_keys])
         mb.flags = mb.expected_flags()
+    if action is not None:
+        meta.apply(action, mb)
     mb.duration = new.lead.duration
     return metabin_codec.write_metabin(mb)
 
@@ -256,7 +249,7 @@ def export_with_companions(obj, action, path):
         problems.append("no .paa_metabin found for the template clip, so the new one has no events")
     with open(source, "rb") as f:
         template_clip = f.read()
-    mb = build_metabin(template_clip, open(template_mb, "rb").read() if template_mb else None, data)
+    mb = build_metabin(template_clip, open(template_mb, "rb").read() if template_mb else None, data, action)
     metabin_codec.read_metabin(mb)
     with open(stem + ".paa_metabin", "wb") as f:
         f.write(mb)

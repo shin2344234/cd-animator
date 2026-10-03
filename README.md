@@ -1,12 +1,12 @@
 # CD Animator
 
-A Blender add-on for Crimson Desert animations. It imports skeletons (`.pab`) as armatures and animation clips (`.paa`, full and `_lod`) as actions. It exports an action back to a `.paa`, along with the `_lod.paa` and `.paa_metabin` the game loads with every clip. Its clips play in the game. Broomy 1.0.2's hover idle and level takeoff were made with it, and so were the raised-arm idles that first tested the loader. Version 0.3.1 also reads Kliff's on-foot clips.
+A Blender add-on for Crimson Desert animations. It imports skeletons (`.pab`) as armatures and animation clips (`.paa`, full and `_lod`) as actions. It exports an action back to a `.paa`, along with the `_lod.paa` and `.paa_metabin` the game loads with every clip. Its clips play in the game. Broomy 1.0.2's hover idle and level takeoff were made with it, and so were the raised-arm idles that first tested the loader. Version 0.4.0 starts new clips from shipped ones, at any length, and edits a clip's events.
 
 It needs Blender 4.4 or newer and was built on 5.2.2.
 
 ## Install
 
-In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `dist/cd_animator-0.3.1.zip`. To rebuild the zip after changing the code:
+In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `dist/cd_animator-0.4.0.zip`. To rebuild the zip after changing the code:
 
 ```
 blender --command extension build --source-dir cd_animator --output-dir dist
@@ -23,11 +23,13 @@ py -3 paz_unpack.py "D:/SteamLibrary/steamapps/common/Crimson Desert/0009/0.pamt
 1. File > Import > Crimson Desert skeleton (.pab). Kliff is `phm_01.pab`.
 2. With that armature selected, File > Import > Crimson Desert animation (.paa). Several clips can be picked at once. Each becomes an action, and the last one is shown.
 3. For a rider and a mount, import both, select the mount, then shift-click the rider and press Seat rider on mount in the CD Animator tab of the sidebar, which N opens. The rider then follows each clip's offset from the mount, including when you switch actions.
-4. To write a clip, select the armature and use File > Export > Crimson Desert animation (.paa), or Export animation in the sidebar. It writes the active action against the clip it was imported from. With LOD and metadata ticked, as it is by default, it also writes `<name>_lod.paa` and `<name>.paa_metabin` beside it.
+4. To make a new clip, select the armature and press New clip from a template in the sidebar, then pick a shipped clip of the same character. The new clip gets a name and a length in frames; 0 keeps the template's length. It starts either with the template's motion, cut or held at the new end, or with every bone holding the template's first frame. Stretch events scales the template's events and phases to the new length.
+5. The sidebar shows the active clip's length, with a button to change it, and its events. An event is a begin and an end in frames and a type from 0 to 7. Add puts one on the current frame. What each type means in the game is not known yet, so copy the types of a shipped clip that does something similar.
+6. To write a clip, select the armature and use File > Export > Crimson Desert animation (.paa), or Export animation in the sidebar. It writes the active action against the clip it was imported from. With LOD and metadata ticked, as it is by default, it also writes `<name>_lod.paa` and `<name>.paa_metabin` beside it.
 
 The scene runs at 30 fps, the game's clip rate. Bones a clip does not animate stay on their bind pose. Keys go out on whole frames. A track whose keys are all linear is written key for key; any other track is sampled at every frame, because the game only interpolates in straight lines. Constraints and IK are not baked yet, so bake to keys first if you use them.
 
-The LOD gets the template LOD's bone list, so a bone the shipped LOD leaves out stays out. The metadata keeps the template's events and phases, and its motion block is rebuilt from `B_MoveControl_01` only when that track changed.
+The LOD gets the template LOD's bone list, so a bone the shipped LOD leaves out stays out. The metadata gets the action's events, sorted by begin as the game's are, and the template's phases, and its motion block is rebuilt from `B_MoveControl_01` only when that track changed.
 
 Clips whose header names the skeleton import and export too. That's header flag 0x40, set on Kliff's camel, elephant and iguana clips. Kliff's bear clips and his Wyvern rider clips use a layout the add-on does not read yet.
 
@@ -63,6 +65,14 @@ It imports both rigs and the clips in `samples/character`, all 44 broom riding c
 blender -b --factory-startup --python tests/check_export.py
 ```
 
-It exports every clip unchanged and requires the original bytes back. Each full clip's metadata must come out as the game's byte for byte, and its LOD must carry the shipped LOD's tracks and the clip's source hash. It then exports an edited idle and requires the re-imported pose to match the edit within 3 mm. `tests/preview.py` opens Blender with the broom and Kliff seated on it for a look.
+It exports every clip unchanged and requires the original bytes back. Each full clip's metadata must come out as the game's byte for byte, and its LOD must carry the shipped LOD's tracks and the clip's source hash. It then exports an edited idle and requires the re-imported pose to match the edit within 3 mm. Each metadata file is written from the events stored on the action, so this also checks that importing and exporting them changes nothing.
+
+```
+blender -b --factory-startup --python tests/check_new_clip.py
+```
+
+It cuts the broom dismount from 70 frames to 35 and requires the clip, its LOD and its metadata all to say 35, no key past the end, and every event and phase at half its time. It also checks that a clip holding the standing idle's first frame poses every bone the same on its last frame, that an event added in Blender reaches the metadata in order, and that lengthening an imported clip keeps all its keys.
+
+`tests/preview.py` opens Blender with the broom and Kliff seated on it for a look.
 
 NOTES.md has how the game's data maps onto Blender and the evidence for each part.
