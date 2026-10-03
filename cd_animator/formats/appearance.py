@@ -41,6 +41,7 @@ HIDDEN = ("flight", "for_dock", "hyperspaceplug")
 
 _COMPONENT = re.compile(rb"([A-Za-z][\w]{1,60})\x01\x01\x00\x01\x03")
 _MESH = re.compile(rb"character/model/")
+_SOCKET_FILE = re.compile(rb"character/descriptors/socketbonedata/")
 
 
 @dataclass
@@ -82,6 +83,25 @@ def prefab_parts(data):
             continue
         owner = [n for end, n in names if end <= start]
         out.append((owner[-1] if owner else "", path.decode("utf-8", "replace")))
+    return out
+
+
+def prefab_sockets(data):
+    """{component name: socket file game path} of a prefab: the socket
+    file a weapon's component names after its mesh (formats/sockets.py)."""
+    names = [(m.end(), m.group(1).decode()) for m in _COMPONENT.finditer(data)]
+    out = {}
+    for m in _SOCKET_FILE.finditer(data):
+        start = m.start()
+        if start < 4:
+            continue
+        size = struct.unpack_from("<I", data, start - 4)[0]
+        path = data[start:start + size]
+        if not path.endswith(b".sockets.xml"):
+            continue
+        owner = [n for end, n in names if end <= start]
+        if owner:
+            out.setdefault(owner[-1], path.decode("utf-8", "replace").lower())
     return out
 
 

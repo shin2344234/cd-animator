@@ -7,14 +7,16 @@ from bpy.props import BoolProperty, CollectionProperty, EnumProperty, FloatPrope
 from bpy.app.handlers import persistent
 from bpy.types import AddonPreferences, Operator, OperatorFileListElement, UIList
 from bpy_extras.io_utils import ExportHelper, ImportHelper
+from mathutils import Matrix
 
-from . import anim, clip, export, mesh, meta, packs, skeleton
+from . import anim, clip, convert, export, mesh, meta, packs, skeleton
 from .formats import material, pac, paa_codec
+from .formats import sockets as sockets_format
 
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 12, 0),
+    "version": (0, 13, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -347,9 +349,68 @@ def _game_materials(op, context, name, game_path, variant):
     return mats, load, variants, ""
 
 
-def _place_mesh(op, context, arm, data, name, game_path=None, variant=0):
-    """Read mesh bytes `data` and put the mesh on armature `arm`. Returns
-    (object, vertex count, part count, [(level, message)]); raises
+def _socket_matrix(arm, socket):
+    """Armature-space Blender matrix of a character socket at rest."""
+    local = convert.matrix_in(socket.rotation, socket.translation)
+    bone = arm.data.bones.get(socket.parent) if socket.parent else None
+    if bone is None:
+        return local
+    # A Blender bone is the game bone turned by its axis correction (convert.py).
+    axis = convert.AXIS_CORRECTION[bone.get("cd_axis", "+Y")].to_matrix().to_4x4()
+    return bone.matrix_local @ axis.inverted() @ local
+
+
+def _child_matrix(m, socket):
+    """Blender matrix of a weapon's own socket in the weapon mesh's space."""
+    local = convert.matrix_in(socket.rotation, socket.translation)
+    bone = next((b for b in m.bones if b.name == socket.parent), None) if socket.parent else None
+    if bone is None:
+        return local
+    w = bone.world
+    game = Matrix((w[0:4], w[4:8], w[8:12], w[12:16]))
+    return convert.SWAP @ game @ convert.SWAP @ local
+
+
+def _socket_layout(context, arm, m, name, component, socket_file, drawn, socket):
+    """(bone map, placement, where) to put mesh `m` rigidly at a socket of
+    armature `arm`: the socket `socket` names, or else the one the part
+    rules give component `component`, drawn or put away. The mesh's own
+    socket named by the same rule, from `socket_file`, lands on it."""
+    idx = packs.index(context)
+    skel = arm.get("cd_game_path")
+    if not skel:
+        raise packs.PackError(f"{name} has bones of its own and goes to a socket, which needs a skeleton "
+                              "imported from the game")
+    playable = str(arm.get("cd_character", "")).startswith("1_pc/")
+    rule = packs.part_rules(idx, skel, playable).get(component) if component else None
+    where, child_name = sockets_format.placement(rule, drawn)
+    own = packs.sockets(idx, socket_file) if socket_file else {}
+    if socket:
+        where = socket
+        if child_name is None and "Basic_ChildSocket" in own:
+            child_name = "Basic_ChildSocket"
+    if not where:
+        raise packs.PackError(f"{name}: no socket rule for {component or 'its part'}; pick a socket")
+    target = packs.sockets(idx, skel).get(where)
+    if target is None:
+        raise packs.PackError(f"{name}: {skel.rsplit('/', 1)[-1]} has no socket {where}")
+    if target.parent and target.parent not in arm.data.bones:
+        raise packs.PackError(f"{name}: socket {where} hangs from {target.parent}, which {arm.name} lacks")
+    child = own.get(child_name) if child_name else None
+    placement = _socket_matrix(arm, target)
+    if child is not None:
+        placement = placement @ _child_matrix(m, child).inverted()
+    bone = target.parent or arm.data.bones[0].name
+    return {h: bone for h in m.palette}, placement, where + (f" by its {child_name}" if child else "")
+
+
+def _place_mesh(op, context, arm, data, name, game_path=None, variant=0,
+                component=None, socket_file=None, drawn=True, socket=None):
+    """Read mesh bytes `data` and put the mesh on armature `arm`. A mesh
+    with bones of its own follows the armature's bones of the same names;
+    one whose root the armature lacks, such as a weapon, goes rigidly to a
+    socket (_socket_layout), as does any mesh when `socket` names one.
+    Returns (object, vertex count, part count, [(level, message)]); raises
     ValueError, mesh.MeshError, packs.PackError or OSError."""
     try:
         m = pac.read_pac(data, op.level, mesh.known_hashes(arm))
@@ -358,9 +419,19 @@ def _place_mesh(op, context, arm, data, name, game_path=None, variant=0):
             raise
         # The palette may name bones this skeleton lacks; try every bone in the game.
         m = pac.read_pac(data, op.level, mesh.known_hashes(arm, packs.index(context).bone_hashes()))
-    mats, load, variants, note = _game_materials(op, context, name, game_path, variant)
-    obj, missing = mesh.build_mesh(context, arm, m, name, mats, load)
     notes = []
+    remap = placement = None
+    where = None
+    if m.bones or socket:
+        remap = mesh.own_bone_map(arm, m) if m.bones and not socket else None
+        if remap is None:
+            remap, placement, where = _socket_layout(context, arm, m, name, component, socket_file, drawn, socket)
+            notes.append(("INFO", f"{name} at {where}"))
+    mats, load, variants, note = _game_materials(op, context, name, game_path, variant)
+    obj, missing = mesh.build_mesh(context, arm, m, name, mats, load, remap, placement)
+    if where:
+        obj["cd_socket"] = where
+        obj["cd_placement"] = [x for row in placement for x in row]
     if note:
         notes.append(("WARNING", f"{name}: {note}"))
     if load is not None and load.failed:
@@ -447,7 +518,8 @@ def _build_character(op, context, idx, text, clip=""):
         try:
             with open(packs.fetch_mesh(idx, path), "rb") as f:
                 data = f.read()
-            obj, _count, _parts, more = _place_mesh(op, context, arm, data, mesh_name, path)
+            obj, _count, _parts, more = _place_mesh(op, context, arm, data, mesh_name, path,
+                                                    component=component, socket_file=ch.socket_files.get(component))
         except (ValueError, mesh.MeshError, packs.PackError, OSError) as exc:
             failed.append(f"{mesh_name} ({exc})")
             continue
@@ -530,6 +602,95 @@ class CDANIM_OT_game_character(Operator):
         context.view_layer.objects.active = arm
         for level, text in notes:
             self.report({level}, text)
+        return {"FINISHED"} if placed else {"CANCELLED"}
+
+
+_prefab_names = []
+
+
+def _prefab_names_search(self, context, edit_text):
+    try:
+        idx = packs.index(context)
+        if len(_prefab_names) != len(idx.prefabs):
+            _prefab_names[:] = sorted(idx.prefabs)
+        return packs.search(_prefab_names, edit_text)
+    except (packs.PackError, OSError):
+        return []
+
+
+def _socket_names(self, context, edit_text):
+    try:
+        skel = context.object.get("cd_game_path") if skeleton.is_cd_armature(context.object) else None
+        names = sorted(packs.sockets(packs.index(context), skel)) if skel else []
+        return [n for n in names if edit_text.lower() in n.lower()]
+    except (packs.PackError, OSError):
+        return []
+
+
+class CDANIM_OT_game_prop(Operator):
+    """Attach a weapon or prop from the game to the selected character at the socket the game uses for it,
+    in hand or put away"""
+    bl_idname = "cd_animator.game_prop"
+    bl_label = "Attach weapon or prop from the game"
+    bl_options = {"REGISTER", "UNDO"}
+
+    prop: StringProperty(
+        name="Weapon or prop", search=_prefab_names_search, search_options={"SUGGESTION"},
+        description="A prefab in the game, such as cd_phm_01_sword_0001_01_r for a sword in the right hand. "
+        "Type words to search")
+    state: EnumProperty(name="Where", default="OUT", items=(
+        ("OUT", "In use", "The socket the game uses while the weapon is drawn, such as the right hand"),
+        ("IN", "Put away", "The socket the game uses while it is put away, such as the scabbard at the hip")))
+    socket: StringProperty(
+        name="Socket", search=_socket_names, search_options={"SUGGESTION"}, default="",
+        description="Leave empty to use the game's socket for this weapon, or name one of the skeleton's sockets")
+    level: IntProperty(**_CHARACTER_OPTIONS["level"])
+    textures: BoolProperty(**_CHARACTER_OPTIONS["textures"])
+
+    @classmethod
+    def poll(cls, context):
+        if not (skeleton.is_cd_armature(context.object) and context.object.get("cd_game_path")):
+            cls.poll_message_set("Select an armature imported from the game first")
+            return False
+        return True
+
+    def invoke(self, context, event):
+        if not _open_index(self, context):
+            return {"CANCELLED"}
+        return context.window_manager.invoke_props_dialog(self, width=560)
+
+    def execute(self, context):
+        arm = context.object
+        if arm.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        try:
+            idx = packs.index(context)
+            name = packs.resolve(sorted(idx.prefabs), self.prop, "prefab", ext=".prefab")
+            parts = packs.prefab(idx, name)
+        except (packs.PackError, ValueError, OSError) as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        placed, notes = 0, []
+        for component, path, socket_file in parts:
+            mesh_name = mesh.mesh_name(path)
+            try:
+                with open(packs.fetch_mesh(idx, path), "rb") as f:
+                    data = f.read()
+                obj, _count, _parts, more = _place_mesh(
+                    self, context, arm, data, mesh_name, path, component=component, socket_file=socket_file,
+                    drawn=self.state == "OUT", socket=self.socket.strip() or None)
+            except (ValueError, mesh.MeshError, packs.PackError, OSError) as exc:
+                notes.append(("WARNING", f"{mesh_name}: {exc}"))
+                continue
+            obj["cd_component"] = component
+            notes += more
+            placed += 1
+        for o in context.view_layer.objects:
+            o.select_set(o == arm)
+        context.view_layer.objects.active = arm
+        for level, text in notes:
+            self.report({level}, text)
+        self.report({"INFO"} if placed else {"ERROR"}, f"Attached {placed} of {len(parts)} parts of {name}")
         return {"FINISHED"} if placed else {"CANCELLED"}
 
 
@@ -970,6 +1131,7 @@ class CDANIM_PT_panel(bpy.types.Panel):
         col.operator(CDANIM_OT_game_mesh.bl_idname, text="Import mesh", icon="MESH_DATA")
         col.operator(CDANIM_OT_game_character.bl_idname, text="Import character", icon="OUTLINER_OB_ARMATURE")
         col.operator(CDANIM_OT_game_characters.bl_idname, text="Build characters from a list", icon="COMMUNITY")
+        col.operator(CDANIM_OT_game_prop.bl_idname, text="Attach weapon or prop", icon="TOOL_SETTINGS")
         col.operator(CDANIM_OT_game_new_clip.bl_idname, text="New clip from a game clip", icon="ADD")
         col.separator()
         col.operator(CDANIM_OT_seat_rider.bl_idname, icon="CONSTRAINT_BONE")
@@ -1027,7 +1189,7 @@ def _menu_import(self, context):
 
 
 _classes = (CDANIM_AP_prefs, CDANIM_OT_import_pab, CDANIM_OT_import_paa, CDANIM_OT_export_paa, CDANIM_OT_new_clip,
-            CDANIM_OT_game_skeleton, CDANIM_OT_game_clip, CDANIM_OT_game_new_clip, CDANIM_OT_game_mesh, CDANIM_OT_import_pac, CDANIM_OT_game_character, CDANIM_OT_game_characters,
+            CDANIM_OT_game_skeleton, CDANIM_OT_game_clip, CDANIM_OT_game_new_clip, CDANIM_OT_game_mesh, CDANIM_OT_import_pac, CDANIM_OT_game_character, CDANIM_OT_game_characters, CDANIM_OT_game_prop,
             CDANIM_OT_set_length, CDANIM_OT_event_add, CDANIM_OT_event_remove, CDANIM_UL_events,
             CDANIM_OT_seat_rider, CDANIM_OT_unseat_rider, CDANIM_PT_panel)
 

@@ -59,9 +59,7 @@ Flags in the first u32 of section 0 that put a block before the palette:
 
     0x2000   a bounding box, u16 n and n x 16-byte tree nodes, u16 m and
              m x 24-byte boxes
-    0x1      an embedded bone list (props): u32 n, then per bone u32 hash,
-             u8 length and name, i32 parent and 296 bytes of matrices and
-             transforms; 0x40 adds a byte
+    0x1      the mesh's own bone list (below)
     0x4, 0x100, 0x200, 0x1000, 0x8000
              cloth simulation data of varying layout
 
@@ -71,8 +69,25 @@ meshes); with any other flag the reader finds the palette by its hashes, a
 u16 n followed by n words that are all known bone hashes (6,677 meshes). On
 all 5,778 meshes where both work they find the same palette; on the other
 115 one palette bone is in no skeleton file, so the search cannot match it.
-The 392 meshes this reader refuses are props with an embedded bone list,
-whose palettes name those bones.
+
+Flag 0x1 (2,023 meshes: weapons, props, some armour) gives the mesh a bone
+list of its own:
+
+    u32  n, then per bone:
+         u32 name hash, u8 length and name, i32 parent index (-1 for root)
+         4 x 16 f32, column major: world bind, its inverse, local bind and
+         one more; then 3 f32 scale, 4 f32 rotation (x, y, z, w), 3 f32
+         position, which chained from the root give the world bind
+
+Its palette names these bones. The list comes right after the parts on
+1,494 of those meshes and after cloth data of varying layout on the rest,
+and flags such as 0x40 and 0x4000 put a few more bytes between it and the
+palette. The reader finds the list by its shape, a count and bones whose
+names hash to their stored hashes, and then the palette among the known and
+the mesh's own hashes: that works on 2,022 of the 2,023. Armour lists
+repeat skeleton bones (Bip01, Bip01 Spine and on) with physics bones under
+them; a weapon's root, such as B_Weapon_0001, is in no character skeleton,
+and the weapon is attached at a socket instead (formats/sockets.py).
 """
 
 import struct
@@ -81,6 +96,7 @@ from dataclasses import dataclass, field
 from .paz import par_unpack
 
 STRIDE = 40
+FLAG_BONES = 0x1
 FLAG_TREE = 0x2000
 NO_BLOCK = 0x2 | 0x80 | 0x20000 | 0x1000000 | 0x2000000
 
@@ -104,6 +120,14 @@ class Submesh:
 
 
 @dataclass
+class Bone:
+    hash: int
+    name: str
+    parent: int             # index in the mesh's bone list, -1 for the root
+    world: tuple            # world bind, 16 floats, row major, game space
+
+
+@dataclass
 class Mesh:
     flags: int
     levels: int
@@ -111,6 +135,7 @@ class Mesh:
     palette: tuple          # bone name hashes; a vertex's slots index this
     bbox: tuple
     palette_found_by: str   # "layout" or "hashes"
+    bones: list = field(default_factory=list)   # the mesh's own bones (flag 0x1)
 
 
 def _name(s, off):
@@ -138,6 +163,43 @@ def _find_palette(s, start, known):
         if 0 < n < 1024 and o + 2 + 4 * n <= len(s) and struct.unpack_from("<I", s, o + 2)[0] in known \
                 and all(w in known for w in struct.unpack_from(f"<{n}I", s, o + 2)):
             return o
+    return None
+
+
+def _bones_at(s, o):
+    """(end offset, [Bone]) for a bone list starting at `o`, or None."""
+    from .hashlittle import hashlittle
+    if o + 4 > len(s):
+        return None
+    n = struct.unpack_from("<I", s, o)[0]
+    if not 0 < n < 300:
+        return None
+    o += 4
+    bones = []
+    for i in range(n):
+        if o + 5 > len(s):
+            return None
+        h, size = struct.unpack_from("<IB", s, o)
+        raw = s[o + 5:o + 5 + size]
+        if not 0 < size < 64 or not all(32 <= c < 127 for c in raw) or hashlittle(raw, 0xC5EDE) != h:
+            return None
+        if o + 9 + size + 296 > len(s):
+            return None
+        parent = struct.unpack_from("<i", s, o + 5 + size)[0]
+        if not -1 <= parent < i:
+            return None
+        m = struct.unpack_from("<16f", s, o + 9 + size)
+        bones.append(Bone(h, raw.decode("ascii"), parent, tuple(m[4 * c + r] for r in range(4) for c in range(4))))
+        o += 9 + size + 296
+    return o, bones
+
+
+def _find_bones(s, start):
+    for o in range(start, len(s) - 9):
+        if s[o + 1] == 0 and s[o + 2] == 0 and s[o + 3] == 0:
+            found = _bones_at(s, o)
+            if found:
+                return found
     return None
 
 
@@ -175,7 +237,18 @@ def read_pac(data, level=0, known_hashes=None):
         subs.append(Submesh(name, material, f[2:5], f[5:8], lod_map, vc, ic))
 
     found_by = "layout"
-    if not flags & ~(NO_BLOCK | FLAG_TREE):
+    bones = []
+    if flags & FLAG_BONES:
+        found = _find_bones(s, off)
+        if found is None:
+            raise ValueError(f"this mesh's flags ({flags:#x}) give it a bone list of its own, which was not found")
+        after, bones = found
+        own = set(known_hashes or ()) | {b.hash for b in bones}
+        at = _find_palette(s, after, own)
+        if at is None:
+            raise ValueError("no palette of known bone hashes follows this mesh's own bone list")
+        off, found_by = at, "hashes"
+    elif not flags & ~(NO_BLOCK | FLAG_TREE):
         if flags & FLAG_TREE:
             n = struct.unpack_from("<H", s, off + 24)[0]
             off += 26 + 16 * n
@@ -224,4 +297,4 @@ def read_pac(data, level=0, known_hashes=None):
         sb.triangles = [idx[i:i + 3] for i in range(0, ni - 2, 3)]
         vbase += nv * STRIDE
         ibase += 2 * ni
-    return Mesh(flags, levels, [sb for sb in subs if level < len(sb.vertex_counts)], palette, bbox, found_by)
+    return Mesh(flags, levels, [sb for sb in subs if level < len(sb.vertex_counts)], palette, bbox, found_by, bones)

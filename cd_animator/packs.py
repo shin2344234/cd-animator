@@ -19,7 +19,7 @@ import bpy
 from .formats import paz
 
 GROUPS = {"0009": {"paa", "pab", "pabc", "pac", "pac_xml", "dds", "app_xml", "prefab", "prefabdata_xml",
-                   "motionblending"},
+                   "motionblending", "xml"},
           "0010": {"paa_metabin", "paac"}}
 MOTION = "character/motion/"
 MOTION_LOD = "character/motion/motion_lod__/"
@@ -29,6 +29,8 @@ MODEL_PROPERTY = "character/modelproperty/"
 APPEARANCE = "character/appearance/"
 PREFAB = "character/bin__/prefab/"
 VARIATION = "character/binary/skeletonvariation/"
+SOCKETS = "character/descriptors/socketbonedata/"
+DESCRIPTIONS = "character/descriptors/characterdescription/"
 GAME = "Crimson Desert"
 
 
@@ -103,6 +105,8 @@ class Index:
                 self.prefab_data.setdefault(p.rsplit("/", 1)[-1][:-15], p)
         self._bone_hashes = None
         self._clips_by_folder = {}
+        self._sockets = {}
+        self._part_rules = {}
         self.stamp = _stamp(folder)
 
     def bone_hashes(self):
@@ -267,6 +271,7 @@ class Character:
     missing: list        # prefabs the packs lack
     variations: list     # skeleton variation game paths, body first
     scale: float         # the body's CharacterScale
+    socket_files: dict   # component: its prefab's socket file, for weapons
 
 
 def character(idx, name):
@@ -297,14 +302,66 @@ def character(idx, name):
     # Each prefab's data file may name a skeleton variation: the body's for
     # the body, the head's for the face. Later ones win where they overlap.
     variations = []
+    socket_files = {}
     for _section, prefab, _attributes in app.prefabs:
+        path = idx.prefabs.get(prefab.lower())
+        if path:
+            socket_files.update(appearance.prefab_sockets(paz.read(idx.by_path[path])))
         data = idx.prefab_data.get(prefab.lower())
         found = appearance.variation_of(paz.read(idx.by_path[data])) if data else None
         path = VARIATION + found.lower() if found else None
         if path and path in idx.by_path and path not in variations:
             variations.append(path)
     return Character(skel, [(c, m.lower()[:-4]) for c, m in meshes], skipped, missing,
-                     variations, appearance.character_scale(app))
+                     variations, appearance.character_scale(app), socket_files)
+
+
+def prefab(idx, name):
+    """A prefab's parts: [(component, mesh game path without .pac, socket
+    file game path or None)]."""
+    from .formats import appearance
+    path = idx.prefabs.get(name.lower())
+    if path is None:
+        raise PackError(f"no prefab {name} in the game")
+    data = paz.read(idx.by_path[path])
+    files = appearance.prefab_sockets(data)
+    return [(c, m.lower()[:-4], files.get(c)) for c, m in appearance.prefab_parts(data)]
+
+
+def sockets(idx, path):
+    """{name: formats.sockets.Socket} of a socket file (its game path), or
+    of skeleton `path` (game path without .pab); empty when there is none."""
+    from .formats import sockets as sockets_format
+    if not path.endswith(".sockets.xml"):
+        path = SOCKETS + path[len(MODEL):] + ".pab.sockets.xml" if path.startswith(MODEL) else ""
+    if path not in idx._sockets:
+        e = idx.by_path.get(path)
+        idx._sockets[path] = sockets_format.read_sockets(paz.read(e)) if e is not None else {}
+    return idx._sockets[path]
+
+
+def part_rules(idx, skeleton, playable=False):
+    """{part name: its socket rule}, merged from every character
+    description, those of the skeleton's family first (phm for phm_01), and
+    within them the player files first for a playable character and last
+    for anyone else. No file says which description a character uses."""
+    from .formats import sockets as sockets_format
+    family = skeleton.rsplit("/", 1)[-1].split("_", 1)[0]
+    key = (family, playable)
+    if key not in idx._part_rules:
+        files = sorted(p for p in idx.by_path if p.startswith(DESCRIPTIONS) and p.endswith(".xml"))
+
+        def order(p):
+            base = p.rsplit("/", 1)[-1]
+            own = base.startswith(family + "_")
+            player = "player" in base
+            return (not own, player != playable, base)
+
+        rules = {}
+        for p in sorted(files, key=order):
+            sockets_format.read_part_sockets(paz.read(idx.by_path[p]), rules)
+        idx._part_rules[key] = rules
+    return idx._part_rules[key]
 
 
 def variation(idx, paths):

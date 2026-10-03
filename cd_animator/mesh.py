@@ -23,13 +23,19 @@ class MeshError(Exception):
     pass
 
 
-def build_mesh(context, armature, mesh, name, materials=None, load=None):
+def build_mesh(context, armature, mesh, name, materials=None, load=None, remap=None, placement=None):
     """A mesh object for `mesh` (formats.pac.Mesh), parented to `armature`
     and deformed by it. `materials` maps lower-case submesh names to
     formats.material.Material, and `load(path, color)` gives a texture's bpy
-    image; parts without one get a plain material. Returns (object, bone
-    hashes the armature lacks)."""
+    image; parts without one get a plain material. `remap` maps palette
+    hashes to armature bone names for a mesh with bones of its own
+    (own_bone_map, or every bone to a socket's bone), and `placement`, a
+    Blender-space Matrix, moves the vertices into armature space first, for
+    a weapon put at a socket. Returns (object, bone hashes the armature
+    lacks)."""
     bone_of = {paa_codec.bone_hash(b.name): b.name for b in armature.data.bones}
+    if remap:
+        bone_of.update(remap)
     missing = sorted({h for h in mesh.palette if h not in bone_of})
 
     verts, tris, uvs, normals, mat_index, weights = [], [], [], [], [], []
@@ -53,7 +59,12 @@ def build_mesh(context, armature, mesh, name, materials=None, load=None):
                 mat_index.append(i)
     if not tris:
         raise MeshError("the mesh has no triangles at this detail level")
-    _fit_to_rest(armature, mesh, bone_of, verts, normals, weights)
+    if placement is not None:
+        turn = placement.to_3x3()
+        verts = [placement @ v for v in verts]
+        normals = [(turn @ n).normalized() for n in normals]
+    else:
+        _fit_to_rest(armature, mesh, bone_of, verts, normals, weights)
 
     me = bpy.data.meshes.new(name)
     me.from_pydata([tuple(v) for v in verts], [], tris)
@@ -138,6 +149,27 @@ def _fit_to_rest(armature, mesh, bone_of, verts, normals, weights):
         verts[v] = moved / rest if rest else p
         if turned.length > 1e-9:
             normals[v] = turned.normalized()
+
+
+def own_bone_map(armature, mesh):
+    """{palette hash: armature bone name} for a mesh with bones of its own
+    (formats/pac.py): each of its bones that the armature has by name maps
+    to itself, the rest to their nearest ancestor the armature has. None
+    when the mesh's root bone is not in the armature, as with a weapon,
+    which goes to a socket instead."""
+    names = {b.name for b in armature.data.bones}
+    target = []
+    for b in mesh.bones:
+        if b.name in names:
+            target.append(b.name)
+        elif b.parent >= 0:
+            target.append(target[b.parent])
+        else:
+            target.append(None)
+    out = {b.hash: t for b, t in zip(mesh.bones, target)}
+    if any(out.get(h, "") is None for h in mesh.palette):
+        return None
+    return {h: t for h, t in out.items() if t is not None}
 
 
 def known_hashes(armature, extra=()):

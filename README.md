@@ -1,12 +1,12 @@
 # CD Animator
 
-A Blender add-on for Crimson Desert animations. It imports skeletons (`.pab`) as armatures, animation clips (`.paa`, full and `_lod`) as actions, and meshes (`.pac`) skinned to the armature, so a clip plays on the character's body. It exports an action back to a `.paa`, along with the `_lod.paa` and `.paa_metabin` the game loads with every clip. Its clips play in the game. Broomy 1.0.2's hover idle and level takeoff were made with it, and so were the raised-arm idles that first tested the loader. Version 0.4.0 starts new clips from shipped ones, at any length, and edits a clip's events. Version 0.5.0 bakes constraints and IK on export, and 0.6.0 reads skeletons and clips straight from the game's packs. Version 0.7.0 reads every skeleton in the game and every clip layout, so the Wyvern, the horses, the bear and facial clips import and export as Kliff and the broom do. Version 0.8.0 shows the game's meshes on the armature, and 0.9.0 gives them the game's textures. Version 0.10.0 builds a whole character, Kliff in his default outfit included, in one step, and 0.11.0 gives the character its own body and face proportions. Version 0.12.0 builds any number of characters from a list, each playing a clip.
+A Blender add-on for Crimson Desert animations. It imports skeletons (`.pab`) as armatures, animation clips (`.paa`, full and `_lod`) as actions, and meshes (`.pac`) skinned to the armature, so a clip plays on the character's body. It exports an action back to a `.paa`, along with the `_lod.paa` and `.paa_metabin` the game loads with every clip. Its clips play in the game. Broomy 1.0.2's hover idle and level takeoff were made with it, and so were the raised-arm idles that first tested the loader. Version 0.4.0 starts new clips from shipped ones, at any length, and edits a clip's events. Version 0.5.0 bakes constraints and IK on export, and 0.6.0 reads skeletons and clips straight from the game's packs. Version 0.7.0 reads every skeleton in the game and every clip layout, so the Wyvern, the horses, the bear and facial clips import and export as Kliff and the broom do. Version 0.8.0 shows the game's meshes on the armature, and 0.9.0 gives them the game's textures. Version 0.10.0 builds a whole character, Kliff in his default outfit included, in one step, and 0.11.0 gives the character its own body and face proportions. Version 0.12.0 builds any number of characters from a list, each playing a clip, and 0.13.0 puts weapons and props at the sockets the game uses.
 
 It needs Blender 4.4 or newer and was built on 5.2.2.
 
 ## Install
 
-In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `dist/cd_animator-0.12.0.zip`. To rebuild the zip after changing the code:
+In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `dist/cd_animator-0.13.0.zip`. To rebuild the zip after changing the code:
 
 ```
 blender --command extension build --source-dir cd_animator --output-dir dist
@@ -33,6 +33,8 @@ Run it again and each character is built into a collection of its own under `CD 
 bpy.data.texts.new("CD characters").write("cd_phm_macduff_00000  cd_phm_rd_broom_basic_00_00_nor_std_idle_01\n")
 bpy.ops.cd_animator.game_characters(text="CD characters", folder="C:/out/characters")
 ```
+
+Attach weapon or prop puts a weapon, shield, bow, helmet or other prop from the game on the selected character. Pick its prefab, such as `cd_phm_01_sword_0001_01_r` for a sword made for the right hand, and In use or Put away: the sword goes in the right hand by its grip, or into its place at the left hip. The game's character descriptions decide the socket; type a socket name in Socket to put it somewhere else, such as `Spine2_B_MainWeapon_Socket` on the back. The weapon follows that socket's bone, so it moves with the hand in any clip. Armour with bones of its own, such as plumed helmets, follows the character's bones of the same names. Characters whose appearance includes a weapon, such as spear-carrying guards, get it in hand when built. Physics parts such as a flail's chain keep their straight rest shape, and a sheathed sword comes without its scabbard.
 
 The same commands are under File > Import with the file browser, for files unpacked on disk. The samples in `samples` were taken with `master looter/tools/crimson-desert-unpacker/python/paz_unpack.py`, the clips from pack group 0009 and their `.paa_metabin` files from group 0010, for example:
 
@@ -130,6 +132,12 @@ blender -b --factory-startup --python tests/check_character.py
 ```
 
 It needs the game installed. It resolves 300 appearance files to their skeletons and meshes and requires every mesh to be in the packs, then builds Kliff and requires exactly the 19 parts of his default look, each with the game's materials, Then it checks Kliff's proportions: every varied bone at the variation's bind, his body at rest within 0.001 mm of where the game's skinning puts it, and with a dismount playing within 6.5 mm on every vertex, 99% within 4.1 mm, worked out separately in game space. Last it builds Damian on the female skeleton.
+
+```
+blender -b --factory-startup --python tests/check_props.py
+```
+
+It needs the game installed. It reads 100 weapon meshes with their own bones, checks phm_01's 52 sockets and the sword's socket rules, attaches a sword to Kliff's right hand and requires its grip on the hand socket and every vertex to move exactly as the hand bone during a dismount, attaches a plumed helmet that must follow his head bones with every vertex weighted, and builds a spear-carrying NPC whose spear must be at the right hand.
 
 ```
 blender -b --factory-startup --python tests/check_build_list.py
