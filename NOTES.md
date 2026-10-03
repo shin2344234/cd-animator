@@ -207,6 +207,14 @@ So the game ships lip sync for more lines than it voices, and voices about 42,00
 
 Lip sync clips end on a whole frame. The voice runs on past the clip. In 80 matched lines it ran on a median 51 ms and at most 86 ms, and one clip was 1.9 s longer than its line; in 45 more it ran on 34 to 66 ms. Both start at frame 0; whether the game starts them together is not checked.
 
+## Sending clips to the game
+
+The loader logs a session to `CDAnimator.log`, renaming the one before to `CDAnimator.01.log` at startup, so the log file's creation time is the session's start; its lines carry the time of day only. It logs a `[folder]` line for each file it found at startup and a `[files]` line the first time the game takes each, with the game's path. In the first test the game took both wait faces' metadata and `_lod.paa` while the save loaded, then each `.paa` when Kliff first played it, 42 and 59 s after startup. The loader walks its folder depth first in directory order, so of two same-named files in different folders the one whose path sorts first wins; Send to game refuses rather than guess.
+
+An open mouth needs the teeth and tongue. The face rig has no jaw bone; in Kliff's speech the lower teeth bone B_Toothdown_C turns about 3 degrees and moves 4.9 mm at the widest, the tongue bones turn up to 13 degrees, and the lip, inner lip and chin bones move 12 to 15 mm. A first test moved only the 33 face bones below the mouth and in front of the head down 15 mm. In game the lower lip stretched while the teeth stayed shut, and it read as swollen lips. Adding twice the speech frame's pose of every face bone instead opened the mouth with the teeth apart, in Blender and in game.
+
+Export writes its own `_lod.paa`, so even an unchanged clip's LOD differs from the game's: 828 bytes for Kliff's idle against the game's 572. The two wait faces' LODs came out 86 bytes each. The clip and its metadata are byte for byte the game's.
+
 ## Gear
 
 The game's data tables are in group 0008 as pairs of files, `gamedata/binarystaticinfo__/bin/<table>.staticinfoheader` and `.staticinfobody`. The header is a u16 record count, then each record's u32 key and u32 offset into the body; a record runs to the next offset. Each record starts with its key again and its name, a u32 length and the bytes. `formats/staticinfo.py` reads them and finds the fields it needs by their shape, checking each against the game's files, without decoding the rest.

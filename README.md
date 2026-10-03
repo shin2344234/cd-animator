@@ -1,12 +1,12 @@
 # CD Animator
 
-A Blender add-on for Crimson Desert animations. It imports skeletons (`.pab`) as armatures, animation clips (`.paa`, full and `_lod`) as actions, and meshes (`.pac`) skinned to the armature, so a clip plays on the character's body. It exports an action back to a `.paa`, along with the `_lod.paa` and `.paa_metabin` the game loads with every clip. Its clips play in the game. Broomy 1.0.2's hover idle and level takeoff were made with it, and so were the raised-arm idles that first tested the loader. Version 0.4.0 starts new clips from shipped ones, at any length, and edits a clip's events. Version 0.5.0 bakes constraints and IK on export, and 0.6.0 reads skeletons and clips straight from the game's packs. Version 0.7.0 reads every skeleton in the game and every clip layout, so the Wyvern, the horses, the bear and facial clips import and export as Kliff and the broom do. Version 0.8.0 shows the game's meshes on the armature, and 0.9.0 gives them the game's textures. Version 0.10.0 builds a whole character, Kliff in his default outfit included, in one step, and 0.11.0 gives the character its own body and face proportions. Version 0.12.0 builds any number of characters from a list, each playing a clip, and 0.13.0 puts weapons and props at the sockets the game uses. Version 0.14.0 reads the game's character and item tables, so a character comes with the armour and weapons its record gives it, and 0.15.0 makes chains such as a flail's hang and swing. Version 0.16.0 gives cloaks, coat tails and other cloth Blender's cloth simulation, held where the game holds them, and 0.17.0 lets hair and beards sway. Version 0.18.0 plays a facial clip over a body clip, and 0.19.0 plays the voice line with a lip sync clip.
+A Blender add-on for Crimson Desert animations. It imports skeletons (`.pab`) as armatures, animation clips (`.paa`, full and `_lod`) as actions, and meshes (`.pac`) skinned to the armature, so a clip plays on the character's body. It exports an action back to a `.paa`, along with the `_lod.paa` and `.paa_metabin` the game loads with every clip. Its clips play in the game. Broomy 1.0.2's hover idle and level takeoff were made with it, and so were the raised-arm idles that first tested the loader. Version 0.4.0 starts new clips from shipped ones, at any length, and edits a clip's events. Version 0.5.0 bakes constraints and IK on export, and 0.6.0 reads skeletons and clips straight from the game's packs. Version 0.7.0 reads every skeleton in the game and every clip layout, so the Wyvern, the horses, the bear and facial clips import and export as Kliff and the broom do. Version 0.8.0 shows the game's meshes on the armature, and 0.9.0 gives them the game's textures. Version 0.10.0 builds a whole character, Kliff in his default outfit included, in one step, and 0.11.0 gives the character its own body and face proportions. Version 0.12.0 builds any number of characters from a list, each playing a clip, and 0.13.0 puts weapons and props at the sockets the game uses. Version 0.14.0 reads the game's character and item tables, so a character comes with the armour and weapons its record gives it, and 0.15.0 makes chains such as a flail's hang and swing. Version 0.16.0 gives cloaks, coat tails and other cloth Blender's cloth simulation, held where the game holds them, and 0.17.0 lets hair and beards sway. Version 0.18.0 plays a facial clip over a body clip, and 0.19.0 plays the voice line with a lip sync clip. Version 0.20.0 sends a clip straight to the game.
 
 It needs Blender 4.4 or newer and was built on 5.2.2.
 
 ## Install
 
-In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `dist/cd_animator-0.19.0.zip`. To rebuild the zip after changing the code:
+In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `dist/cd_animator-0.20.0.zip`. To rebuild the zip after changing the code:
 
 ```
 blender --command extension build --source-dir cd_animator --output-dir dist
@@ -73,11 +73,15 @@ Not every bone you animate shows. On a mount the root bone, Bip01, shows its rot
 
 ## Playing a clip in the game
 
-The loader in `loader/` is an ASI plugin, `CDAnimator.asi`, that hands the game every file in `bin64\CDAnimator` in place of the game's file of that name. Export a clip, drop its three files in that folder and start the game. With `LogClips=1` in its ini it also logs each clip the game loads, which is how to find the file behind a motion you see. `loader/README.md` has the rest.
+The loader in `loader/` is an ASI plugin, `CDAnimator.asi`, that hands the game every file in `bin64\CDAnimator` in place of the game's file of that name. Send to game, under In the game in the sidebar, exports the selected armature's clip into that folder under the game's name for it, all three files, the same files Export writes. An imported clip keeps the name of the file it came from, even when Blender has numbered the action `.001`; a new clip goes in under the name it was given. With a facial clip on the face, it asks whether to send the body clip or the facial one. It refuses when the loader is not in `bin64`, and when a file of the clip's name is already in a subfolder of `CDAnimator`, since the loader might take that copy.
+
+The loader reads the folder when the game starts, so a clip sent while the game runs shows from the next start. Check the game lists the clips in the folder and what the loader's log says about each: waiting for the game to start, found at startup but not played yet, or played, with the time the game first took it. The X beside a clip deletes its files from the folder, so the game plays its own again from its next start. Kliff's two standing wait faces, sent with his mouth held open by `examples/open_mouth.py`, showed in game with his jaw dropped and teeth apart, and the log listed both clips as the plugin's.
+
+To do it by hand, export a clip, drop its three files in that folder and start the game. With `LogClips=1` in its ini it also logs each clip the game loads, which is how to find the file behind a motion you see. `loader/README.md` has the rest.
 
 ## Examples
 
-All five run headless and write into `out/`:
+All six run headless and write into `out/`:
 
 ```
 blender -b --factory-startup --python examples/hover_idle.py
@@ -85,9 +89,10 @@ blender -b --factory-startup --python examples/level_takeoff.py
 blender -b --factory-startup --python examples/raise_arm.py
 blender -b --factory-startup --python examples/push_off.py
 blender -b --factory-startup --python examples/bend_wing.py
+blender -b --factory-startup --python examples/open_mouth.py
 ```
 
-`hover_idle.py` adds a 12 cm float with a small roll and pitch to the broom's idle, on B_Body_00, starting and ending on the shipped pose. `level_takeoff.py` makes a takeoff that holds the idle's first frame and keeps the climb's rise, so flight starts with no jump. Broomy 1.0.2 carries both. `raise_arm.py` turns Kliff's right arm up over his head in his two standing idles and his desert fidget, for the loader; other clips of his can be named on the command line. `push_off.py` is Kliff's kick as Broomy takes off, a new clip holding his broom idle's first frame with IK legs that export bakes. It played in game on 2 October through the Broomy test build, which points Kliff's takeoff at a spare action of his whose clip it replaces. `bend_wing.py` raises the Wyvern's left wing 60 degrees in its ground, hover and air idles, taking the skeleton and clips from the game's packs. It is the in-game test of the 0.7.0 formats.
+`hover_idle.py` adds a 12 cm float with a small roll and pitch to the broom's idle, on B_Body_00, starting and ending on the shipped pose. `level_takeoff.py` makes a takeoff that holds the idle's first frame and keeps the climb's rise, so flight starts with no jump. Broomy 1.0.2 carries both. `raise_arm.py` turns Kliff's right arm up over his head in his two standing idles and his desert fidget, for the loader; other clips of his can be named on the command line. `push_off.py` is Kliff's kick as Broomy takes off, a new clip holding his broom idle's first frame with IK legs that export bakes. It played in game on 2 October through the Broomy test build, which points Kliff's takeoff at a spare action of his whose clip it replaces. `bend_wing.py` raises the Wyvern's left wing 60 degrees in its ground, hover and air idles, taking the skeleton and clips from the game's packs. It is the in-game test of the 0.7.0 formats. `open_mouth.py` holds Kliff's mouth open in his two standing wait faces, the way the game opens it when he talks: it takes every face bone's pose on the frame of one of his spoken lines where his lower teeth drop furthest, doubles it and adds it on top. With `--send` it puts them straight into the loader's folder.
 
 ## Check
 
@@ -180,6 +185,12 @@ blender -b --factory-startup --python tests/check_voice.py
 ```
 
 It needs the game installed with English voice. It requires more than 50,000 English voice lines, and 200 random ones to convert to Ogg Vorbis that Blender's own audio library decodes to exactly each line's sample count. The lines among them with a lip sync clip must run 0 to 0.1 s past it on 95% of them. Kliff with an idle and one of his lines must get a sound strip of that line from frame 0 and a scene that plays in step with the sound; a French line, with no French voice installed, must leave the strip as it was, and Remove facial clip must take it out. An English line with no English voice but a Korean one must name the Korean lip sync clip, and a line voiced in no installed language must say so.
+
+```
+blender -b --factory-startup --python tests/check_send.py
+```
+
+It needs the game installed, to build Kliff, but writes only to a temporary folder standing in for `bin64`. Send to game must refuse without `CDAnimator.asi`; with it, Kliff's idle and his angry face must go in as three files each, as Export writes them, the clip and its metadata byte for byte the game's own. A clip imported twice must keep its game name and a new clip take its own; a same-named file in a subfolder must stop the send with nothing written. Reading a log, it must call a clip the game took played, one found at startup ready, and one changed since the session started waiting, and Take out of the game must delete exactly that clip's files.
 
 ```
 blender -b --factory-startup --python tests/check_gear.py

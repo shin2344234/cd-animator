@@ -10,14 +10,14 @@ from bpy.types import AddonPreferences, Operator, OperatorFileListElement, UILis
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 from mathutils import Matrix
 
-from . import anim, chains, clip, cloth, convert, export, mesh, meta, packs, skeleton, sway, voice
+from . import anim, chains, clip, cloth, convert, export, ingame, mesh, meta, packs, skeleton, sway, voice
 from .formats import material, pac, paa_codec
 from .formats import sockets as sockets_format
 
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 19, 0),
+    "version": (0, 20, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -1475,6 +1475,102 @@ class CDANIM_OT_unseat_rider(Operator):
         return {"FINISHED"}
 
 
+_in_game = {"rows": None, "note": ""}
+
+
+def _check_game(context):
+    """Read the loader's folder and log into the In the game list."""
+    try:
+        root = ingame.folder(context)
+        rows = ingame.status(root, ingame.read_log(ingame.bin64(context)))
+    except (ingame.SendError, packs.PackError, OSError) as exc:
+        _in_game.update(rows=[], note=str(exc))
+        return
+    running = ingame.game_running()
+    _in_game.update(rows=rows, note="The game is running" if running else
+                    "The game is not running" if running is False else "")
+
+
+class CDANIM_OT_send_to_game(Operator):
+    """Export the clip into the CD Animator Loader's folder under the game's name for it, so the game plays it from
+    its next start"""
+    bl_idname = "cd_animator.send_to_game"
+    bl_label = "Send to game"
+    bl_options = {"REGISTER"}
+
+    clip: EnumProperty(name="Clip", items=_clip_choices,
+                       description="Which clip to send when the armature plays a facial clip over its action")
+    bake: BoolProperty(name="Bake constraints and IK", default=True,
+                       description="Write bones moved by constraints, IK, drivers or Euler rotation as Blender shows "
+                       "them, as Export does")
+
+    @classmethod
+    def poll(cls, context):
+        return CDANIM_OT_export_paa.poll(context)
+
+    def invoke(self, context, event):
+        if anim.face_action(context.object) and CDANIM_OT_export_paa._action(context.object, "ACTION"):
+            return context.window_manager.invoke_props_dialog(self)
+        return self.execute(context)
+
+    def execute(self, context):
+        obj = context.object
+        if obj.mode == "EDIT":
+            bpy.ops.object.mode_set(mode="POSE")
+        action = (CDANIM_OT_export_paa._action(obj, self.clip) or CDANIM_OT_export_paa._action(obj, "ACTION")
+                  or CDANIM_OT_export_paa._action(obj, "FACE"))
+        try:
+            root = ingame.folder(context)
+            name, written, problems = ingame.send(obj, action, root, self.bake)
+        except (ingame.SendError, export.ExportError, packs.PackError, ValueError, OSError) as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        for p in problems:
+            self.report({"WARNING"}, p)
+        _check_game(context)
+        running = ingame.game_running()
+        after = "Restart the game to see it" if running else "Start the game to see it"
+        self.report({"INFO"}, f"Sent {name} to the game ({len(written)} files). {after}")
+        return {"FINISHED"}
+
+
+class CDANIM_OT_check_game(Operator):
+    """Read the CD Animator Loader's folder and log: which clips are there, and whether the game found and played
+    them"""
+    bl_idname = "cd_animator.check_game"
+    bl_label = "Check the game"
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        _check_game(context)
+        if _in_game["note"] and not _in_game["rows"]:
+            self.report({"INFO"}, _in_game["note"])
+        return {"FINISHED"}
+
+
+class CDANIM_OT_remove_from_game(Operator):
+    """Delete this clip's files from the CD Animator Loader's folder, so the game plays its own from its next start"""
+    bl_idname = "cd_animator.remove_from_game"
+    bl_label = "Take out of the game"
+    bl_options = {"REGISTER"}
+
+    name: StringProperty(name="Clip", options={"HIDDEN"})
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_confirm(self, event, message=f"Delete {self.name}'s files from the "
+                                                     "loader's folder?")
+
+    def execute(self, context):
+        try:
+            gone = ingame.remove(ingame.folder(context), self.name)
+        except (ingame.SendError, packs.PackError, OSError) as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        _check_game(context)
+        self.report({"INFO"}, f"Took {self.name} out of the game ({len(gone)} files)")
+        return {"FINISHED"}
+
+
 class CDANIM_OT_remove_face(Operator):
     """Take the facial clip off the selected armature's face, so the face goes back to rest, and its voice line out
     of the scene. The clip stays in the file as an action"""
@@ -1524,6 +1620,26 @@ class CDANIM_PT_panel(bpy.types.Panel):
         col.operator(CDANIM_OT_seat_rider.bl_idname, icon="CONSTRAINT_BONE")
         col.operator(CDANIM_OT_unseat_rider.bl_idname, icon="X")
         col.operator(CDANIM_OT_remove_face.bl_idname, icon="X")
+        col.separator()
+        col.label(text="In the game")
+        row = col.row(align=True)
+        row.operator(CDANIM_OT_send_to_game.bl_idname, icon="PLAY")
+        row.operator(CDANIM_OT_check_game.bl_idname, text="", icon="FILE_REFRESH")
+        if _in_game["rows"] is None:
+            col.label(text="Check the game to list the clips sent")
+        else:
+            if _in_game["note"]:
+                col.label(text=_in_game["note"], icon="INFO")
+            if not _in_game["rows"]:
+                col.label(text="No clips in the loader's folder")
+            for name, _files, (state, when) in _in_game["rows"]:
+                row = col.row(align=True)
+                label = {"waiting": "waits for the game to start", "ready": "found, not played yet",
+                         "played": f"played {when:%H:%M}" if when else "played"}[state]
+                icon = {"waiting": "TIME", "ready": "CHECKMARK", "played": "PLAY"}[state]
+                row.label(text=f"{name}: {label}", icon=icon)
+                op = row.operator(CDANIM_OT_remove_from_game.bl_idname, text="", icon="X")
+                op.name = name
         obj = context.object
         face = anim.face_action(obj) if skeleton.is_cd_armature(obj) else None
         if face is not None:
@@ -1585,7 +1701,8 @@ def _menu_import(self, context):
 _classes = (CDANIM_AP_prefs, CDANIM_OT_import_pab, CDANIM_OT_import_paa, CDANIM_OT_export_paa, CDANIM_OT_new_clip,
             CDANIM_OT_game_skeleton, CDANIM_OT_game_clip, CDANIM_OT_game_new_clip, CDANIM_OT_game_mesh, CDANIM_OT_import_pac, CDANIM_OT_game_character, CDANIM_OT_game_characters, CDANIM_OT_game_prop, CDANIM_OT_bake_chains,
             CDANIM_OT_set_length, CDANIM_OT_event_add, CDANIM_OT_event_remove, CDANIM_UL_events,
-            CDANIM_OT_seat_rider, CDANIM_OT_unseat_rider, CDANIM_OT_remove_face, CDANIM_PT_panel)
+            CDANIM_OT_seat_rider, CDANIM_OT_unseat_rider, CDANIM_OT_remove_face, CDANIM_OT_send_to_game,
+            CDANIM_OT_check_game, CDANIM_OT_remove_from_game, CDANIM_PT_panel)
 
 
 def register():
