@@ -69,7 +69,7 @@ def new_clip(context, obj, template, name, frames, hold=False, stretch_events=Tr
     `name`, `frames` long. `hold` keeps every bone on the template's first
     frame for the whole clip; otherwise the template's motion is the
     starting point. Returns the action."""
-    action, _unknown = anim.import_clip(context, obj, template)
+    action, _unknown = anim.import_clip(context, obj, template, layer=False)
     if action.get("cd_lod"):
         raise ValueError("start a new clip from a full clip, not a _lod.paa")
     old = int(action.frame_end)

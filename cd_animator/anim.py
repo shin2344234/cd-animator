@@ -1,4 +1,12 @@
-"""Turn a .paa clip into a Blender action on a Crimson Desert armature."""
+"""Turn a .paa clip into a Blender action on a Crimson Desert armature.
+
+Facial clips key only the face bones, B_face_com and the bones under it,
+and body clips never do (none of 400 sampled), so the game plays one of
+each at once. A facial clip imported onto an armature that plays a body
+clip goes on an NLA track of its own, FACE_TRACK, and the body clip stays
+the active action; a body clip imported over a facial one moves the facial
+one there.
+"""
 
 import json
 import os
@@ -10,6 +18,8 @@ from . import convert, meta
 from .formats import paa_codec
 
 FPS = 30
+FACE_ROOT = "B_face_com"
+FACE_TRACK = "CD face"
 frame_step = paa_codec.frame_step   # by key kind: 8-bit LOD blocks count 1/5 s ticks
 
 
@@ -34,9 +44,70 @@ def _fill(fcurve, frames, values):
     fcurve.update()
 
 
-def import_clip(context, obj, path):
+def face_bones(obj):
+    """Names of the armature's face bones: B_face_com and every bone under it."""
+    root = obj.data.bones.get(FACE_ROOT)
+    if root is None:
+        return set()
+    return {root.name} | {b.name for b in root.children_recursive}
+
+
+def face_track(obj):
+    ad = obj.animation_data
+    return ad.nla_tracks.get(FACE_TRACK) if ad else None
+
+
+def face_action(obj):
+    """The facial clip on the armature's face layer, or None."""
+    track = face_track(obj)
+    strip = track.strips[0] if track and track.strips else None
+    return strip.action if strip else None
+
+
+def set_face(obj, action):
+    """Put `action`, a facial clip, on the armature's face layer from frame
+    0, in place of any facial clip already there. After its last frame the
+    face holds that frame's pose."""
+    ad = obj.animation_data or obj.animation_data_create()
+    old = ad.nla_tracks.get(FACE_TRACK)
+    if old is not None:
+        ad.nla_tracks.remove(old)
+    track = ad.nla_tracks.new()
+    track.name = FACE_TRACK
+    strip = track.strips.new(action.name, 0, action)
+    slot = next((s for s in action.slots if s.target_id_type == "OBJECT"), None)
+    if slot is not None:
+        strip.action_slot = slot
+    strip.blend_type = "REPLACE"
+    strip.extrapolation = "HOLD_FORWARD"
+    return strip
+
+
+def remove_face(obj):
+    """Take the facial clip off the face layer and put the face bones back
+    on their bind pose. Returns True if there was one."""
+    track = face_track(obj)
+    if track is None:
+        return False
+    obj.animation_data.nla_tracks.remove(track)
+    for name in face_bones(obj):
+        pb = obj.pose.bones[name]
+        pb.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
+        pb.location = (0.0, 0.0, 0.0)
+        pb.scale = (1.0, 1.0, 1.0)
+    return True
+
+
+def _length(action):
+    return int(action.frame_end) if action and action.use_frame_range else 0
+
+
+def import_clip(context, obj, path, layer=True):
     """Load the clip at `path` onto armature `obj` as a new action and make
-    it the active one. Returns (action, unknown_hashes)."""
+    it the active one. With `layer`, a facial clip on an armature playing a
+    body clip goes on the face layer instead, and a body clip moves an
+    active facial clip there (module docstring). Returns (action,
+    unknown_hashes)."""
     with open(path, "rb") as f:
         data = f.read()
     _container, td = paa_codec.decode_file(data)
@@ -53,6 +124,9 @@ def import_clip(context, obj, path):
 
     unknown = []
     blocks = []
+    face = face_bones(obj)
+    known = [names.get(bt.name_hash) for bt in td.bones]
+    face_only = bool(face) and any(known) and all(n in face for n in known if n)
     for bt in td.bones:
         bone_name = names.get(bt.name_hash)
         block = {
@@ -111,6 +185,8 @@ def import_clip(context, obj, path):
     if td.lead.rec1 is not None:
         action["cd_rec1"] = list(td.lead.rec1)
     action["cd_blocks"] = json.dumps(blocks)
+    if face_only:
+        action["cd_face"] = True
     metabin = None if td.lod else meta.companion(path, ".paa_metabin")
     if metabin is not None:
         with open(metabin, "rb") as f:
@@ -118,22 +194,29 @@ def import_clip(context, obj, path):
 
     reset_pose(obj)
     ad = obj.animation_data or obj.animation_data_create()
-    ad.action = action
-    ad.action_slot = slot
-    if obj.get("cd_seated"):
-        seat_rider(obj)
+    current = ad.action
+    if layer and face_only and current is not None and not current.get("cd_face"):
+        set_face(obj, action)
+    else:
+        if layer and not face_only and current is not None and current.get("cd_face"):
+            set_face(obj, current)
+        ad.action = action
+        ad.action_slot = slot
+        if obj.get("cd_seated"):
+            seat_rider(obj)
+    end = max(_length(ad.action), _length(face_action(obj)), 1)
 
     scene = context.scene
     scene.render.fps = FPS
     scene.render.fps_base = 1.0
     scene.frame_start = 0
-    scene.frame_end = max(last, 1)
+    scene.frame_end = end
     # Chains swing with the new clip (chains.py).
     from . import chains, cloth
     if chains.chain_bones(obj):
-        chains.bake(context, obj, 0, max(last, 1))
+        chains.bake(context, obj, 0, end)
     # Cloth simulates from the clip's first frame as it plays (cloth.py).
-    cloth.set_range(obj, 0, max(last, 1))
+    cloth.set_range(obj, 0, end)
     return action, unknown
 
 

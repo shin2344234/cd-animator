@@ -17,7 +17,7 @@ from .formats import sockets as sockets_format
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 17, 0),
+    "version": (0, 18, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -88,8 +88,20 @@ class CDANIM_OT_import_paa(Operator, ImportHelper):
         return {"FINISHED"}
 
 
+def _clip_choices(self, context):
+    obj = context.object if context else None
+    out = []
+    body = obj.animation_data.action if obj and obj.animation_data else None
+    if body is not None and "cd_source" in body:
+        out.append(("ACTION", body.name, "The armature's active action"))
+    face = anim.face_action(obj) if obj else None
+    if face is not None:
+        out.append(("FACE", face.name, "The facial clip on the armature's face layer"))
+    return out or [("ACTION", "Active action", "The armature's active action")]
+
+
 class CDANIM_OT_export_paa(Operator, ExportHelper):
-    """Write the active armature's current action as a Crimson Desert clip (.paa)"""
+    """Write the active armature's current action, or the facial clip on its face, as a Crimson Desert clip (.paa)"""
     bl_idname = "cd_animator.export_paa"
     bl_label = "Export Crimson Desert animation"
 
@@ -104,26 +116,42 @@ class CDANIM_OT_export_paa(Operator, ExportHelper):
         description="Write bones moved by constraints, IK, drivers or Euler rotation as Blender shows them, "
         "sampled every frame. Off writes only their quaternion and location keys",
         default=True)
+    clip: EnumProperty(name="Clip", items=_clip_choices,
+                       description="Which clip to write when the armature plays a facial clip over its action")
 
     @classmethod
     def poll(cls, context):
         obj = context.object
-        action = obj.animation_data.action if obj and obj.animation_data else None
-        if not skeleton.is_cd_armature(obj) or action is None or "cd_source" not in action:
+        if not skeleton.is_cd_armature(obj) or not (cls._action(obj, "ACTION") or cls._action(obj, "FACE")):
             cls.poll_message_set("Select an armature whose action was imported from a .paa clip")
             return False
         return True
 
+    @staticmethod
+    def _action(obj, which):
+        if which == "FACE":
+            return anim.face_action(obj)
+        action = obj.animation_data.action if obj.animation_data else None
+        return action if action is not None and "cd_source" in action else None
+
     def invoke(self, context, event):
         if not self.filepath:
-            self.filepath = context.object.animation_data.action.name + self.filename_ext
+            obj = context.object
+            action = self._action(obj, "ACTION") or self._action(obj, "FACE")
+            self.filepath = action.name + self.filename_ext
         return super().invoke(context, event)
 
     def execute(self, context):
         obj = context.object
         if obj.mode == "EDIT":
             bpy.ops.object.mode_set(mode="POSE")
-        action = obj.animation_data.action
+        action = self._action(obj, self.clip) or self._action(obj, "ACTION") or self._action(obj, "FACE")
+        # The file name follows the clip picked when it is still the other
+        # clip's name.
+        other = self._action(obj, "FACE" if self.clip == "ACTION" else "ACTION")
+        folder, base = os.path.split(self.filepath)
+        if other is not None and other is not action and base == other.name + self.filename_ext:
+            self.filepath = os.path.join(folder, action.name + self.filename_ext)
         try:
             if self.companions:
                 written, problems = export.export_with_companions(obj, action, self.filepath, self.bake)
@@ -300,7 +328,10 @@ class CDANIM_OT_game_clip(Operator):
             return {"CANCELLED"}
         if unknown:
             self.report({"WARNING"}, f"{action.name}: {len(unknown)} animated bones are not in this skeleton and were skipped")
-        self.report({"INFO"}, f"Imported {action.name}")
+        if anim.face_action(obj) is action:
+            self.report({"INFO"}, f"Imported {action.name} on the face, over {obj.animation_data.action.name}")
+        else:
+            self.report({"INFO"}, f"Imported {action.name}")
         return {"FINISHED"}
 
 
@@ -527,6 +558,30 @@ def _character_clip_names(self, context, edit_text):
         return []
 
 
+_face_clips = {}
+
+
+def facial_clips(idx, skeleton):
+    """The facial clips among a skeleton's clips: those in a 99_ folder
+    with facial in its name, such as 99_facial/99_emotion and
+    99_autofacial/english(us) for Kliff."""
+    clips = packs.clips_for(idx, skeleton)
+    key = (id(idx), id(clips))
+    if key not in _face_clips:
+        _face_clips[key] = [c for c in clips if any(p.startswith("99_") and "facial" in p for p in c.split("/")[:-1])]
+    return _face_clips[key]
+
+
+def _character_face_names(self, context, edit_text):
+    """Facial clips for the skeleton of the character in the same dialog."""
+    try:
+        idx = packs.index(context)
+        skel = _character_skeleton(context, self.character)
+        return packs.search(facial_clips(idx, skel) if skel else idx.clips, edit_text)
+    except (packs.PackError, OSError):
+        return []
+
+
 def _build_character(op, context, idx, text, clip=""):
     """Build character `text` (a name the character search accepts) with
     the options on `op` (level, textures, proportions, gear), and put clip `clip`
@@ -588,11 +643,12 @@ def _build_character(op, context, idx, text, clip=""):
     if varied:
         notes.append(("INFO", f"{arm.name}: own proportions from {', '.join(arm['cd_variations'])}, "
                               f"{arm.get('cd_varied_bones', 0)} bones; scale {ch.scale:g}"))
-    if not clip.strip():
+    clips = [c.strip() for c in ([clip] if isinstance(clip, str) else clip) if c and c.strip()]
+    if not clips:
         hung = _hang_chains(context, arm)
         if hung:
             notes.append(hung)
-    if clip.strip():
+    for clip in clips:
         try:
             # A short name may end several clips' paths; the skeleton's own
             # clips are tried first, then every clip.
@@ -601,7 +657,8 @@ def _build_character(op, context, idx, text, clip=""):
             except packs.PackError:
                 clip_name = packs.resolve(idx.clips, clip, "clip", prefix=packs.MOTION, ext=".paa")
             action, unknown = anim.import_clip(context, arm, packs.fetch_clip(idx, clip_name))
-            notes.append(("INFO", f"{arm.name}: playing {action.name}"))
+            on_face = anim.face_action(arm) is action
+            notes.append(("INFO", f"{arm.name}: playing {action.name}{' on the face' if on_face else ''}"))
             if unknown:
                 notes.append(("WARNING", f"{arm.name}: {len(unknown)} bones {action.name} animates are not in "
                                          f"this skeleton; it may be a clip for another one"))
@@ -792,6 +849,10 @@ class CDANIM_OT_game_character(Operator):
         name="Clip", search=_character_clip_names, search_options={"SUGGESTION"}, default="",
         description="A clip to play on the character, optional. The search lists the clips made for "
         "the character's skeleton; type words to narrow it")
+    face: StringProperty(
+        name="Facial clip", search=_character_face_names, search_options={"SUGGESTION"}, default="",
+        description="A facial clip to play on the character's face over the clip, optional: an expression from "
+        "99_facial or a spoken line from 99_autofacial. Type words to search")
     level: IntProperty(**_CHARACTER_OPTIONS["level"])
     textures: BoolProperty(**_CHARACTER_OPTIONS["textures"])
     proportions: BoolProperty(**_CHARACTER_OPTIONS["proportions"])
@@ -809,7 +870,7 @@ class CDANIM_OT_game_character(Operator):
             bpy.ops.object.mode_set(mode="OBJECT")
         try:
             idx = packs.index(context)
-            arm, placed, notes = _build_character(self, context, idx, self.character, self.clip)
+            arm, placed, notes = _build_character(self, context, idx, self.character, [self.clip, self.face])
         except (packs.PackError, ValueError, OSError, SyntaxError) as exc:
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
@@ -920,8 +981,9 @@ class CDANIM_OT_game_prop(Operator):
 
 LIST_TEXT = "CD characters"
 LIST_TEMPLATE = """# Characters for Build characters, one per line: the character, then a clip
-# to play on it if you want one. Either name can be a unique ending of its
-# path, as the Import character and Import animation searches show them.
+# to play on it if you want one, and a facial clip after it if you want one.
+# Any name can be a unique ending of its path, as the Import character and
+# Import animation searches show them.
 # Lines starting with # are skipped. Run Build characters again when done.
 cd_phm_macduff_00000  1_pc/1_phm/00_riding/cd_phm_rd_broom_basic_00_00_nor_std_idle_01
 cd_m0004_00_wyvern_0001_00000  cd_rd_wyvern_basic_00_00_air_std_idle_00
@@ -929,13 +991,13 @@ cd_m0004_00_wyvern_0001_00000  cd_rd_wyvern_basic_00_00_air_std_idle_00
 
 
 def read_list(text):
-    """[(character, clip)] from the lines of a character list."""
+    """[(character, [clips])] from the lines of a character list."""
     rows = []
     for line in text.splitlines():
         line = line.split("#", 1)[0].strip()
         if line:
             words = line.split()
-            rows.append((words[0], words[1] if len(words) > 1 else ""))
+            rows.append((words[0], words[1:]))
     return rows
 
 
@@ -1011,12 +1073,12 @@ class CDANIM_OT_game_characters(Operator):
         before = context.view_layer.active_layer_collection
         x = 0.0
         built, failed, notes = [], [], []
-        for character, clip in rows:
+        for character, clips in rows:
             coll = bpy.data.collections.new(character.rsplit("/", 1)[-1])
             top.children.link(coll)
             context.view_layer.active_layer_collection = _layer_collection(context.view_layer.layer_collection, coll)
             try:
-                arm, placed, more = _build_character(self, context, idx, character, clip)
+                arm, placed, more = _build_character(self, context, idx, character, clips)
             except (packs.PackError, ValueError, OSError, SyntaxError) as exc:
                 failed.append(f"{character} ({exc})")
                 for o in list(coll.all_objects):
@@ -1399,6 +1461,27 @@ class CDANIM_OT_unseat_rider(Operator):
         return {"FINISHED"}
 
 
+class CDANIM_OT_remove_face(Operator):
+    """Take the facial clip off the selected armature's face, so the face goes back to rest. The clip stays in the
+    file as an action"""
+    bl_idname = "cd_animator.remove_face"
+    bl_label = "Remove facial clip"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        if not (skeleton.is_cd_armature(context.object) and anim.face_action(context.object)):
+            cls.poll_message_set("Select an armature playing a facial clip on its face")
+            return False
+        return True
+
+    def execute(self, context):
+        name = anim.face_action(context.object).name
+        anim.remove_face(context.object)
+        self.report({"INFO"}, f"Took {name} off the face")
+        return {"FINISHED"}
+
+
 class CDANIM_PT_panel(bpy.types.Panel):
     bl_label = "CD Animator"
     bl_space_type = "VIEW_3D"
@@ -1425,7 +1508,11 @@ class CDANIM_PT_panel(bpy.types.Panel):
         col.operator(CDANIM_OT_bake_chains.bl_idname, icon="LINKED")
         col.operator(CDANIM_OT_seat_rider.bl_idname, icon="CONSTRAINT_BONE")
         col.operator(CDANIM_OT_unseat_rider.bl_idname, icon="X")
+        col.operator(CDANIM_OT_remove_face.bl_idname, icon="X")
         obj = context.object
+        face = anim.face_action(obj) if skeleton.is_cd_armature(obj) else None
+        if face is not None:
+            self.layout.label(text=f"Face: {face.name}, {int(face.frame_end)} frames", icon="USER")
         action = obj.animation_data.action if obj and obj.animation_data else None
         if action is not None and "cd_source" in action:
             box = self.layout.box()
@@ -1480,7 +1567,7 @@ def _menu_import(self, context):
 _classes = (CDANIM_AP_prefs, CDANIM_OT_import_pab, CDANIM_OT_import_paa, CDANIM_OT_export_paa, CDANIM_OT_new_clip,
             CDANIM_OT_game_skeleton, CDANIM_OT_game_clip, CDANIM_OT_game_new_clip, CDANIM_OT_game_mesh, CDANIM_OT_import_pac, CDANIM_OT_game_character, CDANIM_OT_game_characters, CDANIM_OT_game_prop, CDANIM_OT_bake_chains,
             CDANIM_OT_set_length, CDANIM_OT_event_add, CDANIM_OT_event_remove, CDANIM_UL_events,
-            CDANIM_OT_seat_rider, CDANIM_OT_unseat_rider, CDANIM_PT_panel)
+            CDANIM_OT_seat_rider, CDANIM_OT_unseat_rider, CDANIM_OT_remove_face, CDANIM_PT_panel)
 
 
 def register():
