@@ -14,7 +14,7 @@ from .formats import paa_codec
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 4, 0),
+    "version": (0, 5, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert .pab skeletons and .paa animation clips, and export clips with their LOD and metadata",
@@ -95,6 +95,11 @@ class CDANIM_OT_export_paa(Operator, ExportHelper):
         name="LOD and metadata",
         description="Also write <name>_lod.paa and <name>.paa_metabin, which the game loads with every clip",
         default=True)
+    bake: BoolProperty(
+        name="Bake constraints and IK",
+        description="Write bones moved by constraints, IK, drivers or Euler rotation as Blender shows them, "
+        "sampled every frame. Off writes only their quaternion and location keys",
+        default=True)
 
     @classmethod
     def poll(cls, context):
@@ -117,9 +122,9 @@ class CDANIM_OT_export_paa(Operator, ExportHelper):
         action = obj.animation_data.action
         try:
             if self.companions:
-                written, problems = export.export_with_companions(obj, action, self.filepath)
+                written, problems = export.export_with_companions(obj, action, self.filepath, self.bake)
             else:
-                _data, problems = export.export_clip(obj, action, self.filepath)
+                _data, problems = export.export_clip(obj, action, self.filepath, self.bake)
                 written = [self.filepath]
         except (export.ExportError, ValueError, OSError) as exc:
             self.report({"ERROR"}, str(exc))

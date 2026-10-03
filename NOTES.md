@@ -55,6 +55,19 @@ Three things had to be exact for that:
 
 Blender gives new keys Bezier interpolation, and the game only interpolates in straight lines. The exporter writes a track's keys as they are when every key is linear, and otherwise samples it at every frame (every tick in LOD section 1) from its first key to its last. The edited idle in the test turns Spine1 20 degrees and adds a new eyeball track with Bezier keys; it re-imports within 0.17 mm of the edited action.
 
+## Baking constraints and IK
+
+The exporter reads `rotation_quaternion` and `location` curves, which hold a bone's pose only when nothing else moves it. Before writing, it looks for bones that something else moves:
+
+- any bone with an enabled constraint at an influence above 0;
+- for IK and spline IK, every bone in the chain, `chain_count` bones up from the owner, or all the way to the root for 0;
+- bones with a driver on any pose property;
+- bones in a rotation mode other than quaternions, or keyed with Euler or axis-angle curves.
+
+For those it plays the action frame by frame and takes each bone's evaluated pose in local space, with `Object.convert_space` from POSE to LOCAL. That is the space of its curves, on top of the bind pose and under the parent's evaluated pose, so a baked parent and an unbaked child still compose as they did in Blender. Quaternions are kept on one side from frame to frame. A bone gets rotation keys if it had rotation curves or turns at all, and position keys on the same rule. `tests/check_bake.py` puts four kinds of setup on the standing idle. Its re-imported clip is within 0.17 mm of the rigged pose, and the same export without baking misses by 77 cm.
+
+The bake changes nothing in the scene. The frame, the active action and slot, and the NLA switch are restored after, and the rig keeps its constraints.
+
 ## Metadata on the action
 
 Importing a full clip reads its `.paa_metabin` onto the action: the events and the phases, in seconds, stored as 32-bit floats like the file's own so an unedited clip writes the same numbers back. All 27 full clips in the samples come back byte for byte. The panel shows events in frames and snaps edits to half frames; every event in the shipped samples sits on a whole or half frame, such as 9.5 and 11.5 in `mount_l` and 14.5 in `dismount_r`.

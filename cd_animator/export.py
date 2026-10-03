@@ -9,8 +9,10 @@ clips.
 
 import json
 
+import bpy
 from bpy_extras import anim_utils
 
+from . import bake as baking
 from . import convert, meta
 from .anim import FPS, frame_step
 from .formats import metabin_codec, paa_codec
@@ -85,8 +87,48 @@ def _value(fc, frame, default):
     return fc.evaluate(frame)
 
 
-def build_track_data(obj, action):
-    """-> (container, TrackData, problems) for `action` on armature `obj`."""
+def _curve_keys(c, axis, aux, neg, step, name, problems):
+    """A bone's keys from its rotation_quaternion and location curves."""
+    rot_keys = []
+    for f in _frames(c["rot"], step, name, problems):
+        q = [_value(c["rot"].get(i), f, d) for i, d in enumerate((1.0, 0.0, 0.0, 0.0))]
+        if f in neg:
+            q = [-v for v in q]
+        x, y, z, w = convert.basis_to_key(axis, q, (0.0, 0.0, 0.0))[0]
+        rot_keys.append(paa_codec.RotKey(f // step, x, y, z, w))
+    pos_keys = []
+    for f in _frames(c["pos"], step, name, problems):
+        t = [_value(c["pos"].get(i), f, 0.0) for i in range(3)]
+        x, y, z = convert.basis_to_key(axis, (1.0, 0.0, 0.0, 0.0), t)[1]
+        pos_keys.append(paa_codec.PosKey(f // step, x, y, z, aux))
+    return rot_keys, pos_keys
+
+
+def _baked_keys(samples, c, axis, aux, step):
+    """A bone's keys from its baked samples. Rotation is written when the
+    bone had rotation curves or turns anywhere, position when it had
+    location curves or moves anywhere; keys that only repeat both
+    neighbours are dropped."""
+    frames = sorted(samples)
+    qs = [tuple(samples[f][0]) for f in frames]
+    ts = [tuple(samples[f][1]) for f in frames]
+    rot_keys, pos_keys = [], []
+    turns = any(not baking.close((abs(q[0]),) + q[1:], (1.0, 0.0, 0.0, 0.0), 1e-6) for q in qs)
+    if c["rot"] or turns:
+        for f in baking.thin(frames, qs, 1e-6):
+            x, y, z, w = convert.basis_to_key(axis, samples[f][0], (0.0, 0.0, 0.0))[0]
+            rot_keys.append(paa_codec.RotKey(f // step, x, y, z, w))
+    if c["pos"] or any(not baking.close(t, (0.0, 0.0, 0.0), 1e-6) for t in ts):
+        for f in baking.thin(frames, ts, 1e-6):
+            x, y, z = convert.basis_to_key(axis, (1.0, 0.0, 0.0, 0.0), samples[f][1])[1]
+            pos_keys.append(paa_codec.PosKey(f // step, x, y, z, aux))
+    return rot_keys, pos_keys
+
+
+def build_track_data(obj, action, bake=True):
+    """-> (container, TrackData, problems) for `action` on armature `obj`.
+    With `bake`, bones moved by constraints, IK, drivers or a rotation mode
+    other than quaternions are written as Blender shows them (bake.py)."""
     if "cd_source" not in action:
         raise ExportError(f"{action.name} was not imported from a clip, so it has no template to write against")
     try:
@@ -99,12 +141,13 @@ def build_track_data(obj, action):
     blocks = json.loads(action["cd_blocks"])
     curves = _bone_curves(_channelbag(obj, action))
     problems = []
+    to_bake = baking.bones_to_bake(obj, action) if bake else {}
 
     # New bones (keyed now, absent from the template) go into section 1 after
     # the last template bone that comes before them in the skeleton.
     known = {b["name"] for b in blocks if b["name"]}
     bones = obj.data.bones
-    for name in sorted((n for n in curves if n not in known and n in bones),
+    for name in sorted((n for n in set(curves) | set(to_bake) if n not in known and n in bones),
                        key=lambda n: bones[n]["cd_index"]):
         idx = bones[name]["cd_index"]
         pos = 0
@@ -114,6 +157,19 @@ def build_track_data(obj, action):
         blocks.insert(pos, {"hash": paa_codec.bone_hash(name), "name": name, "section": 1,
                             "flags": 0, "aux": 0, "neg": []})
         problems.append(f"{name}: not in the template, added as a new track")
+
+    duration = action["cd_duration"]
+    if int(action.frame_end) != round(duration * FPS):
+        duration = action.frame_end / FPS
+    last = round(duration * FPS)
+    baked = {}
+    if to_bake:
+        sections = {b["name"]: b["section"] for b in blocks if b["name"]}
+        baked = baking.sample(bpy.context, obj, action, sorted(to_bake), last, lod, sections)
+        listed = ", ".join(f"{n} ({w})" for n, w in sorted(to_bake.items())[:8])
+        if len(to_bake) > 8:
+            listed += f" and {len(to_bake) - 8} more"
+        problems.append(f"baked {len(to_bake)} bones as Blender shows them, every frame from 0 to {last}: {listed}")
 
     template_tracks = {b.name_hash: b for b in template.bones}
     tracks = []
@@ -128,20 +184,10 @@ def build_track_data(obj, action):
         neg = set(b["neg"])
         step = frame_step(lod, b["section"])
 
-        rot_keys = []
-        for f in _frames(c["rot"], step, name, problems):
-            q = [_value(c["rot"].get(i), f, d) for i, d in enumerate((1.0, 0.0, 0.0, 0.0))]
-            if f in neg:
-                q = [-v for v in q]
-            x, y, z, w = convert.basis_to_key(axis, q, (0.0, 0.0, 0.0))[0]
-            rot_keys.append(paa_codec.RotKey(f // step, x, y, z, w))
-
-        pos_keys = []
-        for f in _frames(c["pos"], step, name, problems):
-            t = [_value(c["pos"].get(i), f, 0.0) for i in range(3)]
-            x, y, z = convert.basis_to_key(axis, (1.0, 0.0, 0.0, 0.0), t)[1]
-            pos_keys.append(paa_codec.PosKey(f // step, x, y, z, b["aux"]))
-
+        if name in baked:
+            rot_keys, pos_keys = _baked_keys(baked[name], c, axis, b["aux"], step)
+        else:
+            rot_keys, pos_keys = _curve_keys(c, axis, b["aux"], neg, step, name, problems)
         if not rot_keys and not pos_keys:
             problems.append(f"{name}: no keys left, the bone stays on its bind pose")
             continue
@@ -156,15 +202,11 @@ def build_track_data(obj, action):
             pos_keys[0].aux if pos_keys and pf == paa_codec.POS_F32 else 0, sec, rf, pf))
 
     lead = template.lead
-    duration = action["cd_duration"]
-    if int(action.frame_end) != round(duration * FPS):
-        duration = action.frame_end / FPS
     td = paa_codec.TrackData(
         paa_codec.Lead(tuple(action["cd_rec_a"]), tuple(action["cd_rec_b"]), action["cd_ref_scale"],
                        duration, lead.lod_const, lead.lod_zero, lead.skeleton),
         tracks, lod)
 
-    last = round(duration * FPS)
     for t in tracks:
         step = frame_step(lod, t.section)
         for keys in (t.rot_keys, t.pos_keys):
@@ -174,8 +216,8 @@ def build_track_data(obj, action):
     return container, td, problems
 
 
-def export_clip(obj, action, path):
-    container, td, problems = build_track_data(obj, action)
+def export_clip(obj, action, path, bake=True):
+    container, td, problems = build_track_data(obj, action, bake)
     data = paa_codec.encode_file(container, td)
     paa_codec.decode_file(data)   # refuse to write anything the reader cannot read back
     with open(path, "wb") as f:
@@ -223,11 +265,11 @@ def build_metabin(template_clip, template_metabin, clip, action=None):
     return metabin_codec.write_metabin(mb)
 
 
-def export_with_companions(obj, action, path):
+def export_with_companions(obj, action, path, bake=True):
     """Write the clip at `path`, plus `<stem>_lod.paa` and `<stem>.paa_metabin`
     beside it, the three files the game loads for one clip. Returns
     (written paths, problems)."""
-    data, problems = export_clip(obj, action, path)
+    data, problems = export_clip(obj, action, path, bake)
     written = [path]
     if action.get("cd_lod"):
         return written, problems
