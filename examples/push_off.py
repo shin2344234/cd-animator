@@ -25,9 +25,10 @@ script corrects the IK targets until the feet sit CLEARANCE m above the
 ground on the contact frames and prints each foot's clearance per frame.
 
 Writes cd_rd_broom_basic_00_00_nor_std_takeoff_00 (the broom; Broomy plays
-it for the Wyvern's takeoff) and, for Kliff, the clip of FDA30B13, the spare
-action of his that the Broomy test build plays at takeoff. Each with its
-_lod.paa and .paa_metabin, into out/push_off.
+it for the Wyvern's takeoff) and Kliff's cd_phm_rd_broom_basic_00_00_nor_std_takeoff_00,
+a name no pack has. The Broomy test build points FDA30B13, a spare action of
+Kliff's, at that name and plays it at takeoff; the CD Animator loader serves
+it. Each with its _lod.paa and .paa_metabin, into out/push_off.
 """
 
 import math
@@ -49,7 +50,7 @@ BROOM_IDLE = "cd_rd_broom_basic_00_00_nor_std_idle_01"
 CLIMB = "cd_rd_broom_basic_00_00_nor_move_walkfast_f_75u_ing_00"
 BROOM_NAME = "cd_rd_broom_basic_00_00_nor_std_takeoff_00"
 KLIFF_IDLE = "cd_phm_rd_broom_basic_00_00_nor_std_idle_01"
-KLIFF_NAME = "cd_phm_rd_wyvern_basic_00_00_air_move_fall_walk_end_00"
+KLIFF_NAME = "cd_phm_rd_broom_basic_00_00_nor_std_takeoff_00"
 KEEP = ("B_TL_Position_01", "B_TL_Position_02")
 
 KICK_FRAMES = 36

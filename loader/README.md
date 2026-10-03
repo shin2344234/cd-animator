@@ -78,7 +78,7 @@ If a file you put in never gets that line, the game hasn't loaded it yet, or its
 
 ## New files
 
-A file no pack has, a clip under a new name, only does anything if something in the game names it, such as a chart another mod changed. For those, the game's find and existence checks are pointed at a shipped file of the same kind, and the read then gets your bytes. The stand-ins are Kliff's broom idle and its LOD and metadata, and his broom riding blend, all of which every install has. This path is written but not yet tested in game.
+A file no pack has, a clip under a new name, only does anything if something in the game names it, such as a chart another mod changed. For those, the game's find and existence checks are pointed at a shipped file of the same kind, and the read then gets your bytes. The stand-ins are Kliff's broom idle and its LOD and metadata, and his broom riding blend, all of which every install has. It first ran on 3 October 2026: Kliff's push-off for Broomy, `cd_phm_rd_broom_basic_00_00_nor_std_takeoff_00`, played in game from this folder after the Broomy test build pointed a spare action of his lower chart at that name. The log shows each of the three files found through its stand-in and then read as the plugin's.
 
 ## Build
 
