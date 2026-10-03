@@ -9,12 +9,12 @@ from bpy.types import AddonPreferences, Operator, OperatorFileListElement, UILis
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 
 from . import anim, clip, export, mesh, meta, packs, skeleton
-from .formats import pac, paa_codec
+from .formats import material, pac, paa_codec
 
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 8, 0),
+    "version": (0, 9, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -304,7 +304,46 @@ def _mesh_names(self, context, edit_text):
         return []
 
 
-def _import_mesh(op, context, data, name):
+def _game_materials(op, context, name, game_path):
+    """(materials, texture loader, variant count, note) for a mesh, from its
+    material file in the packs; no materials when textures are off or the
+    file is not found."""
+    if not op.textures:
+        return None, None, 0, ""
+    try:
+        idx = packs.index(context)
+        game_path = game_path or packs.find_mesh(idx, name)
+        data = packs.material_file(idx, game_path) if game_path else None
+        if data is None:
+            return None, None, 0, "no material file found in the game, so no textures"
+        mats, variants = material.read_materials(data, op.variant)
+    except (packs.PackError, ValueError, OSError, SyntaxError) as exc:
+        return None, None, 0, f"its material file could not be read ({exc}), so no textures"
+
+    images = {}
+    failed = set()
+
+    def load(path, color):
+        key = (path, color)
+        if key not in images:
+            img = None
+            try:
+                local = packs.fetch_texture(idx, path)
+                if local:
+                    img = bpy.data.images.load(local, check_existing=True)
+                    img.colorspace_settings.name = "sRGB" if color else "Non-Color"
+            except (ValueError, OSError, RuntimeError):
+                img = None
+            if img is None:
+                failed.add(path)
+            images[key] = img
+        return images[key]
+
+    load.failed = failed
+    return mats, load, variants, ""
+
+
+def _import_mesh(op, context, data, name, game_path=None):
     """Read mesh bytes `data` and put the mesh on the selected armature."""
     arm = context.object
     if arm.mode != "OBJECT":
@@ -317,11 +356,20 @@ def _import_mesh(op, context, data, name):
                 raise
             # The palette may name bones this skeleton lacks; try every bone in the game.
             m = pac.read_pac(data, op.level, mesh.known_hashes(arm, packs.index(context).bone_hashes()))
-        obj, missing = mesh.build_mesh(context, arm, m, name)
+        mats, load, variants, note = _game_materials(op, context, name, game_path)
+        obj, missing = mesh.build_mesh(context, arm, m, name, mats, load)
     except (ValueError, mesh.MeshError, packs.PackError, OSError) as exc:
         op.report({"ERROR"}, f"Could not import {name}: {exc}")
         return {"CANCELLED"}
     count = sum(len(sb.positions) for sb in m.submeshes)
+    if note:
+        op.report({"WARNING"}, f"{name}: {note}")
+    if load is not None and load.failed:
+        op.report({"WARNING"}, f"{name}: {len(load.failed)} textures are not in the packs or could not be read, "
+                               f"such as {sorted(load.failed)[0]}")
+    if variants > 1:
+        obj["cd_variant"] = min(op.variant, variants - 1)
+        op.report({"INFO"}, f"{name} has {variants} colour variants; this is variant {obj['cd_variant']}")
     if missing:
         op.report({"WARNING"}, f"{name}: {len(missing)} of its {len(m.palette)} bones are not in {arm.name}; "
                                "vertices weighted to them follow their other bones only")
@@ -331,6 +379,10 @@ def _import_mesh(op, context, data, name):
 
 _LEVEL = dict(name="Detail level", min=0, max=3, default=0,
               description="0 is the most detailed; 3 is the coarsest the game draws far away")
+_TEXTURES = dict(name="Textures", default=True,
+                 description="Give the parts the game's textures, from the mesh's material file in the packs")
+_VARIANT = dict(name="Colour variant", min=0, default=0,
+                description="Some meshes come in several colour schemes; 0 is the first")
 
 
 class CDANIM_OT_game_mesh(Operator):
@@ -344,6 +396,8 @@ class CDANIM_OT_game_mesh(Operator):
         description="A mesh in the game, such as nude_00_0001 for Kliff's body. "
         "The field starts with the skeleton's folder; type words to search")
     level: IntProperty(**_LEVEL)
+    textures: BoolProperty(**_TEXTURES)
+    variant: IntProperty(**_VARIANT)
 
     @classmethod
     def poll(cls, context):
@@ -368,7 +422,7 @@ class CDANIM_OT_game_mesh(Operator):
         except (packs.PackError, ValueError, OSError) as exc:
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
-        return _import_mesh(self, context, data, mesh.mesh_name(name))
+        return _import_mesh(self, context, data, mesh.mesh_name(name), name)
 
 
 class CDANIM_OT_import_pac(Operator, ImportHelper):
@@ -380,6 +434,8 @@ class CDANIM_OT_import_pac(Operator, ImportHelper):
     filename_ext = ".pac"
     filter_glob: StringProperty(default="*.pac", options={"HIDDEN"})
     level: IntProperty(**_LEVEL)
+    textures: BoolProperty(**_TEXTURES)
+    variant: IntProperty(**_VARIANT)
 
     @classmethod
     def poll(cls, context):

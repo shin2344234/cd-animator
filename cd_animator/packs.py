@@ -1,7 +1,8 @@
 """The game's own files, read from its packs instead of from unpacked copies.
 
 The game folder comes from the add-on's preferences, or from Steam's library
-list when that is empty. The index of groups 0009 (clips, skeletons, meshes, blends)
+list when that is empty. The index of groups 0009 (clips, skeletons, meshes,
+their materials and textures, blends)
 and 0010 (clip metadata, action charts) is read once per session, about
 3 seconds. Files taken from the packs are written to a cache in Blender's
 user folder: a clip, its LOD and its metadata side by side, so the importer
@@ -16,10 +17,12 @@ import bpy
 
 from .formats import paz
 
-GROUPS = {"0009": {"paa", "pab", "pac", "motionblending"}, "0010": {"paa_metabin", "paac"}}
+GROUPS = {"0009": {"paa", "pab", "pac", "pac_xml", "dds", "motionblending"}, "0010": {"paa_metabin", "paac"}}
 MOTION = "character/motion/"
 MOTION_LOD = "character/motion/motion_lod__/"
 ANIMMETA = "actionchart/bin__/animmeta/"
+MODEL = "character/model/"
+MODEL_PROPERTY = "character/modelproperty/"
 GAME = "Crimson Desert"
 
 
@@ -83,9 +86,7 @@ class Index:
         self.skeletons = sorted(p[:-4] for p in self.by_path if p.endswith(".pab"))
         self.meshes = sorted(p[:-4] for p in self.by_path if p.endswith(".pac"))
         self._bone_hashes = None
-
         self.stamp = _stamp(folder)
-
 
     def bone_hashes(self):
         """Every bone name hash of every skeleton in the game, read once."""
@@ -199,6 +200,34 @@ def fetch_mesh(idx, name):
     if e is None:
         raise PackError(f"no mesh {name} in the game")
     return _write(os.path.join(cache_root(), "meshes", *name.split("/")) + ".pac", paz.read(e))
+
+
+def find_mesh(idx, file_name):
+    """The game path of the mesh whose file is called `file_name`, or None
+    when no mesh or more than one has that name."""
+    stem = os.path.splitext(os.path.basename(file_name))[0].lower()
+    hits = [n for n in idx.meshes if n.rsplit("/", 1)[-1] == stem]
+    return hits[0] if len(hits) == 1 else None
+
+
+def material_file(idx, name):
+    """The bytes of mesh `name`'s material file (.pac_xml), or None."""
+    if not name.startswith(MODEL):
+        return None
+    e = idx.by_path.get(MODEL_PROPERTY + name[len(MODEL):] + ".pac_xml")
+    return paz.read(e) if e is not None else None
+
+
+def fetch_texture(idx, path):
+    """Unpack texture `path` (its game path, with .dds) into the cache; its
+    local path, or None when the packs do not have it."""
+    e = idx.by_path.get(path.lower())
+    if e is None:
+        return None
+    local = os.path.join(cache_root(), "textures", *path.lower().split("/"))
+    if os.path.isfile(local) and os.path.getsize(local) == e.size:
+        return local
+    return _write(local, paz.read(e))
 
 
 def fetch_skeleton(idx, name):

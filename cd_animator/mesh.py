@@ -5,14 +5,16 @@ weighted to, named after the bone, and an Armature modifier, so any clip on
 the armature moves it. Vertices are in the skeleton's bind space, which is
 where the armature's rest pose puts the bones (skeleton.py), so the mesh
 needs no offset. Each submesh, such as Kliff's head, hands and body, gets a
-material of its own, named after the game's material. Textures are not read.
+material of its own, named after the submesh. With the mesh's material file
+the materials get the game's textures (shading.py); without it they are
+plain, and keep the game's material name in "cd_material".
 """
 
 import os
 
 import bpy
 
-from . import convert
+from . import convert, shading
 from .formats import paa_codec
 
 
@@ -20,9 +22,12 @@ class MeshError(Exception):
     pass
 
 
-def build_mesh(context, armature, mesh, name):
+def build_mesh(context, armature, mesh, name, materials=None, load=None):
     """A mesh object for `mesh` (formats.pac.Mesh), parented to `armature`
-    and deformed by it. Returns (object, bone hashes the armature lacks)."""
+    and deformed by it. `materials` maps lower-case submesh names to
+    formats.material.Material, and `load(path, color)` gives a texture's bpy
+    image; parts without one get a plain material. Returns (object, bone
+    hashes the armature lacks)."""
     bone_of = {paa_codec.bone_hash(b.name): b.name for b in armature.data.bones}
     missing = sorted({h for h in mesh.palette if h not in bone_of})
 
@@ -58,7 +63,11 @@ def build_mesh(context, armature, mesh, name):
     uv_layer.data.foreach_set("uv", flat)
 
     for sm in mesh.submeshes:
-        mat = bpy.data.materials.get(sm.material) or bpy.data.materials.new(sm.material)
+        game = (materials or {}).get(sm.name.lower())
+        mat = bpy.data.materials.new(sm.name or sm.material)
+        mat["cd_material"] = sm.material
+        if game is not None and load is not None:
+            shading.setup(mat, game, load)
         me.materials.append(mat)
     me.polygons.foreach_set("material_index", mat_index)
     # Faces must be smooth for the file's normals to show; flat ones override them.
