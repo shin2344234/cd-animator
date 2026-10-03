@@ -84,7 +84,8 @@ namespace
     }
 
     // LogClips: every clip and blend the game loads, once, so a player can
-    // find the file behind what is on screen.
+    // find the file behind what is on screen. Finds and existence checks are
+    // left out: loading a save checks thousands of clips it never plays.
     bool g_logClips = false;
     SRWLOCK g_seenLock = SRWLOCK_INIT;
     std::unordered_set<std::string> g_seen;
@@ -103,7 +104,6 @@ namespace
 
     const std::string* Lookup(const char* path)
     {
-        if (g_logClips) Note(path);
         const char* slash = strrchr(path, '/');
         const char* leaf = slash ? slash + 1 : path;
         char key[260];
@@ -191,7 +191,7 @@ namespace
             LOG(loaded ? "[mod] Broomy is loaded, so these hooks go in on top of its own."
                        : "[mod] Broomy.asi is beside the plugin but did not load within 10 s.");
         }
-        if (cda::files::Install(&Lookup, &StandIn))
+        if (cda::files::Install(&Lookup, &StandIn, g_logClips ? &Note : nullptr))
             LOG_OK("[mod] %zu files from the CDAnimator folder go to the game in place of its own.", g_files.size());
         return 0;
     }

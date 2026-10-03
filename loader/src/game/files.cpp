@@ -54,6 +54,7 @@ namespace
 
     cda::files::Lookup  g_lookup = nullptr;
     cda::files::StandIn g_standIn = nullptr;
+    cda::files::Loaded  g_loaded = nullptr;
 
     volatile LONG g_servedLogged = 0;
 
@@ -113,6 +114,7 @@ namespace
     {
         char text[300];
         const std::string* bytes = buffer ? Ours(path, text, sizeof text) : nullptr;
+        if (g_loaded && buffer && (bytes || cda::mem::ReadEngineString(path, text, sizeof text))) g_loaded(text);
         // A file no pack has was sent to its stand-in by find; the read
         // fills the buffer from that, and the plugin's bytes replace them.
         const uint64_t r = g_readOriginal(loader, path, buffer, name, a5, a6, a7);
@@ -129,6 +131,7 @@ namespace
                           uintptr_t a12)
     {
         char text[300];
+        if (g_loaded && path && cda::mem::ReadEngineString(path, text, sizeof text)) g_loaded(text);
         uintptr_t* job = JobSlot();
         if (!job || !Ours(path, text, sizeof text))
             return g_asyncOriginal(loader, handle, status, path, a5, a6, a7, a8, a9, a10, a11, a12);
@@ -258,10 +261,11 @@ namespace
 
 namespace cda::files
 {
-    bool Install(Lookup lookup, StandIn standIn)
+    bool Install(Lookup lookup, StandIn standIn, Loaded loaded)
     {
         g_lookup = lookup;
         g_standIn = standIn;
+        g_loaded = loaded;
         bool readHooked = false, findHooked = false, existsHooked = false;
         const uintptr_t read = FindTarget(kSig_ResourceRead, &readHooked);
         const uintptr_t find = FindTarget(kSig_LoaderFindSource, &findHooked);

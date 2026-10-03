@@ -22,7 +22,10 @@ namespace cda::files
     // A shipped file of the same kind as `path`, for a file no pack has, or
     // empty when there is none.
     typedef std::string (*StandIn)(const char* path);
+    // Each file the game reads or loads, not the ones it only finds or checks
+    // for: loading a save checks every clip the charts name. May be null.
+    typedef void (*Loaded)(const char* path);
 
     // Off the loader lock: Broomy hooks the same functions from its DllMain.
-    bool Install(Lookup lookup, StandIn standIn);
+    bool Install(Lookup lookup, StandIn standIn, Loaded loaded);
 }
