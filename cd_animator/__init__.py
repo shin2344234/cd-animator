@@ -18,7 +18,7 @@ from .formats import sockets as sockets_format
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 30, 0),
+    "version": (0, 31, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -1781,8 +1781,8 @@ class CDANIM_OT_play_on_key(Operator):
     key: StringProperty(name="Key", description="A keyboard key as the game names it that it binds to nothing, such as "
                         "l, 7, 8 or num1")
     loop: BoolProperty(name="Loop until he moves",
-                       description="Play the clip again and again, as an emote, until Kliff walks, jumps or "
-                       "attacks; off, it plays once and he goes back to his idle")
+                       description="Play the clip again and again, as an emote, until the key is pressed again "
+                       "or Kliff walks, jumps or attacks; off, it plays once and he goes back to his idle")
 
     @classmethod
     def poll(cls, context):

@@ -306,6 +306,10 @@ A new root bone goes into a clip's float tracks, where the game keeps `Bip01` an
 
 When a move that plays once ends, the upper layer goes back to the idle, 26107D3C, and the lower layer goes to 866C7489 and on to the idle in the same millisecond, so both start the idle's clip, `cd_phm_basic_00_00_nor_std_idle_00`, on its first frame. End on his idle blends a clip's last frames into that frame's pose, read from the clip file with the importer's conversions. A bone the clip leaves alone holds its bind pose until the blend and then eases into the idle's. Its track gets a key on frame 0 as well, because none of the 67,925 tracks in 400 of Kliff's clips starts later and a track that did would be something the game never ships. A bone the idle leaves alone eases to its bind pose. In a travelling clip `B_MoveControl_01` keeps its keys and `Bip01` eases into the idle's pose moved by its travel, so the body ends standing over where the game has moved him. The moonwalk with a 15-frame blend played twice in game on 4 October, both layers leaving it after 6.0 s, the upper's node now lasting its clip.
 
+## Stopping a loop on its key
+
+A looping move's first slot is its own key branch pointed at the idle, blending over 6 frames as the idle's end does. The slot's window opens 0.13 s into the move, the shortest wait among the game's key slots (6 in `basic_lower`, others wait 0.43 to 0.67 s), so the press that starts the loop cannot end it at once. In game on 4 October Kliff started the Charleston on 8 and stopped it with 8 after 1.35 s and again after 0.38 s. Both times the loader logged both layers going to the idle through the stop branch, whose record sits two branch records, 104 bytes, after the move's entry branch, where `add_move` appends it. A move's key pressed while he walks starts it on the upper layer alone, which the walk hides, because only the upper chart is in its idle then.
+
 The name lists for Mixamo, Daz and Rigify still follow those rigs' published bone names; only CMU's have met a real file.
 
 ## Gear

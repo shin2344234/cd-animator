@@ -63,6 +63,7 @@ LOOP_BLEND = 6.0                       # a loop's blend into its own start, as t
 # The low byte of a node's word at 0x40, 1 when the game moves the character by the clip's B_MoveControl_01: the
 # dodge roll, the dash and the step back have it. The idle has 0, which leaves movement to move speed records.
 ROOT_MOTION = 0x01
+STOP_AFTER = 0.13                      # s into a loop before its key stops it, the shortest wait of the game's key slots
 INPUTMAP = "ui/inputmap.xml"
 INPUTMAPS = (INPUTMAP, "ui/inputmap_common.xml")   # the second has the menus' keys, the skill view's K among them
 _GROUP = '<InputGroup Name="CharacterAction" LayerName="Action" EnableConsume="False">'
@@ -345,10 +346,11 @@ def _standing(chart, key):
 def add_move(chart, clip, key, frames, loop=False, travel=False):
     """Add to `chart` a move that plays `clip` (under character/motion/, no
     .paa), `frames` long, on the key condition `key`, an input name in lower
-    case, with a branch into it on every action that plays Kliff's idle. A move that
-    loops plays its clip again at the end, until one of the idle's ways out
-    but into another standing idle fires, his walk among them. A move that
-    travels moves him as the clip's B_MoveControl_01 goes."""
+    case, with a branch into it on every action that plays Kliff's idle. A
+    move that loops plays its clip again at the end, until its key is
+    pressed again or one of the idle's ways out but into another standing
+    idle fires, his walk among them. A move that travels moves him as the
+    clip's B_MoveControl_01 goes."""
     acts = {a.key_hash: a for a in chart.actions}
     if IDLE not in acts:
         raise ChartError("the chart has no standing idle to start a move from")
@@ -415,8 +417,17 @@ def add_move(chart, clip, key, frames, loop=False, travel=False):
         chart.branches.append(again)
         last = copy.deepcopy(chart.slots[end])
         last.branch_index = len(chart.branches) - 1
-        act.slot_first, act.slot_count = len(chart.slots), len(ways_out) + 1
-        chart.slots += ways_out + [last]
+        # Its key again stops it, blending into the idle as the idle's end does, but not straight away, so the
+        # press that started it cannot.
+        stop = copy.deepcopy(branch)
+        stop.target_hash, stop.target_hash2 = IDLE, 0
+        stop.time_a = LOOP_BLEND
+        chart.branches.append(stop)
+        out = copy.deepcopy(slot)
+        out.branch_index = len(chart.branches) - 1
+        out.time_min = STOP_AFTER
+        act.slot_first, act.slot_count = len(chart.slots), len(ways_out) + 2
+        chart.slots += [out] + ways_out + [last]
     chart.actions.append(act)
 
 

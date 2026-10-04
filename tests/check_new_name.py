@@ -34,7 +34,8 @@ in for the game's bin64. It requires:
     the pointed nodes of basic_upper kept, and the key into the input map
     under by_path;
   * Check the game to list each chart and blend with the clip it plays;
-  * a looping move to end on its own branch back into itself, with the
+  * a looping move to end on its own branch back into itself, to go
+    back to the idle on its own key from 0.13 s in, and to have the
     idle's ways out but its end and those into other standing idles, the
     lower chart's walk among them, and to go in again as a loop when a
     chart is made again; one that travels to have 1 in the low byte at
@@ -249,9 +250,13 @@ def main():
         idle_out = [c.branches[c.slots[i].branch_index] for i in range(idle.slot_first + 1, idle.slot_first + idle.slot_count)]
         made = actioncharts._without(c, data, "nothing.paa")
         again = paac.Chart.parse(c.pack())
+        into = next(b for b in c.branches if b.target_hash == act.key_hash and b.keycond_count == 1)
         loop_ok.append(out[-1].kind == 7 and out[-1].target_hash == act.key_hash
                        and not any(b.kind == 7 and b.target_hash != act.key_hash for b in out)
-                       and {b.target_hash for b in out[:-1]}
+                       and out[0].kind == 4 and out[0].target_hash == actioncharts.IDLE
+                       and out[0].keycond_first == into.keycond_first
+                       and abs(c.slots[act.slot_first].time_min - actioncharts.STOP_AFTER) < 1e-6
+                       and {b.target_hash for b in out[1:-1]}
                        == {b.target_hash for b in idle_out if b.kind != 7 and not actioncharts._standing(c, b.target_hash)}
                        and (path == UPPER or 0xFC18618C in {b.target_hash for b in out})
                        and made is None and actioncharts.moves(again, game) == [("1_pc/1_phm/" + MOVER, "key_cda_loop", True, True, length)]
