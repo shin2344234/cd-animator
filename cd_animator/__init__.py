@@ -10,14 +10,14 @@ from bpy.types import AddonPreferences, Operator, OperatorFileListElement, UILis
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 from mathutils import Matrix
 
-from . import anim, chains, clip, cloth, convert, export, ingame, mesh, meta, packs, skeleton, sway, voice
+from . import actioncharts, anim, chains, clip, cloth, convert, export, ingame, mesh, meta, packs, skeleton, sway, voice
 from .formats import material, pac, paa_codec
 from .formats import sockets as sockets_format
 
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 21, 0),
+    "version": (0, 22, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -1475,7 +1475,7 @@ class CDANIM_OT_unseat_rider(Operator):
         return {"FINISHED"}
 
 
-_in_game = {"rows": None, "note": ""}
+_in_game = {"rows": None, "note": "", "charts": []}
 
 
 def _check_game(context):
@@ -1483,11 +1483,18 @@ def _check_game(context):
     try:
         root = ingame.folder(context)
         rows = ingame.status(root, ingame.read_log(ingame.bin64(context)))
-    except (ingame.SendError, packs.PackError, OSError) as exc:
-        _in_game.update(rows=[], note=str(exc))
+        charts = actioncharts.in_folder(packs.index(context), root)
+    except (ingame.SendError, actioncharts.ChartError, packs.PackError, OSError) as exc:
+        _in_game.update(rows=[], note=str(exc), charts=[])
         return
+    present = {name.lower() for name, _files, _state in rows}
+    lines = []
+    for f, pointed in charts:
+        for clip_path, nodes in sorted(pointed.items()):
+            leaf = clip_path.rsplit("/", 1)[-1]
+            lines.append((os.path.basename(f), leaf, len(nodes), leaf.lower() in present))
     running = ingame.game_running()
-    _in_game.update(rows=rows, note="The game is running" if running else
+    _in_game.update(rows=rows, charts=lines, note="The game is running" if running else
                     "The game is not running" if running is False else "")
 
 
@@ -1519,10 +1526,22 @@ class CDANIM_OT_send_to_game(Operator):
             bpy.ops.object.mode_set(mode="POSE")
         action = (CDANIM_OT_export_paa._action(obj, self.clip) or CDANIM_OT_export_paa._action(obj, "ACTION")
                   or CDANIM_OT_export_paa._action(obj, "FACE"))
+        charts = []
         try:
             root = ingame.folder(context)
             name, written, problems = ingame.send(obj, action, root, self.bake)
-        except (ingame.SendError, export.ExportError, packs.PackError, ValueError, OSError) as exc:
+            if "cd_template" in action:
+                idx = packs.index(context)
+                if _is_new(idx, action, name):
+                    # Start from the game's nodes, so ones no longer chosen go back.
+                    actioncharts.take_out(idx, root, name)
+                    plays = _plays(action)
+                    if plays:
+                        charts = actioncharts.send(idx, root, actioncharts.new_path(action, name), plays)
+                    else:
+                        problems.append(f"No chart plays {name}, so the game will not play it; choose Where it plays")
+        except (ingame.SendError, actioncharts.ChartError, export.ExportError, packs.PackError, ValueError,
+                OSError) as exc:
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
         for p in problems:
@@ -1530,7 +1549,8 @@ class CDANIM_OT_send_to_game(Operator):
         _check_game(context)
         running = ingame.game_running()
         after = "Restart the game to see it" if running else "Start the game to see it"
-        self.report({"INFO"}, f"Sent {name} to the game ({len(written)} files). {after}")
+        with_charts = f" and {len(charts)} chart{'s' if len(charts) != 1 else ''}" if charts else ""
+        self.report({"INFO"}, f"Sent {name} to the game ({len(written)} files{with_charts}). {after}")
         return {"FINISHED"}
 
 
@@ -1562,12 +1582,105 @@ class CDANIM_OT_remove_from_game(Operator):
 
     def execute(self, context):
         try:
-            gone = ingame.remove(ingame.folder(context), self.name)
-        except (ingame.SendError, packs.PackError, OSError) as exc:
+            root = ingame.folder(context)
+            gone = ingame.remove(root, self.name)
+            rewritten, deleted = actioncharts.take_out(packs.index(context), root, self.name)
+        except (ingame.SendError, actioncharts.ChartError, packs.PackError, OSError) as exc:
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
         _check_game(context)
-        self.report({"INFO"}, f"Took {self.name} out of the game ({len(gone)} files)")
+        charts = len(rewritten) + len(deleted)
+        and_charts = f", and its nodes put back in {charts} chart{'s' if charts != 1 else ''}" if charts else ""
+        self.report({"INFO"}, f"Took {self.name} out of the game ({len(gone)} files{and_charts})")
+        return {"FINISHED"}
+
+
+def _plays(action):
+    """[(chart path, node)] chosen with Where it plays."""
+    out = []
+    for s in action.get("cd_plays", []) if action is not None else []:
+        path, _, node = str(s).rpartition("#")
+        if path and node.isdigit():
+            out.append((path, int(node)))
+    return out
+
+
+def _is_new(idx, action, name):
+    """True when the clip is a new one, under a name no pack has."""
+    return "cd_template" in action and packs.MOTION + actioncharts.new_path(action, name).lower() + ".paa" \
+        not in idx.by_path
+
+
+class CDANIM_PG_use(bpy.types.PropertyGroup):
+    chart: StringProperty()
+    node: IntProperty()
+    chosen: BoolProperty(name="Plays the new clip", default=False)
+
+
+class CDANIM_UL_uses(UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        layout.prop(item, "chosen", text=item.name)
+
+
+class CDANIM_OT_play_where(Operator):
+    """Choose the chart nodes that play this new clip in the game. The list holds every node of the game's action
+    charts that plays the clip it was started from; the chosen ones play the new clip instead, and the rest keep the
+    game's"""
+    bl_idname = "cd_animator.play_where"
+    bl_label = "Where it plays"
+    bl_options = {"REGISTER", "UNDO"}
+
+    uses: CollectionProperty(type=CDANIM_PG_use)
+    active: IntProperty()
+    source: StringProperty(options={"HIDDEN"})
+
+    @classmethod
+    def poll(cls, context):
+        action = _clip_action(context)
+        if action is None or "cd_template" not in action:
+            cls.poll_message_set("Start a new clip from a game clip first")
+            return False
+        return True
+
+    def invoke(self, context, event):
+        action = _clip_action(context)
+        self.source = actioncharts.template_clip(action) or ""
+        if not self.source:
+            self.report({"ERROR"}, "This clip was started from a file outside the game, so no chart plays its template")
+            return {"CANCELLED"}
+        if not _open_index(self, context):
+            return {"CANCELLED"}
+        idx = packs.index(context)
+        chosen = set(_plays(action))
+        self.uses.clear()
+        listed = set()
+        for path, node, key in actioncharts.uses(idx, self.source) + [(p, n, None) for p, n in sorted(chosen)]:
+            if (path, node) in listed:
+                continue
+            listed.add((path, node))
+            u = self.uses.add()
+            u.chart, u.node, u.chosen = path, node, (path, node) in chosen
+            action_part = f", action {key:08X}" if key is not None else ""
+            u.name = f"{actioncharts.short(path)}{action_part}, node {node}"
+        if not self.uses:
+            self.report({"ERROR"}, f"No action chart plays {self.source}")
+            return {"CANCELLED"}
+        return context.window_manager.invoke_props_dialog(self, width=640)
+
+    def draw(self, context):
+        col = self.layout.column()
+        col.label(text=f"Nodes that play {self.source.rsplit('/', 1)[-1]}; ticked ones play "
+                  f"{_clip_action(context).name} instead")
+        col.template_list("CDANIM_UL_uses", "", self, "uses", self, "active", rows=12)
+
+    def execute(self, context):
+        action = _clip_action(context)
+        action["cd_plays"] = [f"{u.chart}#{u.node}" for u in self.uses if u.chosen]
+        n = len(action["cd_plays"])
+        charts = len({u.chart for u in self.uses if u.chosen})
+        self.report({"INFO"}, f"{action.name} plays at {n} node{'s' if n != 1 else ''} of {charts} "
+                    f"chart{'s' if charts != 1 else ''}; Send to game puts them in" if n else
+                    f"No chart plays {action.name}; the game will not play it")
         return {"FINISHED"}
 
 
@@ -1734,6 +1847,10 @@ class CDANIM_PT_panel(bpy.types.Panel):
                 row.label(text=f"{name}: {label}", icon=icon)
                 op = row.operator(CDANIM_OT_remove_from_game.bl_idname, text="", icon="X")
                 op.name = name
+            for chart, leaf, n, there in _in_game.get("charts", []):
+                text = f"{chart}: {n} node{'s' if n != 1 else ''} play {leaf}"
+                col.label(text=text if there else text + ", which is not in the folder",
+                          icon="NODETREE" if there else "ERROR")
         obj = context.object
         face = anim.face_action(obj) if skeleton.is_cd_armature(obj) else None
         if face is not None:
@@ -1753,6 +1870,12 @@ class CDANIM_PT_panel(bpy.types.Panel):
                 return
             if "cd_template" in action:
                 box.label(text="Template: " + os.path.basename(action["cd_template"]))
+                plays = _plays(action)
+                row = box.row()
+                charts = len({p for p, _n in plays})
+                row.label(text=f"Plays at {len(plays)} chart node{'s' if len(plays) != 1 else ''} in {charts} "
+                          f"chart{'s' if charts != 1 else ''}" if plays else "No chart plays it yet")
+                row.operator(CDANIM_OT_play_where.bl_idname, text="", icon="NODETREE")
             m = action.cd_meta
             box.label(text="Events: begin, end (frames), type" if m.loaded else "Events: the template's (no metadata read)")
             row = box.row()
@@ -1797,6 +1920,7 @@ _classes = (CDANIM_AP_prefs, CDANIM_OT_import_pab, CDANIM_OT_import_paa, CDANIM_
             CDANIM_OT_set_length, CDANIM_OT_event_add, CDANIM_OT_event_remove, CDANIM_UL_events,
             CDANIM_OT_seat_rider, CDANIM_OT_unseat_rider, CDANIM_OT_remove_face, CDANIM_OT_send_to_game,
             CDANIM_OT_check_game, CDANIM_OT_remove_from_game, CDANIM_OT_seen_in_game, CDANIM_OT_log_clips,
+            CDANIM_PG_use, CDANIM_UL_uses, CDANIM_OT_play_where,
             CDANIM_PT_panel)
 
 
