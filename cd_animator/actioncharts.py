@@ -38,7 +38,8 @@ A move can start one of his faces too. Its node gets the frame event his
 meditation closes his eyes with, naming a copy of the face in his facial
 chart that lasts the move, or a loop's round and a little, since a face
 otherwise plays its own 16 s whatever the body does. It can play one of
-the game's sounds, with the frame event his evade plays its whoosh with.
+the game's sounds, with the frame event his evade plays its whoosh with,
+and show a prop in his hand, as his abacus idle shows the abacus.
 
 Action names are hashes. The names table of a chart (strings[0]) holds the
 names of other things, so 136 of the game's 84,133 actions have a name
@@ -84,6 +85,27 @@ FACE_EVENT = 0x40
 # A node's frame event of type 0x41 plays one of the game's sounds, a Wwise event its bank info names, by
 # hashlittle of the name at word 48. 3,724 of those in Kliff's charts set no other word but these.
 SOUND_EVENT = 0x41
+# A frame event of type 0x3D shows a prop. Word 2 holds the prefab's place in the chart's prefab table (strings[9])
+# and, above it, the socket's in the bone table (strings[6]), and word 3's low half the place of the prop's own
+# socket that goes on it, its grip, 0xFFFF for none. His writing idle's start and loop nodes show theirs in mode 0,
+# while their node plays; its end node shows them in mode 2 and hides them in mode 1 at 1.83 s.
+PROP_EVENT = 0x3D
+HANDS = {"RIGHT": "RHand_Socket", "LEFT": "LHand_Socket"}
+GRIP = "Basic_ChildSocket"             # the grip 285 of the game's prop events name, its festival cups' among them
+# A clip whose first frame grips with both hands at their sockets, a sword in each. Its fingers curl a mean 20.9
+# degrees from bind, up to 64.9, where his idle's curl 5.0, and Bip_Weapon_R and _L sit 6.3 and 6.2 cm from bind.
+GRIP_CLIP = "1_pc/1_phm/cd_phm_dualsword_01_01_stand_idle_000"
+# Grips that clip holds wrong, by the grip's parent bone and place in metres, each with a clip whose first frame holds
+# a prop by it in the right hand, the only hand the game holds them in, and the location Kliff's Bip_Weapon_R takes
+# for it. The game's cups and spoon_0003 grip on Bip_Weapon_L, 13 cm off the hand's socket. At the cup festival the
+# right weapon bone turns 98 degrees and moves 12.6 cm, closing the fist on the handle, where the dual-sword idle's
+# turns 18 degrees and leaves the cup around his wrist. Mirrored onto the left hand, that pose leaves the cup 13 cm
+# off the palm, as the grip is off to one side. The festival's characters stand at 0.8 of the skeleton and Kliff at
+# 1.026, and the bone's offset, the socket and the cup grow with that scale while the fingers keep their size, so on
+# him the clip's own location leaves the cup 4.6 cm off his palm. Its location here is solved in Blender with both
+# built at their own proportions, putting his fist where the festival character's sits on the cup.
+GRIP_CLIPS = {("Bip_Weapon_L", (-0.13, -0.049, -0.031)):
+              ("1_pc/7_pdm/01_npc/cd_ss00075_062_pdmcupfestival_1act_pdm1_ing_00", (0.03222, -0.09381, -0.05845))}
 FACE_AFTER = 0.5                       # s a loop's face outlasts a round, so the next round starts it over first
 FACES = {"happy": 0xA3557CFE, "anger": 0x0DC86234, "sadness": 0x2DA58C98, "fear": 0xDEEA3A8A,
          "eyes_closed": 0xD4F119D0, "whistle": 0x63A43B71, "crowd": 0x3CA96A65, "crowd_happy": 0x35ED3BB7,
@@ -383,6 +405,24 @@ def sound_event(name):
     return words
 
 
+def prop_path(path):
+    """The path a chart names a prefab by, which is its game path with a
+    leading slash and no bin__ folder."""
+    return "/" + path.replace("/bin__/", "/", 1)
+
+
+def _place(table, text):
+    """`text`'s place in a chart's string table, added at the end if the
+    table lacks it."""
+    low = [t.lower() for t in table]
+    if text.lower() in low:
+        return low.index(text.lower())
+    if len(table) >= 0xFFFF or len(text) + 1 > 255:
+        raise ChartError(f"the chart has no room for {text}")
+    table.append(text)
+    return len(table) - 1
+
+
 def _add_event(chart, node, seconds, words):
     """Give `node` the frame event `words` at `seconds`, before its others
     at that time. Every node of the game keeps its events sorted by time
@@ -397,7 +437,7 @@ def _add_event(chart, node, seconds, words):
         e.ordinal = i
 
 
-def add_move(chart, clip, key, frames, loop=False, travel=False, stop=True, events=()):
+def add_move(chart, clip, key, frames, loop=False, travel=False, stop=True, events=(), props=()):
     """Add to `chart` a move that plays `clip` (under character/motion/, no
     .paa), `frames` long, on the key condition `key`, an input name in lower
     case, with a branch into it on every action that plays Kliff's idle. A
@@ -405,7 +445,9 @@ def add_move(chart, clip, key, frames, loop=False, travel=False, stop=True, even
     pressed again, with `stop`, or one of the idle's ways out but into
     another standing idle fires, his walk among them. A move that travels moves him as the
     clip's B_MoveControl_01 goes. `events`, [(seconds, words)], go on
-    the move's node, its face and its sound."""
+    the move's node, its face and its sound, and `props`, [(seconds,
+    prefab path as charts name it, socket, the prefab's own socket that
+    goes on it or "")], show those props while it plays."""
     acts = {a.key_hash: a for a in chart.actions}
     if IDLE not in acts:
         raise ChartError("the chart has no standing idle to start a move from")
@@ -458,8 +500,13 @@ def add_move(chart, clip, key, frames, loop=False, travel=False, stop=True, even
         r.time_end = frames / FPS + 0.1
     if travel:
         node.header.unk_40 = node.header.unk_40 & ~0xFF | ROOT_MOTION
-    for seconds, words in events:
+    # Last first, as each goes before the node's others at its time, so they keep their order through a rebuild.
+    for seconds, words in reversed(events):
         _add_event(chart, node, seconds, words)
+    for seconds, prefab, socket, grip in reversed(props):
+        where = _place(chart.strings[6], socket) << 16 | _place(chart.strings[9], prefab)
+        held = 0xFFFF0000 | _place(chart.strings[6], grip) if grip else 0xFFFFFFFF
+        _add_event(chart, node, seconds, [PROP_EVENT, 0, where, held, 0x0101FFFF])
     chart.nodes.append(node)
     point(chart, [len(chart.nodes) - 1], clip)
     act = idle.copy()
@@ -534,15 +581,26 @@ def face_chart(chart, game_data, key, face=0, seconds=0.0):
 
 
 def _added(chart, game, node):
-    """[(seconds, words)] of the frame events `node` has beyond the game's,
-    those whose words lie past the game's own."""
+    """([(seconds, words)], [(seconds, prefab, socket, grip)]) of the frame
+    events `node` has beyond the game's, those whose words lie past the
+    game's own, its props apart."""
     first = len(game.frame_event_buffer) // 4
-    return [(e.time, chart.frame_event(e.event_index)) for e in node.frame_event_instances if e.event_index >= first]
+    events, props = [], []
+    for e in node.frame_event_instances:
+        words = chart.frame_event(e.event_index) if e.event_index >= first else None
+        if words and words[0] & 0xFFFF == PROP_EVENT:
+            grip = words[3] & 0xFFFF
+            props.append((e.time, chart.strings[9][words[2] & 0xFFFF], chart.strings[6][words[2] >> 16],
+                          chart.strings[6][grip] if grip != 0xFFFF else ""))
+        elif words:
+            events.append((e.time, words))
+    return events, props
 
 
 def moves(chart, game):
-    """[(clip, key, loop, travel, frames, events)] of the moves in `chart`,
-    the actions the game's chart `game` lacks, in the order they went in."""
+    """[(clip, key, loop, travel, frames, events, props)] of the moves in
+    `chart`, the actions the game's chart `game` lacks, in the order they
+    went in."""
     known = {a.key_hash for a in game.actions}
     out = []
     for a in chart.actions:
@@ -557,7 +615,7 @@ def moves(chart, game):
         out.append((clip[:-4] if clip.lower().endswith(".paa") else clip,
                     chart.strings[0][chart.condition_words[o + 1]], loop,
                     bool(chart.nodes[a.node_first].header.unk_40 & ROOT_MOTION),
-                    round(chart.nodes[a.node_first].header.duration * FPS), _added(chart, game, chart.nodes[a.node_first])))
+                    round(chart.nodes[a.node_first].header.duration * FPS), *_added(chart, game, chart.nodes[a.node_first])))
     return out
 
 
@@ -575,9 +633,9 @@ def _without(chart, game_data, leaf, path):
     if leaf not in {_leaf(m[0]) for m in mine} | {_leaf(c) for c in points}:
         return None
     new = paac.Chart.parse(game_data)
-    for c, k, loop, travel, frames, events in mine:
+    for c, k, loop, travel, frames, events, props in mine:
         if _leaf(c) != leaf:
-            add_move(new, c, k, frames, loop, travel, path == STOP_CHART, events)
+            add_move(new, c, k, frames, loop, travel, path == STOP_CHART, events, props)
     for c, ns in points.items():
         if _leaf(c) != leaf:
             point(new, ns, c)
@@ -665,13 +723,14 @@ def _folder_inputmap(idx, root):
         return f.read()
 
 
-def send_move(idx, root, clip, key, frames, loop=False, travel=False, face=0, sound=None):
+def send_move(idx, root, clip, key, frames, loop=False, travel=False, face=0, sound=None, prop=None):
     """Write into the loader folder `root` Kliff's two charts with a move
     that plays `clip`, `frames` long, on `key`, looping with `loop`, moving
     him as the clip travels with `travel`, starting the expression `face`,
     an action of FACES, playing `sound`, a sound's name and the seconds
-    into the move, and the input map with the key. Returns the charts
-    written."""
+    into the move, showing `prop`, a prefab's game path, a socket and the
+    prefab's grip or "", while it plays, and the input map with the key.
+    Returns the charts written."""
     check_key(idx, key)
     name = input_name(clip)
     xml = _drop_input(_folder_inputmap(idx, root), name)
@@ -690,9 +749,11 @@ def send_move(idx, root, clip, key, frames, loop=False, travel=False, face=0, so
         events.append((sound[1], sound_event(sound[0])))
     for path in MOVE_CHARTS:
         chart, _game, mine = current(idx, root, path)
-        # Like the stop, the face and the sound go in the chart whose clip shows only. A stopped loop's upper copy
-        # plays on unseen and would start them again each round.
-        add_move(chart, clip, name.lower(), frames, loop, travel, path == STOP_CHART, events if path == STOP_CHART else ())
+        # Like the stop, the face, the sound and the prop go in the chart whose clip shows only. A stopped loop's
+        # upper copy plays on unseen and would start them again each round.
+        shown = [(0.0, prop_path(prop[0]), prop[1], prop[2])] if prop else []
+        add_move(chart, clip, name.lower(), frames, loop, travel, path == STOP_CHART,
+                 *((events, shown) if path == STOP_CHART else ((), ())))
         written.append(_write(root, path, chart.pack(), mine))
     _write_inputmap(idx, root, xml.replace(_GROUP, _GROUP + _entry(name, key), 1))
     return written

@@ -18,7 +18,7 @@ from .formats import sockets as sockets_format
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 36, 0),
+    "version": (0, 37, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -1733,7 +1733,7 @@ class CDANIM_OT_send_to_game(Operator):
                                                                      bool(action.get("cd_loop")),
                                                                      clip.travels(obj, action),
                                                                      actioncharts.FACES.get(action.get("cd_face"), 0),
-                                                                     _sound_of(action))
+                                                                     _sound_of(action), _prop_of(idx, action))
                                    if c not in charts]
                     if not plays and not key:
                         problems.append(f"No chart or blend plays {name}, so the game will not play it; choose Where it "
@@ -1819,6 +1819,41 @@ def _sound_of(action):
     return action["cd_sound"], action.get("cd_sound_frame", 0) / anim.FPS
 
 
+def _grip_pose(obj, idx, prefab, hand):
+    """{data path: values} for clip.hold() to grip prefab `prefab` in
+    `hand`, RIGHT or LEFT. That is the first frame of the clip GRIP_CLIPS
+    gives for the prefab's grip, its weapon bone where the table puts it,
+    or else of GRIP_CLIP. Raises PackError for a grip from GRIP_CLIPS in
+    his left hand."""
+    name, place = actioncharts.GRIP_CLIP, None
+    for _part, _mesh, own in packs.prefab(idx, prefab):
+        socket = packs.sockets(idx, own).get(actioncharts.GRIP) if own else None
+        if socket:
+            name, place = actioncharts.GRIP_CLIPS.get(
+                (socket.parent, tuple(round(v, 3) for v in socket.translation)), (name, place))
+    if place and hand == "LEFT":
+        raise packs.PackError(f"The game holds {prefab} in his right hand only; pick Right")
+    pose = anim.first_pose(obj, packs.fetch_clip(idx, name))
+    if place:
+        pose['pose.bones["Bip_Weapon_R"].location'] = list(place)
+    return pose
+
+
+def _prop_of(idx, action):
+    """(prefab game path, socket, grip) of the prop a move shows, or None.
+    The grip is the prefab's own socket that goes on the hand's, as the
+    game's festival cups hold theirs, when it has one."""
+    if not action.get("cd_prop"):
+        return None
+    name = action["cd_prop"].lower()
+    path = idx.prefabs.get(name)
+    if path is None:
+        raise packs.PackError(f"no prefab {action['cd_prop']} in the game")
+    grip = next((actioncharts.GRIP for _part, _mesh, own in packs.prefab(idx, name)
+                 if own and actioncharts.GRIP in packs.sockets(idx, own)), "")
+    return path, actioncharts.HANDS[action.get("cd_prop_hand", "RIGHT")], grip
+
+
 def _is_new(idx, action, name):
     """True when the clip is a new one, under a name no pack has."""
     return "cd_template" in action and packs.MOTION + actioncharts.new_path(action, name).lower() + ".paa" \
@@ -1852,6 +1887,12 @@ class CDANIM_OT_play_on_key(Operator):
                           description="One of the game's sounds for the move to play, by its name, such as "
                           "sfx_social_hand_clap; empty for none. A looping move plays it every round")
     sound_frame: IntProperty(name="At frame", min=0, description="The frame of the move the sound starts on")
+    prop: StringProperty(name="Prop", search=_prefab_names_search, search_options={"SUGGESTION"},
+                         description="One of the game's prefabs for him to hold while the move plays, such as "
+                         "cd_t0000_cup_0001; empty for none. That hand closes around it for the whole clip. Type "
+                         "words to search")
+    hand: EnumProperty(name="Hand", items=(("RIGHT", "Right", "His right hand, RHand_Socket"),
+                                           ("LEFT", "Left", "His left hand, LHand_Socket")))
 
     @classmethod
     def poll(cls, context):
@@ -1873,6 +1914,8 @@ class CDANIM_OT_play_on_key(Operator):
         self.face = action.get("cd_face") if action.get("cd_face") in actioncharts.FACES else "NONE"
         self.sound = action.get("cd_sound", "")
         self.sound_frame = action.get("cd_sound_frame", 0)
+        self.prop = action.get("cd_prop", "")
+        self.hand = action.get("cd_prop_hand", "RIGHT")
         return context.window_manager.invoke_props_dialog(self)
 
     def execute(self, context):
@@ -1884,11 +1927,16 @@ class CDANIM_OT_play_on_key(Operator):
             action.pop("cd_face", None)
             action.pop("cd_sound", None)
             action.pop("cd_sound_frame", None)
+            action.pop("cd_prop", None)
+            action.pop("cd_prop_hand", None)
             self.report({"INFO"}, f"{action.name} is no move; Send to game takes it out of the charts")
             return {"FINISHED"}
         try:
             actioncharts.check_key(packs.index(context), key)
             sound = sounds.find(packs.index(context), self.sound) if self.sound.strip() else ""
+            prop = (packs.resolve(sorted(packs.index(context).prefabs), self.prop, "prefab", ext=".prefab")
+                    if self.prop.strip() else "")
+            grip = _grip_pose(context.object, packs.index(context), prop, self.hand) if prop else None
         except (actioncharts.ChartError, sounds.SoundError, packs.PackError, OSError) as exc:
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
@@ -1901,6 +1949,12 @@ class CDANIM_OT_play_on_key(Operator):
         else:
             action.pop("cd_sound", None)
             action.pop("cd_sound_frame", None)
+        if prop:
+            action["cd_prop"], action["cd_prop_hand"] = prop, self.hand
+            clip.hold(context.object, action, grip, self.hand[0])
+        else:
+            action.pop("cd_prop", None)
+            action.pop("cd_prop_hand", None)
         action["cd_key"] = key
         action["cd_loop"] = self.loop
         if self.face == "NONE":
@@ -1910,6 +1964,7 @@ class CDANIM_OT_play_on_key(Operator):
         how = "again and again until he moves" if self.loop else "once"
         looks = "" if self.face == "NONE" else f" with the {self.face.replace('_', ' ')} expression"
         looks += f", playing {sound} on frame {self.sound_frame}," if sound else ""
+        looks += f" holding {prop} in his {self.hand.lower()} hand, its fingers closed around it," if prop else ""
         self.report({"INFO"}, f"Kliff plays {action.name} {how}{looks} on {key.upper()} while he stands; Send to game "
                     "puts it in")
         return {"FINISHED"}
@@ -2195,6 +2250,9 @@ class CDANIM_PT_panel(bpy.types.Panel):
                 row.operator(CDANIM_OT_play_on_key.bl_idname, text="", icon="EVENT_K")
                 if action.get("cd_key") and action.get("cd_sound"):
                     box.label(text=f"{action['cd_sound']} on frame {action.get('cd_sound_frame', 0)}", icon="SPEAKER")
+                if action.get("cd_key") and action.get("cd_prop"):
+                    box.label(text=f"{action['cd_prop']} in his {action.get('cd_prop_hand', 'RIGHT').lower()} hand",
+                              icon="VIEW_PAN")
             m = action.cd_meta
             box.label(text="Events: begin, end (frames), type" if m.loaded else "Events: the template's (no metadata read)")
             row = box.row()

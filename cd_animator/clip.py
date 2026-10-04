@@ -172,6 +172,25 @@ def end_on(obj, action, overlap, pose):
               lambda t: [goal[i] for i in sorted(fcs)])
 
 
+def hold(obj, action, pose, side):
+    """Key the hand on `side`, "R" or "L", as `pose` has it, {data path:
+    values} from anim.first_pose() of a clip that grips with that hand, for
+    the whole clip, one key each: its fingers and Bip_Weapon_<side>, which
+    the hand's prop sockets hang from. A clip from motion capture leaves
+    that bone at its bind pose, where a prop sits up by the wrist."""
+    bag = export._channelbag(obj, action)
+    channels = _channels(obj, action)
+    for path, values in pose.items():
+        bone = path[len('pose.bones["'):].partition('"].')[0]
+        if not (bone.startswith(f"Bip01 {side} Finger") or bone == f"Bip_Weapon_{side}"):
+            continue
+        fcs = channels.get(path) or {i: bag.fcurves.new(path, index=i, group_name=bone) for i in range(len(values))}
+        for i, fc in fcs.items():
+            fc.keyframe_points.clear()
+            fc.keyframe_points.insert(0, values[i]).interpolation = "LINEAR"
+            fc.update()
+
+
 def new_clip(context, obj, template, name, frames, hold=False, stretch_events=True):
     """A new action on `obj` from the template clip at `template`, named
     `name`, `frames` long. `hold` keeps every bone on the template's first
