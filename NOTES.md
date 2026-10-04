@@ -288,6 +288,8 @@ In game the wave played, but Kliff's legs pressed together. CMU's hip joints sit
 
 The wave also looked fast. CMU lists 141_16 at 120 fps, the rate the file gives, and the forearm reverses every 10 to 13 frames, so the actor waved about 5 times a second; that is the recording.
 
+The Charleston, CMU motion 93_03 (443 frames at 120 fps, 3.7 s), had Kliff looking at the sky while he danced. Every mapped bone's rest was turned to point as the source's points, joint to next joint, and for the trunk that compared where the rigs put their joints, not their poses: CMU's T-pose neck, Neck joint to Head joint, leans 26 degrees further back than Kliff's in 93_03 and 32 in 141_16 (the wave had him look up a little too), and its hips-to-back line 16 to 17. Both rests stand upright and look ahead, so only the arms and legs are turned now, and the pelvis, spine, neck and head keep Kliff's rest.
+
 The name lists for Mixamo, Daz and Rigify still follow those rigs' published bone names; only CMU's have met a real file.
 
 ## Gear

@@ -1,14 +1,15 @@
 """Put another rig's animation on a game skeleton.
 
 Each mapped game bone takes the source bone's turn away from its own rest
-pose, in world space, on top of the game bone's rest turned to point the way
-the source bone's rest points. A bone points from its joint to the next
-mapped joint down the chain, the upper arm to the elbow, since a bone's own
-axis says little (the game's pelvis bone points sideways). So the rests may
-differ: a T-pose source, as BVH and Mixamo rigs are, puts the game's arms
-out in a T where the source's are, though Kliff's bind pose has them down.
-Bone rolls may differ too. A bone with no next joint, a hand, the head or a
-foot, turns as its parent's rest does. A source whose first frame is a T-pose,
+pose, in world space, on top of the game bone's rest. A limb bone's rest is
+first turned to point the way the source bone's rest points, from its joint
+to the next mapped joint, the upper arm to the elbow, the thigh to the knee,
+since a bone's own axis says little. So the rests may differ: a T-pose
+source, as BVH and Mixamo rigs are, puts the game's arms out in a T where
+the source's are, though Kliff's bind pose has them down. Bone rolls may
+differ too. A hand or a foot turns as its parent's rest does, and the
+pelvis, spine, neck and head keep the game's rest, as both rests stand
+upright and look ahead. A source whose first frame is a T-pose,
 as every frame 1 of CMU's BVH files is, takes that frame for its rest
 pose, and the clip starts on the next: CMU made those T-poses for
 retargeting, while the files' own rest pose splays the legs and bends the
@@ -67,18 +68,18 @@ HUMAN = [
 HIPS = "Bip01 Pelvis"
 LEG = ["Bip01 L Thigh", "Bip01 L Calf", "Bip01 L Foot"]
 FEET = ["Bip01 L Foot", "Bip01 R Foot", "Bip01 L Toe0", "Bip01 R Toe0"]
-# The joints a bone points to, the first one mapped.
-NEXT = {"Bip01 Pelvis": ["Bip01 Spine", "Bip01 Spine1", "Bip01 Spine2", "Bip01 Neck"],
-        "Bip01 Spine": ["Bip01 Spine1", "Bip01 Spine2", "Bip01 Neck"],
-        "Bip01 Spine1": ["Bip01 Spine2", "Bip01 Neck"], "Bip01 Spine2": ["Bip01 Neck"],
-        "Bip01 Neck": ["Bip01 Head"]}
+# The joints a limb bone points to, the first one mapped.
+NEXT = {}
 for _s in "LR":
     NEXT.update({f"Bip01 {_s} Clavicle": [f"Bip01 {_s} UpperArm"], f"Bip01 {_s} UpperArm": [f"Bip01 {_s} Forearm"],
                  f"Bip01 {_s} Forearm": [f"Bip01 {_s} Hand"], f"Bip01 {_s} Thigh": [f"Bip01 {_s} Calf"],
                  f"Bip01 {_s} Calf": [f"Bip01 {_s} Foot"]})
 # No foot points anywhere: rigs place the toe joint differently (CMU's sits
 # level with the ankle on a flat foot, the game's well below it), and both
-# rest poses stand on flat feet.
+# rest poses stand on flat feet. Nor does the trunk: both rests stand
+# upright and look ahead, and CMU's hips-to-back line leans 16 degrees
+# further back than Kliff's and its neck 26 to 32, which tipped his head
+# back to the sky.
 
 
 class RetargetError(Exception):
