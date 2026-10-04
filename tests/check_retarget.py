@@ -26,6 +26,8 @@ skeleton must:
   * Make it loop over 10 frames end the clip on its first frame's pose,
     the pelvis where it starts, and leave the frames after the blend as
     they were;
+  * give each of the 30 finger bones, which no rig maps, the pose the
+    new clip's template has on its first frame, on every frame;
   * with Travel, on a clip from the standing idle, which has no
     B_MoveControl_01 track, move the body as before and B_MoveControl_01
     and Bip01 as the pelvis travels over the ground, within 1 mm, and
@@ -55,7 +57,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 
 import cd_animator  # noqa: E402
-from cd_animator import packs, retarget  # noqa: E402
+from cd_animator import anim, packs, retarget  # noqa: E402
 from cd_animator.formats import metabin_codec, paa_codec  # noqa: E402
 
 RUN = "1_pc/1_phm/cd_phm_basic_00_00_nor_move_run_f_ing_00"
@@ -253,6 +255,13 @@ def main():
     bpy.ops.cd_animator.retarget(face_forward=False, travel=True)
     ok, what = matches()
     tw = target.matrix_world
+    hands = {p: v for p, v in anim.first_pose(target, action["cd_source"]).items() if "Finger" in p}
+    worst = 0.0
+    for f in (0, n // 2, n):
+        scene.frame_set(f)
+        worst = max([worst] + [abs(a - b) for p, v in hands.items() for a, b in zip(target.path_resolve(p), v)])
+    fails += report(len(hands) == 30 and worst < 1e-5,
+                    f"{len(hands)} finger channels hold the idle's first frame within {worst:.2g} on frames 0, {n // 2}, {n}")
 
     def went(b, f):
         scene.frame_set(f)

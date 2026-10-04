@@ -92,6 +92,8 @@ def _ease(fcs, at, start, goal):
     order = sorted(fcs)
     quat = order == [0, 1, 2, 3] and fcs[0].data_path.endswith("rotation_quaternion")
     n = len(at) - 1
+    if all(start(t) == goal(t) for t in range(n + 1)):
+        return   # nothing to blend; a slerp would only normalize the game's not quite unit quaternions
     rows = []
     for t in range(n + 1):
         w = t / n

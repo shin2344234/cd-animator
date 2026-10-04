@@ -314,6 +314,10 @@ A looping move's first slot is its own key branch pointed at the idle, blending 
 
 The BVH release at github.com/una-dinosauria/cmu-mocap keeps each subject in a folder of three digits and names its files like the motions, `data/001/01_01.bvh` and `data/141/141_16.bvh`. Its `cmu-mocap-index-text.txt`, from 2008, lists 2,435 motions of 109 subjects as a name, a tab and a description under a "Subject #N (description)" heading, in UTF-8. The release has 113 subject folders, so a few later subjects, such as 144's cartwheels, are missing from the list. Its READMEFIRST says CMU recorded at 120 frames a second and that the release writes that frame time into every file, adds a T-pose as frame 1 and changes no other frame. CMU's terms put no restrictions on the data and ask published work to credit mocap.cs.cmu.edu and NSF EIA-0196217.
 
+## Hands in mocap
+
+CMU records no fingers and the add-on maps none, so Kliff's 30 finger bones sat in their bind pose through every mocap move. His idle curls them 10.6 degrees from bind at the median joint and up to 22.6 at the right Finger4. Retarget now keys each finger once, on frame 0, with the first frame of the clip the new clip started from. Make it loop and End on his idle first wrote nine and sixteen keys into those constant tracks: the game's quaternions are not quite unit length, so the slerp between two equal keys came out normalized and different. A channel whose start and goal are equal is now left alone, and every finger track exports as one key. In game on 4 October Kliff danced the Charleston on 8 with relaxed hands.
+
 The name lists for Mixamo, Daz and Rigify still follow those rigs' published bone names; only CMU's have met a real file.
 
 ## Gear

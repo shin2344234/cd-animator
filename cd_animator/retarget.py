@@ -25,8 +25,11 @@ same, and the thigh swings to reach it with the knee bend kept: rigs set
 the hip joints apart differently (CMU's 43 cm at Kliff's size, his own
 23 cm), and the leg angles alone brought his feet together. Facing forward
 turns the whole motion about the vertical so the hips face on the first
-frame as the game skeleton's rest does, wherever the actor faced. Bones
-without a source keep their bind pose under their parent. The keys go on
+frame as the game skeleton's rest does, wherever the actor faced. The
+fingers, which no rig here maps, hold the pose of the clip the new clip
+started from on its first frame, his idle's relaxed hands for one started
+from it; other bones without a source keep their bind pose under their
+parent. The keys go on
 the active action, every frame, so Export writes them like any other clip.
 
 On its own the pelvis's travel only moves the body within the clip, and
@@ -46,6 +49,8 @@ import math
 
 import bpy
 from mathutils import Matrix, Quaternion, Vector
+
+from . import anim
 
 # Game bone: candidate source names, parent bones before their children.
 HUMAN = [
@@ -258,6 +263,12 @@ def retarget(target, source, action, frames, face=True, reference=None, travel=F
         pb.location = (0, 0, 0)
         pb.rotation_quaternion = (1, 0, 0, 0)
         pb.scale = (1, 1, 1)
+    if "cd_source" in action:
+        for path, values in anim.first_pose(target, action["cd_source"]).items():
+            bone, _, prop = path[len('pose.bones["'):].partition('"].')
+            if "Finger" in bone:
+                setattr(target.pose.bones[bone], prop, values)
+                target.pose.bones[bone].keyframe_insert(prop, frame=0, group=bone)
 
     tw_inv = tw.inverted()
     rest_roots = {b: tw @ target.data.bones[b].matrix_local for b in roots}
