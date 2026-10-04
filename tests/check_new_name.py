@@ -29,22 +29,30 @@ in for the game's bin64. It requires:
     basic_move_lv3 of its own;
   * Play on a key to refuse e, which Kliff already uses standing, k, which
     opens the skill view, and a key the game has no name for, and Send to
-    game to put a move on L into both
-    charts, the move's action last and every action still sorted by key,
+    game to put a move on L into both charts, with the anger expression
+    in basic_lower only, the move's action last and every action still
+    sorted by key, the expression a copy of anger in his facial chart
+    under the move's own key, lasting the move, the game's chart
+    otherwise, and a second move's copy to go in beside it in key order
+    and stay when the first comes out,
     the pointed nodes of basic_upper kept, and the key into the input map
     under by_path;
   * Check the game to list each chart and blend with the clip it plays;
   * a looping move to end on its own branch back into itself, to go
     back to the idle on its own key from 0.13 s in in basic_lower alone,
-    and to have the
-    idle's ways out but its end and those into other standing idles, the
-    lower chart's walk among them, and to go in again as a loop when a
-    chart is made again; one that travels to have 1 in the low byte at
+    to start the happy expression there with the event the game's nodes
+    use, first in its node's events, the idle's kept after it, and to
+    have the idle's ways out but its end and those into other standing
+    idles, the lower chart's walk among them, and to go in again as a
+    loop with its expression when a chart is made again; one that travels to have 1 in the low byte at
     0x40 of its node, where the idle's has 0, and to keep it when made
     again; a move's node to last its clip, the speed record 0.1 s more,
     in both charts, though the upper idle's lasts 3 s;
-  * Take out of the game to take the move out of both charts and the input
-    map, leaving basic_upper's pointed nodes and deleting the rest;
+  * every expression of Play on a key to be an action of Kliff's facial
+    chart;
+  * Take out of the game to take the move out of both charts, his facial
+    chart and the input map, leaving basic_upper's pointed nodes and
+    deleting the rest;
   * Take out of the game to put a clip's nodes and slots back, and a file
     that then matches the game's to go, leaving the folder empty.
 
@@ -214,21 +222,44 @@ def main():
             bpy.ops.cd_animator.play_on_key(key=key)
         except RuntimeError:
             refused.append(key)
-    bpy.ops.cd_animator.play_on_key(key="l")
+    bpy.ops.cd_animator.play_on_key(key="l", face="anger")
     bpy.ops.cd_animator.send_to_game(clip="ACTION")
     mapped = os.path.join(root, actioncharts.BY_PATH, "ui", "inputmap.xml")
     xml = open(mapped, encoding="utf-8-sig", newline="").read() if os.path.isfile(mapped) else ""
+    facial_data = actioncharts.game_bytes(idx, actioncharts.FACIAL_CHART)
+    facial = paac.Chart.parse(facial_data)
+    face = actioncharts.face_key(facial, MOVER)
     move_ok = []
     for path, game in ((UPPER, game_upper), (LOWER, game_lower)):
         mine = chart(at(path)) if os.path.isfile(at(path)) else None
         keys = [a.key_hash for a in mine.actions] if mine else []
         move_ok.append(mine is not None and keys == sorted(keys) and len(mine.nodes) == len(game.nodes) + 1
-                       and actioncharts.moves(mine, game) == [("1_pc/1_phm/" + MOVER, f"key_cda_{MOVER}", False, False, length)])
+                       and actioncharts.moves(mine, game) == [("1_pc/1_phm/" + MOVER, f"key_cda_{MOVER}", False, False, length,
+                                                               face if path == LOWER else 0)])
+    # The face, a copy of anger under the move's own key lasting the move, and the game's facial chart otherwise.
+    mine = chart(at(actioncharts.FACIAL_CHART)) if os.path.isfile(at(actioncharts.FACIAL_CHART)) else None
+    copied = mine.find_action(face) if mine else None
+    anger = facial.action_nodes(facial.find_action(actioncharts.FACES["anger"]))
+    face_ok = (copied is not None and [a.key_hash for a in mine.actions] == sorted(a.key_hash for a in mine.actions)
+               and actioncharts.face_chart(mine, facial_data, face).pack() == facial_data
+               and [(mine.anim_path(n), n.header.group_hash) for n in mine.action_nodes(copied)]
+               == [(facial.anim_path(n), n.header.group_hash) for n in anger]
+               and all(abs(n.header.duration - length / 30) < 1e-5
+                       and abs(n.animation_speeds[0].time_end - length / 30 - 0.1) < 1e-5 for n in mine.action_nodes(copied)))
+    # A second move's face goes in beside it, in key order, and taking the first out leaves the second.
+    other = actioncharts.face_key(facial, "cd_phm_cdanim_other_00")
+    two = actioncharts.face_chart(mine, facial_data, other, actioncharts.FACES["happy"], 2.0) if mine else None
+    one = actioncharts.face_chart(two, facial_data, face) if two else None
+    face_ok = (face_ok and [a.key_hash for a in two.actions] == sorted(a.key_hash for a in two.actions)
+               and two.find_action(face) and two.find_action(other)
+               and one.find_action(other) and not one.find_action(face) and len(one.actions) == len(facial.actions) + 1)
     kept = sorted(c for c, ns in actioncharts.pointed(chart(at(UPPER)), game_upper).items() if ns != [len(game_upper.nodes)])
-    fails += report(refused == ["e", "k", "nosuchkey"] and mover.get("cd_key") == "l" and all(move_ok)
+    fails += report(refused == ["e", "k", "nosuchkey"] and mover.get("cd_key") == "l" and mover.get("cd_face") == "anger"
+                    and all(move_ok) and face_ok
                     and kept == ["1_pc/1_phm/" + FIRST, "1_pc/1_phm/" + SECOND]
                     and f'<Input Name="Key_CDA_{MOVER}">\r\n\t\t<KeyboardMouse Key="l" Method="downonce"/>' in xml,
-                    f"a move on L: refused {refused}, charts {move_ok}, upper keeps {kept}, input map {bool(xml)}")
+                    f"a move on L: refused {refused}, charts {move_ok}, its face {face_ok}, upper keeps {kept}, "
+                    f"input map {bool(xml)}")
 
     bpy.ops.cd_animator.check_game()
     lines = cd_animator._in_game["charts"]
@@ -245,8 +276,12 @@ def main():
         data = actioncharts.game_bytes(idx, path)
         c = paac.Chart.parse(data)
         stop = path == actioncharts.STOP_CHART
-        actioncharts.add_move(c, "1_pc/1_phm/" + MOVER, "key_cda_loop", length, loop=True, travel=True, stop=stop)
+        face = actioncharts.FACES["happy"] if stop else 0
+        actioncharts.add_move(c, "1_pc/1_phm/" + MOVER, "key_cda_loop", length, loop=True, travel=True, stop=stop,
+                              face=face)
         act = c.actions[-1]
+        events = c.nodes[act.node_first].frame_event_instances
+        idle_events = game.nodes[game.find_action(actioncharts.IDLE).node_first].frame_event_instances
         out = [c.branches[c.slots[i].branch_index] for i in range(act.slot_first, act.slot_first + act.slot_count)]
         idle = c.find_action(actioncharts.IDLE)
         idle_out = [c.branches[c.slots[i].branch_index] for i in range(idle.slot_first + 1, idle.slot_first + idle.slot_count)]
@@ -262,18 +297,28 @@ def main():
                        and {b.target_hash for b in out[stop:-1]}
                        == {b.target_hash for b in idle_out if b.kind != 7 and not actioncharts._standing(c, b.target_hash)}
                        and (path == UPPER or 0xFC18618C in {b.target_hash for b in out})
-                       and made is None and actioncharts.moves(again, game) == [("1_pc/1_phm/" + MOVER, "key_cda_loop", True, True, length)]
+                       and made is None
+                       and actioncharts.moves(again, game) == [("1_pc/1_phm/" + MOVER, "key_cda_loop", True, True, length, face)]
+                       and [e.ordinal for e in events] == list(range(len(events)))
+                       and [(e.time, e.event_index) for e in events[bool(face):]]
+                       == [(e.time, e.event_index) for e in idle_events]
+                       and (not face or events[0].time == 0 and c.frame_event(events[0].event_index)
+                            == [0x40, 0x20000, 0, face, 0x3EAAA64C, 0x3EAAA64C, 1])
                        and again.nodes[act.node_first].header.unk_40 & 0xFF == actioncharts.ROOT_MOTION
                        and game.nodes[game.find_action(actioncharts.IDLE).node_first].header.unk_40 & 0xFF == 0
                        and abs(again.nodes[act.node_first].animation_speeds[0].time_end - (length / 30 + 0.1)) < 1e-4)
     fails += report(all(loop_ok), f"a looping move that travels, upper and lower: {loop_ok}")
+    facial = paac.Chart.parse(actioncharts.game_bytes(idx, actioncharts.CHARTS + "upperaction/99_facial/pc_phm_facial.paac"))
+    missing = [n for n, k in actioncharts.FACES.items() if not facial.find_action(k)]
+    fails += report(not missing, f"every expression is an action of his facial chart, missing {missing}")
 
     bpy.ops.cd_animator.remove_from_game(name=MOVER)
     up = differs(chart(at(UPPER)), game_upper)
     fails += report(not os.path.exists(at(LOWER)) and not os.path.exists(mapped)
+                    and not os.path.exists(at(actioncharts.FACIAL_CHART))
                     and (up[0], sorted(up[1]), up[2]) == ([0, 1], sorted(["1_pc/1_phm/" + FIRST + ".paa",
                                                                           "1_pc/1_phm/" + SECOND + ".paa"]), True),
-                    f"took the move out: basic_lower and the input map gone, upper {up}")
+                    f"took the move out: basic_lower, his facial chart and the input map gone, upper {up}")
 
     bpy.ops.cd_animator.remove_from_game(name=FIRST)
     up = differs(chart(at(UPPER)), game_upper)

@@ -322,6 +322,18 @@ CMU records no fingers and the add-on maps none, so Kliff's 30 finger bones sat 
 
 The name lists for Mixamo, Daz and Rigify still follow those rigs' published bone names; only CMU's have met a real file.
 
+## Expressions
+
+Kliff's facial chart, `upperaction/99_facial/pc_phm_facial.paac`, has 30 actions and no branches, slots or names. Each action holds a node per character, his `_kliff` clip first with a group hash of 0, the others with hashes of their own. A body node starts one with a frame event of type 0x40, seven words: 0x40, 0x20000, 0, the facial action's key, 0.3333 as a float twice, and 1. 12,172 of the game's 17,484 type 0x40 events are exactly that but for the key. The rest differ in the second word's low bits or in the last word, 257 in NPC schedule actions and 0 in deaths, for reasons not known. His meditation closes his eyes this way 1.03 s into its start, his roar starts the attack face 0.33 s in and the anger face while it holds, and his dice games start the gamble, win and cheat faces. The standing idle's nodes start none. Every one of the game's 105,586 nodes lists its events sorted by time, each numbered by its place in the list.
+
+A face plays its node's duration, 16.07 s for most, whatever the body does. Then his resting face, action 175AC98C, comes back for 16 s at a time, one of its two `_kliff` clips each time. Starting a face that is already playing starts it over. On 4 October the moonwalk's eyes-closed face started at 15:41:34.255 while the one from 15:41:22.953 still played, and the resting face's other clip loaded at 15:42:06.326, 16.07 s and then 16.00 s after the second start, 4 ms from that count. The game's own looping nodes, the meditation's and the roar's, start their face again every round, and its end nodes start none, so a roar's anger outlasts the roar.
+
+The first try put the game's own face in the move's node. On 4 October the moonwalk closed his eyes and the wave made him angry, but both faces stayed their 16 s after the move. The happy face on the Charleston did not show. It loaded with the dance's first frame, and its clip smiles from its first frame on, but it is the mildest of the faces. Its face bones move at most 5.3 mm from his resting face, where anger's move 7.6 mm and whistle's 12.5 mm.
+
+A move's face is now a copy of the game's action in his facial chart, every node lasting the move, or a loop's round and 0.5 s more, so the next round starts it over before it runs out. Its key comes from a name of the clip's own, `CDA_Face_<clip>_<n>` with the first n whose key sorts after the game's last. The chart keeps its actions sorted by key, which it can do freely, since nothing in it names an action by its place. The event goes in `basic_lower` only. A stopped loop's upper copy plays on unseen and would start the face again every round.
+
+In game on 4 October the copies worked. Kliff danced the Charleston on 8 with anger, its clip loading 1 ms after the dance began, and stopped it with 8 four times. The moonwalk's eyes-closed copy ran its 6.0 s, and his resting face's second clip, not loaded before that session, loaded 14 ms after the moonwalk ended. The wave's happy copy started with the wave and ran its 2 s.
+
 ## Gear
 
 The game's data tables are in group 0008 as pairs of files, `gamedata/binarystaticinfo__/bin/<table>.staticinfoheader` and `.staticinfobody`. The header is a u16 record count, then each record's u32 key and u32 offset into the body; a record runs to the next offset. Each record starts with its key again and its name, a u32 length and the bytes. `formats/staticinfo.py` reads them and finds the fields it needs by their shape, checking each against the game's files, without decoding the rest.

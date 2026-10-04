@@ -18,7 +18,7 @@ from .formats import sockets as sockets_format
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 34, 0),
+    "version": (0, 35, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -1731,7 +1731,9 @@ class CDANIM_OT_send_to_game(Operator):
                     if key:
                         charts += [c for c in actioncharts.send_move(idx, root, game_path, key, int(action.frame_end),
                                                                      bool(action.get("cd_loop")),
-                                                                     clip.travels(obj, action)) if c not in charts]
+                                                                     clip.travels(obj, action),
+                                                                     actioncharts.FACES.get(action.get("cd_face"), 0))
+                                   if c not in charts]
                     if not plays and not key:
                         problems.append(f"No chart or blend plays {name}, so the game will not play it; choose Where it "
                                         "plays or Play on a key")
@@ -1827,6 +1829,10 @@ class CDANIM_OT_play_on_key(Operator):
     loop: BoolProperty(name="Loop until he moves",
                        description="Play the clip again and again, as an emote, until the key is pressed again "
                        "or Kliff walks, jumps or attacks; off, it plays once and he goes back to his idle")
+    face: EnumProperty(name="Expression", items=[("NONE", "None", "His face as his idle has it")]
+                       + [(n, n.replace("_", " ").capitalize(), "") for n in actioncharts.FACES],
+                       description="An expression from his facial chart that the move starts and that ends with "
+                       "it, or within a round of a looping move once he stops")
 
     @classmethod
     def poll(cls, context):
@@ -1845,6 +1851,7 @@ class CDANIM_OT_play_on_key(Operator):
         action = _clip_action(context)
         self.key = action.get("cd_key", "l")
         self.loop = bool(action.get("cd_loop"))
+        self.face = action.get("cd_face") if action.get("cd_face") in actioncharts.FACES else "NONE"
         return context.window_manager.invoke_props_dialog(self)
 
     def execute(self, context):
@@ -1853,6 +1860,7 @@ class CDANIM_OT_play_on_key(Operator):
         if not key:
             action.pop("cd_key", None)
             action.pop("cd_loop", None)
+            action.pop("cd_face", None)
             self.report({"INFO"}, f"{action.name} is no move; Send to game takes it out of the charts")
             return {"FINISHED"}
         try:
@@ -1862,9 +1870,14 @@ class CDANIM_OT_play_on_key(Operator):
             return {"CANCELLED"}
         action["cd_key"] = key
         action["cd_loop"] = self.loop
+        if self.face == "NONE":
+            action.pop("cd_face", None)
+        else:
+            action["cd_face"] = self.face
         how = "again and again until he moves" if self.loop else "once"
-        self.report({"INFO"}, f"Kliff plays {action.name} {how} on {key.upper()} while he stands; Send to game puts it "
-                    "in")
+        looks = "" if self.face == "NONE" else f" with the {self.face.replace('_', ' ')} expression"
+        self.report({"INFO"}, f"Kliff plays {action.name} {how}{looks} on {key.upper()} while he stands; Send to game "
+                    "puts it in")
         return {"FINISHED"}
 
 
@@ -2142,7 +2155,8 @@ class CDANIM_PT_panel(bpy.types.Panel):
                           f"{_files_text({p for p, _n in plays})}" if plays else "Nothing plays it yet")
                 row.operator(CDANIM_OT_play_where.bl_idname, text="", icon="NODETREE")
                 row = box.row()
-                row.label(text=(f"Played on {action['cd_key'].upper()}" + (", looping" if action.get("cd_loop") else ""))
+                row.label(text=(f"Played on {action['cd_key'].upper()}" + (", looping" if action.get("cd_loop") else "")
+                                + (f", {action['cd_face'].replace('_', ' ')}" if action.get("cd_face") else ""))
                           if action.get("cd_key") else "On no key")
                 row.operator(CDANIM_OT_play_on_key.bl_idname, text="", icon="EVENT_K")
             m = action.cd_meta

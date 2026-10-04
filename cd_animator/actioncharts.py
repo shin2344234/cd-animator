@@ -34,6 +34,11 @@ jumps and attacks from outside the idle's exits, so those end it too.
 Taking a move or a pointed clip out of a chart makes the chart again from
 the game's, with what stays.
 
+A move can start one of his faces too. Its node gets the frame event his
+meditation closes his eyes with, naming a copy of the face in his facial
+chart that lasts the move, or a loop's round and a little, since a face
+otherwise plays its own 16 s whatever the body does.
+
 Action names are hashes. The names table of a chart (strings[0]) holds the
 names of other things, so 136 of the game's 84,133 actions have a name
 anywhere in the game; an action is shown by its key instead.
@@ -43,6 +48,7 @@ import copy
 import json
 import os
 import re
+import struct
 from struct import error as struct_error
 
 from . import packs
@@ -68,6 +74,18 @@ LOOP_BLEND = 6.0                       # a loop's blend into its own start, as t
 # dodge roll, the dash and the step back have it. The idle has 0, which leaves movement to move speed records.
 ROOT_MOTION = 0x01
 STOP_AFTER = 0.13                      # s into a loop before its key stops it, the shortest wait of the game's key slots
+# Kliff's expressions, actions of his facial chart by the game's names for them. No branch leads into that chart. A
+# body node's frame event of type 0x40 starts one of its actions, as his meditation closes his eyes and his roar
+# angers him. A face plays its node's duration, about 16 s for most, unless another starts, and then his resting
+# face comes back. Starting the one already playing starts it over.
+FACIAL_CHART = CHARTS + "upperaction/99_facial/pc_phm_facial.paac"
+FACE_EVENT = 0x40
+FACE_AFTER = 0.5                       # s a loop's face outlasts a round, so the next round starts it over first
+FACES = {"happy": 0xA3557CFE, "anger": 0x0DC86234, "sadness": 0x2DA58C98, "fear": 0xDEEA3A8A,
+         "eyes_closed": 0xD4F119D0, "whistle": 0x63A43B71, "crowd": 0x3CA96A65, "crowd_happy": 0x35ED3BB7,
+         "crowd_anger": 0xA361BDCB, "crowd_sadness": 0x79C5509E, "battle": 0x80DAC573, "attack": 0x9CB4F219,
+         "hurt": 0xD6683A1D, "win": 0x86127453, "win_2": 0xA1881D5B, "win_3": 0x7F271370, "gamble": 0xA5B06B28,
+         "cheat": 0xE6C841D9, "wait": 0x175AC98C, "swim": 0x9E780E5A, "dead": 0x8854ED68}
 INPUTMAP = "ui/inputmap.xml"
 INPUTMAPS = (INPUTMAP, "ui/inputmap_common.xml")   # the second has the menus' keys, the skill view's K among them
 _GROUP = '<InputGroup Name="CharacterAction" LayerName="Action" EnableConsume="False">'
@@ -347,14 +365,15 @@ def _standing(chart, key):
     return False
 
 
-def add_move(chart, clip, key, frames, loop=False, travel=False, stop=True):
+def add_move(chart, clip, key, frames, loop=False, travel=False, stop=True, face=0):
     """Add to `chart` a move that plays `clip` (under character/motion/, no
     .paa), `frames` long, on the key condition `key`, an input name in lower
     case, with a branch into it on every action that plays Kliff's idle. A
     move that loops plays its clip again at the end, until its key is
     pressed again, with `stop`, or one of the idle's ways out but into
     another standing idle fires, his walk among them. A move that travels moves him as the
-    clip's B_MoveControl_01 goes."""
+    clip's B_MoveControl_01 goes. With `face`, an action of FACES, the
+    move starts that expression."""
     acts = {a.key_hash: a for a in chart.actions}
     if IDLE not in acts:
         raise ChartError("the chart has no standing idle to start a move from")
@@ -407,6 +426,15 @@ def add_move(chart, clip, key, frames, loop=False, travel=False, stop=True):
         r.time_end = frames / FPS + 0.1
     if travel:
         node.header.unk_40 = node.header.unk_40 & ~0xFF | ROOT_MOTION
+    if face:
+        # Started as the game's nodes start theirs, by an event at 0 s with 0.3333 s blends, first in the node's list.
+        # Every node of the game keeps that list sorted by time and numbered in order.
+        event = paac.Rec(paac.LAYOUTS["FrameEventInstance"])
+        event.time_end, event.event_index, event.unk_10 = -1.0, len(chart.frame_event_buffer) // 4, 0xFFFFFFFF
+        chart.frame_event_buffer += struct.pack("<7I", FACE_EVENT, 0x20000, 0, face, 0x3EAAA64C, 0x3EAAA64C, 1)
+        node.frame_event_instances.insert(0, event)
+        for i, e in enumerate(node.frame_event_instances):
+            e.ordinal = i
     chart.nodes.append(node)
     point(chart, [len(chart.nodes) - 1], clip)
     act = idle.copy()
@@ -438,8 +466,56 @@ def add_move(chart, clip, key, frames, loop=False, travel=False, stop=True):
     chart.actions.append(act)
 
 
+def face_key(facial, clip):
+    """The key of the facial action a move playing `clip` starts: a name
+    of the clip's own whose key sorts after every action of the game's
+    facial chart `facial`."""
+    top = max(a.key_hash for a in facial.actions)
+    leaf = clip.rsplit("/", 1)[-1].lower()
+    n = 0
+    while _hash(f"CDA_Face_{leaf}_{n}") <= top:
+        n += 1
+    return _hash(f"CDA_Face_{leaf}_{n}")
+
+
+def face_chart(chart, game_data, key, face=0, seconds=0.0):
+    """The facial chart made again from the game's, `game_data`, with the
+    actions `chart` adds but `key`, and with `face`, a copy of that game
+    action under `key` lasting `seconds`, so the expression ends with the
+    move. The game keeps a chart's actions sorted by key, and in this one
+    nothing names an action by its place."""
+    new = paac.Chart.parse(game_data)
+    known = {a.key_hash for a in new.actions}
+    added = [(a, chart.action_nodes(a)) for a in chart.actions if a.key_hash not in known and a.key_hash != key]
+    if face:
+        act = new.find_action(face)
+        if act is None:
+            raise ChartError(f"his facial chart has no action {face:08X}")
+        nodes = [copy.deepcopy(n) for n in new.action_nodes(act)]
+        for n in nodes:
+            n.header.duration = seconds
+            for r in n.animation_speeds:
+                r.time_end = seconds + 0.1
+        act = act.copy()
+        act.key_hash = key
+        added.append((act, nodes))
+    for act, nodes in added:
+        act = act.copy()
+        act.node_first, act.node_count = len(new.nodes), len(nodes)
+        new.nodes += [copy.deepcopy(n) for n in nodes]
+        new.actions.append(act)
+    new.actions.sort(key=lambda a: a.key_hash)
+    return new
+
+
+def _face(chart, node):
+    """The facial action `node` starts, or 0."""
+    events = (chart.frame_event(e.event_index) for e in node.frame_event_instances)
+    return next((w[3] for w in events if w and w[0] & 0xFFFF == FACE_EVENT), 0)
+
+
 def moves(chart, game):
-    """[(clip, key, loop, travel, frames)] of the moves in `chart`, the
+    """[(clip, key, loop, travel, frames, face)] of the moves in `chart`, the
     actions the game's chart `game` lacks, in the order they went in."""
     known = {a.key_hash for a in game.actions}
     out = []
@@ -455,7 +531,7 @@ def moves(chart, game):
         out.append((clip[:-4] if clip.lower().endswith(".paa") else clip,
                     chart.strings[0][chart.condition_words[o + 1]], loop,
                     bool(chart.nodes[a.node_first].header.unk_40 & ROOT_MOTION),
-                    round(chart.nodes[a.node_first].header.duration * FPS)))
+                    round(chart.nodes[a.node_first].header.duration * FPS), _face(chart, chart.nodes[a.node_first])))
     return out
 
 
@@ -473,9 +549,9 @@ def _without(chart, game_data, leaf, path):
     if leaf not in {_leaf(m[0]) for m in mine} | {_leaf(c) for c in points}:
         return None
     new = paac.Chart.parse(game_data)
-    for c, k, loop, travel, frames in mine:
+    for c, k, loop, travel, frames, face in mine:
         if _leaf(c) != leaf:
-            add_move(new, c, k, frames, loop, travel, path == STOP_CHART)
+            add_move(new, c, k, frames, loop, travel, path == STOP_CHART, face)
     for c, ns in points.items():
         if _leaf(c) != leaf:
             point(new, ns, c)
@@ -563,11 +639,12 @@ def _folder_inputmap(idx, root):
         return f.read()
 
 
-def send_move(idx, root, clip, key, frames, loop=False, travel=False):
+def send_move(idx, root, clip, key, frames, loop=False, travel=False, face=0):
     """Write into the loader folder `root` Kliff's two charts with a move
     that plays `clip`, `frames` long, on `key`, looping with `loop`, moving
-    him as the clip travels with `travel`, and the input map with the key.
-    Returns the charts written."""
+    him as the clip travels with `travel`, starting the expression `face`,
+    an action of FACES, and the input map with the key. Returns the charts
+    written."""
     check_key(idx, key)
     name = input_name(clip)
     xml = _drop_input(_folder_inputmap(idx, root), name)
@@ -575,9 +652,18 @@ def send_move(idx, root, clip, key, frames, loop=False, travel=False):
     if other:
         raise ChartError(f'"{key}" already plays {other.group(1)[len("Key_CDA_"):]}')
     written = []
+    if face:
+        # A copy of the face that lasts the move, or a loop's round and a little, which the next round starts over.
+        facial, game, mine = current(idx, root, FACIAL_CHART)
+        own = face_key(game, clip)
+        new = face_chart(facial, game_bytes(idx, FACIAL_CHART), own, face, frames / FPS + (FACE_AFTER if loop else 0.0))
+        written.append(_write(root, FACIAL_CHART, new.pack(), mine))
+        face = own
     for path in MOVE_CHARTS:
         chart, _game, mine = current(idx, root, path)
-        add_move(chart, clip, name.lower(), frames, loop, travel, path == STOP_CHART)
+        # Like the stop, the expression goes in the chart whose clip shows only. A stopped loop's upper copy plays on
+        # unseen and would start it again each round.
+        add_move(chart, clip, name.lower(), frames, loop, travel, path == STOP_CHART, face if path == STOP_CHART else 0)
         written.append(_write(root, path, chart.pack(), mine))
     _write_inputmap(idx, root, xml.replace(_GROUP, _GROUP + _entry(name, key), 1))
     return written
@@ -710,6 +796,11 @@ def take_out(idx, root, clip):
             named = {s[:-4] for s in _clips_of(chart) if s.rsplit("/", 1)[-1].lower() == leaf}
             if not [i for c in sorted(named) for i in unpoint(chart, game, c)]:
                 continue
+        elif path == FACIAL_CHART:
+            key = face_key(paac.Chart.parse(game_data), clip)
+            if not chart.find_action(key):
+                continue
+            chart = face_chart(chart, game_data, key)
         else:
             chart = _without(chart, game_data, leaf, path)
             if chart is None:
@@ -735,6 +826,8 @@ def in_folder(idx, root):
         return []
     out = []
     for f, path in _ours(idx, root):
+        if path == FACIAL_CHART:
+            continue   # its added actions copy the game's faces, and name no new clip
         with open(f, "rb") as h:
             chart = _parse(path, h.read())
         out.append((f, pointed(chart, _parse(path, game_bytes(idx, path)))))
