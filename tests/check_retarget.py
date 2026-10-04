@@ -33,7 +33,12 @@ skeleton must:
     motion block in the metadata;
   * Make it loop on a travelling clip keep its travel: B_MoveControl_01
     starts where it rests and ends as far on as before the loop, and the
-    body stands the same from it on the first and last frames.
+    body stands the same from it on the first and last frames;
+  * End on his idle over 10 frames give the travelling run's last frame
+    the standing idle's first, every bone's turn within 0.1 degrees and
+    the pelvis from B_MoveControl_01 within 1 mm, leave the frames
+    before the blend as they were, and export every track from frame 0, as
+    the game's clips have them.
 
 Exit code 0 means every check passed.
 """
@@ -284,6 +289,31 @@ def main():
                     f"a travelling loop goes {lap.length:.3f} m a round, B_MoveControl_01 {start_off * 1000:.3f} mm "
                     f"from rest on frame 0 and {lap_off * 1000:.3f} mm off the round's travel on frame 30; the body "
                     f"from it {seam:.4f} degrees and {(first_body - last_body).length * 1000:.3f} mm apart")
+
+    bpy.ops.cd_animator.retarget(face_forward=False, travel=True)
+    early = from_root(n - 20)
+    bpy.ops.cd_animator.end_on_idle(frames=10)
+    kept = max(angle(early[0][g], from_root(n - 20)[0][g]) for g in MIXAMO)
+    kept_body = (early[1] - from_root(n - 20)[1]).length
+    scene.frame_set(n)
+    ended = {b.name: world_rot(target, b.name) for b in target.pose.bones}
+    ended_body = tw @ target.pose.bones["Bip01 Pelvis"].head - tw @ target.pose.bones["B_MoveControl_01"].head
+    out = os.path.join(os.path.dirname(out), "ended.paa")
+    bpy.ops.cd_animator.export_paa(filepath=out, clip="ACTION")
+    late = [b.name for b in paa_codec.decode_file(open(out, "rb").read())[1].bones
+            for keys in (b.rot_keys, b.pos_keys, b.scale_keys) if keys and keys[0].frame > 0]
+    bpy.ops.object.select_all(action="DESELECT")
+    bpy.context.view_layer.objects.active = truth
+    bpy.ops.cd_animator.game_clip(clip=IDLE, voice=False)
+    scene.frame_set(0)
+    off = max(angle(ended[b.name], world_rot(truth, b.name)) for b in truth.pose.bones)
+    idle_body = (truth.matrix_world @ truth.pose.bones["Bip01 Pelvis"].head
+                 - truth.matrix_world @ truth.pose.bones["B_MoveControl_01"].head)
+    fails += report(off < 0.1 and (ended_body - idle_body).length < 0.001 and kept < 0.1 and kept_body < 0.001
+                    and not late,
+                    f"ended on the idle: its first frame's bones within {off:.4f} degrees, the pelvis from "
+                    f"B_MoveControl_01 within {(ended_body - idle_body).length * 1000:.3f} mm; frame {n - 20} moved "
+                    f"{kept:.4f} degrees and {kept_body * 1000:.3f} mm; tracks starting after frame 0: {late}")
     print("PASS" if not fails else f"FAIL: {fails} checks")
     sys.stdout.flush()
     os._exit(1 if fails else 0)

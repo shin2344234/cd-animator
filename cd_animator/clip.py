@@ -66,12 +66,51 @@ def set_length(context, obj, action, frames, stretch_events=False):
     _set_end(context, action, frames)
 
 
+ROOTS = [f'pose.bones["{b}"].location' for b in retarget.TRAVEL]
+REST = {"rotation_quaternion": [1.0, 0.0, 0.0, 0.0], "location": [0.0, 0.0, 0.0], "scale": [1.0, 1.0, 1.0]}
+
+
 def travels(obj, action):
     """Whether the clip moves B_MoveControl_01, so the game should move the
     character with it."""
-    path = f'pose.bones["{retarget.TRAVEL[0]}"].location'
-    return any(fc.data_path == path and len({round(p.co[1], 5) for p in fc.keyframe_points}) > 1
+    return any(fc.data_path == ROOTS[0] and len({round(p.co[1], 5) for p in fc.keyframe_points}) > 1
                for fc in _curves(obj, action))
+
+
+def _channels(obj, action):
+    """{data path: {array index: fcurve}} of the clip's curves."""
+    out = {}
+    for fc in _curves(obj, action):
+        out.setdefault(fc.data_path, {})[fc.array_index] = fc
+    return out
+
+
+def _ease(fcs, at, start, goal):
+    """Key one channel's curves, {array index: fcurve}, on the frames `at`:
+    the t-th eases from start(t) into goal(t), values by index, weighted by
+    smoothstep from 0 to 1, the short way between quaternions."""
+    order = sorted(fcs)
+    quat = order == [0, 1, 2, 3] and fcs[0].data_path.endswith("rotation_quaternion")
+    n = len(at) - 1
+    rows = []
+    for t in range(n + 1):
+        w = t / n
+        w = w * w * (3 - 2 * w)
+        a, b = start(t), goal(t)
+        if quat:
+            qa, qb = Quaternion(a), Quaternion(b)
+            if qa.dot(qb) < 0:
+                qa.negate()
+            rows.append(list(qa.slerp(qb, w)))
+        else:
+            rows.append([x + (y - x) * w for x, y in zip(a, b)])
+    for i, column in zip(order, zip(*rows)):
+        fc = fcs[i]
+        if all(abs(v - fc.evaluate(f)) < 1e-7 for f, v in zip(at, column)):
+            continue
+        for f, v in zip(at, column):
+            fc.keyframe_points.insert(f, v, options={"FAST"}).interpolation = "LINEAR"
+        fc.update()
 
 
 def make_loop(context, obj, action, overlap):
@@ -89,36 +128,46 @@ def make_loop(context, obj, action, overlap):
     if overlap < 1 or end < 2 * overlap:
         raise ValueError(f"a {end} frame clip is too short to fold {overlap} frames into its start")
     tail = end - overlap
-    channels = {}
-    for fc in _curves(obj, action):
-        channels.setdefault(fc.data_path, {})[fc.array_index] = fc
-    roots = [f'pose.bones["{b}"].location' for b in retarget.TRAVEL]
-    travels = any(abs(fc.evaluate(tail) - fc.evaluate(0)) > 1e-4 for fc in channels.get(roots[0], {}).values())
-    for path, fcs in channels.items():
-        order = sorted(fcs)
-        quat = path.endswith("rotation_quaternion") and order == [0, 1, 2, 3]
-        back = [fcs[i].evaluate(tail) - fcs[i].evaluate(0) if travels and path in roots else 0.0 for i in order]
-        rows = []
-        for t in range(overlap + 1):
-            w = t / overlap
-            w = w * w * (3 - 2 * w)
-            a = [fcs[i].evaluate(tail + t) - d for i, d in zip(order, back)]
-            b = [fcs[i].evaluate(t) for i in order]
-            if quat:
-                qa, qb = Quaternion(a), Quaternion(b)
-                if qa.dot(qb) < 0:
-                    qa.negate()
-                rows.append(list(qa.slerp(qb, w)))
-            else:
-                rows.append([x + (y - x) * w for x, y in zip(a, b)])
-        for i, column in zip(order, zip(*rows)):
-            fc = fcs[i]
-            if all(abs(v - fc.evaluate(t)) < 1e-7 for t, v in enumerate(column)):
-                continue
-            for t, v in enumerate(column):
-                fc.keyframe_points.insert(t, v, options={"REPLACE", "FAST"}).interpolation = "LINEAR"
-            fc.update()
+    moving = travels(obj, action)
+    for path, fcs in _channels(obj, action).items():
+        back = {i: fc.evaluate(tail) - fc.evaluate(0) if moving and path in ROOTS else 0.0 for i, fc in fcs.items()}
+        _ease(fcs, range(overlap + 1), lambda t: [fcs[i].evaluate(tail + t) - back[i] for i in sorted(fcs)],
+              lambda t: [fcs[i].evaluate(t) for i in sorted(fcs)])
     set_length(context, obj, action, tail)
+
+
+def end_on(obj, action, overlap, pose):
+    """Blend the clip's last `overlap` frames into `pose`, {data path:
+    values} from anim.first_pose() of what the game plays next, so the clip
+    ends where that starts. A channel the pose lacks eases to the bind
+    pose, and one the clip lacks holds the bind pose from frame 0 until the
+    blend. A clip
+    that travels ends as far on: Bip01 eases into the pose moved by its
+    travel, and B_MoveControl_01 keeps its keys."""
+    if action.get("cd_lod"):
+        raise ValueError("a LOD clip follows its full clip; blend the full clip instead")
+    end = int(action.frame_end)
+    if overlap < 1 or end < overlap:
+        raise ValueError(f"a {end} frame clip is too short to blend {overlap} frames")
+    start = end - overlap
+    moving = travels(obj, action)
+    channels = _channels(obj, action)
+    bag = export._channelbag(obj, action)
+    for path in sorted(set(channels) | set(pose)):
+        bone, _, prop = path[len('pose.bones["'):].partition('"].')
+        if not path.startswith('pose.bones["') or prop not in REST or bone == retarget.TRAVEL[0]:
+            continue
+        fcs = channels.get(path)
+        if fcs is None:
+            fcs = {i: bag.fcurves.new(path, index=i, group_name=bone) for i in range(len(REST[prop]))}
+            for i, fc in fcs.items():
+                for f in (0, start):   # every track of the game's clips starts on frame 0
+                    fc.keyframe_points.insert(f, REST[prop][i]).interpolation = "LINEAR"
+        goal = dict(enumerate(pose.get(path, REST[prop])))
+        if moving and path in ROOTS:
+            goal = {i: g + fcs[i].evaluate(end) - fcs[i].evaluate(0) for i, g in goal.items()}
+        _ease(fcs, range(start, end + 1), lambda t: [fcs[i].evaluate(start + t) for i in sorted(fcs)],
+              lambda t: [goal[i] for i in sorted(fcs)])
 
 
 def new_clip(context, obj, template, name, frames, hold=False, stretch_events=True):

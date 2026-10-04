@@ -18,7 +18,7 @@ from .formats import sockets as sockets_format
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 29, 0),
+    "version": (0, 30, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -1457,6 +1457,39 @@ class CDANIM_OT_make_loop(Operator):
         return {"FINISHED"}
 
 
+class CDANIM_OT_end_on_idle(Operator):
+    """Blend the clip's last frames into the first frame of Kliff's standing idle, which the game plays when a move
+    ends, so he eases into standing instead of jumping from the clip's last pose. A clip that travels keeps its
+    travel"""
+    bl_idname = "cd_animator.end_on_idle"
+    bl_label = "End on his idle"
+    bl_options = {"REGISTER", "UNDO"}
+
+    frames: IntProperty(name="Blend frames", default=15, min=1, max=300,
+                        description="How many frames the end blends into his idle over; 15 is half a second")
+
+    @classmethod
+    def poll(cls, context):
+        action = _clip_action(context)
+        if action is None:
+            return False
+        if not (actioncharts.template_clip(action) or "").lower().startswith(actioncharts.MOVE_FOLDER):
+            cls.poll_message_set("Only clips started from one of Kliff's (1_pc/1_phm) end on his idle")
+            return False
+        return True
+
+    def execute(self, context):
+        action = _clip_action(context)
+        try:
+            idle = packs.fetch_clip(packs.index(context), actioncharts.IDLE_CLIP)
+            clip.end_on(context.object, action, self.frames, anim.first_pose(context.object, idle))
+        except (packs.PackError, ValueError, OSError) as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        self.report({"INFO"}, f"{action.name} ends on his standing idle, blended over its last {self.frames} frames")
+        return {"FINISHED"}
+
+
 class CDANIM_OT_tag_footsteps(Operator):
     """Replace the clip's footstep events (types 2 to 7) with ones from its feet: planted while a foot moves slower
     than 1 m/s, swinging between, and the top of each step. Other events stay"""
@@ -2052,6 +2085,7 @@ class CDANIM_PT_panel(bpy.types.Panel):
             row.label(text=f"{int(action.frame_end)} frames, {action.frame_end / anim.FPS:.3f} s")
             row.operator(CDANIM_OT_set_length.bl_idname, text="", icon="PREVIEW_RANGE")
             row.operator(CDANIM_OT_make_loop.bl_idname, text="", icon="FILE_REFRESH")
+            row.operator(CDANIM_OT_end_on_idle.bl_idname, text="", icon="ARMATURE_DATA")
             if action.get("cd_lod"):
                 box.label(text="LOD clip, keys on 1/5 s ticks", icon="INFO")
                 return
@@ -2108,7 +2142,7 @@ def _menu_import(self, context):
 
 _classes = (CDANIM_AP_prefs, CDANIM_OT_import_pab, CDANIM_OT_import_paa, CDANIM_OT_export_paa, CDANIM_OT_new_clip,
             CDANIM_OT_game_skeleton, CDANIM_OT_game_clip, CDANIM_OT_game_new_clip, CDANIM_OT_game_mesh, CDANIM_OT_import_pac, CDANIM_OT_game_character, CDANIM_OT_game_characters, CDANIM_OT_game_prop, CDANIM_OT_bake_chains,
-            CDANIM_OT_set_length, CDANIM_OT_make_loop, CDANIM_OT_event_add, CDANIM_OT_event_remove, CDANIM_UL_events, CDANIM_OT_tag_footsteps, CDANIM_OT_retarget,
+            CDANIM_OT_set_length, CDANIM_OT_make_loop, CDANIM_OT_end_on_idle, CDANIM_OT_event_add, CDANIM_OT_event_remove, CDANIM_UL_events, CDANIM_OT_tag_footsteps, CDANIM_OT_retarget,
             CDANIM_OT_seat_rider, CDANIM_OT_unseat_rider, CDANIM_OT_remove_face, CDANIM_OT_send_to_game,
             CDANIM_OT_check_game, CDANIM_OT_remove_from_game, CDANIM_OT_seen_in_game, CDANIM_OT_log_clips,
             CDANIM_PG_use, CDANIM_UL_uses, CDANIM_OT_play_where, CDANIM_OT_play_on_key,

@@ -302,6 +302,10 @@ A node ends its action at its duration or at its clip's end, whichever comes fir
 
 A new root bone goes into a clip's float tracks, where the game keeps `Bip01` and `B_MoveControl_01`, and the metadata's motion block follows `B_MoveControl_01` as before. 90_32 has no spin and no hat grab: the actor stands for 1.7 s, then moonwalks until the take ends mid-stride, his hips within about 20 degrees of one heading and his hands half a metre below his head.
 
+## Ending on the idle
+
+When a move that plays once ends, the upper layer goes back to the idle, 26107D3C, and the lower layer goes to 866C7489 and on to the idle in the same millisecond, so both start the idle's clip, `cd_phm_basic_00_00_nor_std_idle_00`, on its first frame. End on his idle blends a clip's last frames into that frame's pose, read from the clip file with the importer's conversions. A bone the clip leaves alone holds its bind pose until the blend and then eases into the idle's. Its track gets a key on frame 0 as well, because none of the 67,925 tracks in 400 of Kliff's clips starts later and a track that did would be something the game never ships. A bone the idle leaves alone eases to its bind pose. In a travelling clip `B_MoveControl_01` keeps its keys and `Bip01` eases into the idle's pose moved by its travel, so the body ends standing over where the game has moved him. The moonwalk with a 15-frame blend played twice in game on 4 October, both layers leaving it after 6.0 s, the upper's node now lasting its clip.
+
 The name lists for Mixamo, Daz and Rigify still follow those rigs' published bone names; only CMU's have met a real file.
 
 ## Gear

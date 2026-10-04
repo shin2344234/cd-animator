@@ -2,15 +2,15 @@
 pressed while he stands.
 
     blender -b --factory-startup --python examples/mocap_move.py -- [file.bvh] [--key=7] [--loop] [--name=...]
-        [--start=frame] [--end=frame] [--speed=1] [--smooth=frames] [--travel] [--send]
+        [--start=frame] [--end=frame] [--speed=1] [--smooth=frames] [--travel] [--idle=frames] [--send]
 
 It does what the panel does by hand: a new clip from Kliff's standing idle,
 the BVH imported with Scale FPS so its frame rate becomes the game's 30,
 Retarget from armature with Face forward, and Play on a key, with --loop
 looping until he moves. --start, --end and --speed are Retarget's, in the
 imported file's frames at 30 a second, --smooth runs Make it loop over
-that many frames, and --travel moves him as far as the actor went. With no
-file
+that many frames, --travel moves him as far as the actor went, and --idle
+runs End on his idle over that many frames. With no file
 it takes out/mocap/141_16.bvh, motion 141_16 ("Wave Hello") of the CMU
 Graphics Lab motion capture database, from the BVH release at
 github.com/una-dinosauria/cmu-mocap (data/141/141_16.bvh), which it does
@@ -67,6 +67,8 @@ def main():
                                  speed=float(opt.get("speed", 1)), travel="--travel" in argv)
     if "smooth" in opt:
         bpy.ops.cd_animator.make_loop(frames=int(opt["smooth"]))
+    if "idle" in opt:
+        bpy.ops.cd_animator.end_on_idle(frames=int(opt["idle"]))
     bpy.ops.cd_animator.play_on_key(key=key, loop=loop)
     if send:
         bpy.ops.cd_animator.send_to_game(clip="ACTION")

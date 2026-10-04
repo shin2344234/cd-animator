@@ -220,6 +220,31 @@ def import_clip(context, obj, path, layer=True):
     return action, unknown
 
 
+def first_pose(obj, path):
+    """{data path: values} of the clip at `path` on its first frame, the
+    values import_clip() keys there on `obj`."""
+    with open(path, "rb") as f:
+        _container, td = paa_codec.decode_file(f.read())
+    names = {paa_codec.bone_hash(b.name): b.name for b in obj.data.bones}
+    out = {}
+    for bt in td.bones:
+        name = names.get(bt.name_hash)
+        if name is None:
+            continue
+        axis = obj.data.bones[name]["cd_axis"]
+        base = f'pose.bones["{name}"]'
+        if bt.rot_keys:
+            k = bt.rot_keys[0]
+            out[base + ".rotation_quaternion"] = list(convert.key_to_basis(axis, (k.x, k.y, k.z, k.w), (0.0, 0.0, 0.0))[0])
+        if bt.pos_keys:
+            k = bt.pos_keys[0]
+            out[base + ".location"] = list(convert.key_to_basis(axis, (0.0, 0.0, 0.0, 1.0), (k.x, k.y, k.z))[1])
+        if bt.scale_keys:
+            k = bt.scale_keys[0]
+            out[base + ".scale"] = list(convert.scale_to_basis(axis, (k.x, k.y, k.z)))
+    return out
+
+
 def seat_rider(obj, mount=None):
     """Place a rider armature relative to its mount by the rotation and
     position of the active clip's first transform record. Rider clips are
