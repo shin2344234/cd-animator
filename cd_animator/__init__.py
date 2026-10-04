@@ -18,7 +18,7 @@ from .formats import sockets as sockets_format
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 27, 1),
+    "version": (0, 28, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -1375,7 +1375,8 @@ class CDANIM_OT_retarget(Operator):
     """Key the active clip from another selected armature's animation, such as an imported BVH (with Scale FPS) or
     Mixamo FBX: each matched bone turns as the source bone does, the pelvis travels as the source hips do, scaled by
     leg length, with the feet on the floor. A T-pose first frame, as CMU's BVH files have, is the source's rest pose and
-    stays out of the clip. Make a new clip from a game clip first, to key into"""
+    stays out of the clip. A start, an end and a speed take part of the source, faster or slower. Make a new clip from
+    a game clip first, to key into"""
     bl_idname = "cd_animator.retarget"
     bl_label = "Retarget from armature"
     bl_options = {"REGISTER", "UNDO"}
@@ -1383,6 +1384,12 @@ class CDANIM_OT_retarget(Operator):
     face_forward: BoolProperty(name="Face forward", default=True,
                                description="Turn the motion so the hips face on the first frame as the skeleton's "
                                "rest does, wherever the actor faced")
+    start: IntProperty(name="Start", default=0, min=0,
+                       description="The source's frame the clip starts on; 0 starts where the source does, after a "
+                       "T-pose")
+    end: IntProperty(name="End", default=0, min=0, description="The source's frame the clip ends on; 0 runs to the end")
+    speed: FloatProperty(name="Speed", default=1.0, min=0.05, max=20.0,
+                         description="How fast the clip plays the source: 0.5 is half speed and twice as long")
 
     @classmethod
     def poll(cls, context):
@@ -1401,19 +1408,47 @@ class CDANIM_OT_retarget(Operator):
         if src_action is None:
             self.report({"ERROR"}, f"{source.name} has no animation to retarget")
             return {"CANCELLED"}
-        start, end = (int(round(x)) for x in src_action.frame_range)
+        first, last = (int(round(x)) for x in src_action.frame_range)
         action = _clip_action(context)
-        reference, frames = retarget.split(target, source, range(start, end + 1))
+        reference, frames = retarget.split(target, source, range(first, last + 1))
         try:
+            frames = retarget.times(frames, self.start or None, self.end or None, self.speed)
             clip.set_length(context, target, action, len(frames) - 1)
             pairs = retarget.retarget(target, source, action, frames, self.face_forward, reference)
         except (retarget.RetargetError, ValueError) as exc:
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
         missing = [g for g, _c in retarget.HUMAN if g in target.pose.bones and g not in dict(pairs)]
-        self.report({"INFO"}, f"Retargeted {len(pairs)} bones over {len(frames)} frames"
+        self.report({"INFO"}, f"Retargeted {len(pairs)} bones over {len(frames)} frames, from the source's "
+                    f"{frames[0]:g} to {frames[-1]:g}" + (f" at speed {self.speed:g}" if self.speed != 1 else "")
                     + (f", with frame {reference}'s T-pose for the source's rest" if reference is not None else "")
                     + (f"; no source for {', '.join(missing)}" if missing else ""))
+        return {"FINISHED"}
+
+
+class CDANIM_OT_make_loop(Operator):
+    """Blend the clip's end into its start so it ends on the pose it starts with and loops without a seam, as an idle
+    or an emote does. Its first frames take over its last, so it gets that many frames shorter"""
+    bl_idname = "cd_animator.make_loop"
+    bl_label = "Make it loop"
+    bl_options = {"REGISTER", "UNDO"}
+
+    frames: IntProperty(name="Blend frames", default=15, min=1, max=300,
+                        description="How many frames the end blends into the start over; 15 is half a second")
+
+    @classmethod
+    def poll(cls, context):
+        return _clip_action(context) is not None
+
+    def execute(self, context):
+        action = _clip_action(context)
+        try:
+            clip.make_loop(context, context.object, action, self.frames)
+        except ValueError as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        self.report({"INFO"}, f"{action.name} loops: {int(action.frame_end)} frames, its end blended into its start "
+                    f"over {self.frames}")
         return {"FINISHED"}
 
 
@@ -2009,6 +2044,7 @@ class CDANIM_PT_panel(bpy.types.Panel):
             row = box.row()
             row.label(text=f"{int(action.frame_end)} frames, {action.frame_end / anim.FPS:.3f} s")
             row.operator(CDANIM_OT_set_length.bl_idname, text="", icon="PREVIEW_RANGE")
+            row.operator(CDANIM_OT_make_loop.bl_idname, text="", icon="FILE_REFRESH")
             if action.get("cd_lod"):
                 box.label(text="LOD clip, keys on 1/5 s ticks", icon="INFO")
                 return
@@ -2065,7 +2101,7 @@ def _menu_import(self, context):
 
 _classes = (CDANIM_AP_prefs, CDANIM_OT_import_pab, CDANIM_OT_import_paa, CDANIM_OT_export_paa, CDANIM_OT_new_clip,
             CDANIM_OT_game_skeleton, CDANIM_OT_game_clip, CDANIM_OT_game_new_clip, CDANIM_OT_game_mesh, CDANIM_OT_import_pac, CDANIM_OT_game_character, CDANIM_OT_game_characters, CDANIM_OT_game_prop, CDANIM_OT_bake_chains,
-            CDANIM_OT_set_length, CDANIM_OT_event_add, CDANIM_OT_event_remove, CDANIM_UL_events, CDANIM_OT_tag_footsteps, CDANIM_OT_retarget,
+            CDANIM_OT_set_length, CDANIM_OT_make_loop, CDANIM_OT_event_add, CDANIM_OT_event_remove, CDANIM_UL_events, CDANIM_OT_tag_footsteps, CDANIM_OT_retarget,
             CDANIM_OT_seat_rider, CDANIM_OT_unseat_rider, CDANIM_OT_remove_face, CDANIM_OT_send_to_game,
             CDANIM_OT_check_game, CDANIM_OT_remove_from_game, CDANIM_OT_seen_in_game, CDANIM_OT_log_clips,
             CDANIM_PG_use, CDANIM_UL_uses, CDANIM_OT_play_where, CDANIM_OT_play_on_key,

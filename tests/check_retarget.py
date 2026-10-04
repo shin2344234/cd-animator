@@ -19,7 +19,13 @@ skeleton must:
     and stays out of the clip;
   * with Face forward, give the pelvis no turn about the vertical on the
     first frame;
-  * give the clip the source's length, and write keys Export accepts.
+  * give the clip the source's length, and write keys Export accepts;
+  * with a start, an end and a speed, take the run's frames 10 to 30 at
+    half speed into 40 frames, frame 2n the run's frame 10 + n within 0.1
+    degrees;
+  * Make it loop over 10 frames end the clip on its first frame's pose,
+    the pelvis where it starts, and leave the frames after the blend as
+    they were.
 
 Exit code 0 means every check passed.
 """
@@ -196,6 +202,33 @@ def main():
     bpy.ops.cd_animator.export_paa(filepath=out, clip="ACTION")
     fails += report(round(action.frame_range[1]) == n and os.path.getsize(out) > 1000,
                     f"clip {round(action.frame_range[1])} frames like the source's {n}, exported {os.path.getsize(out)} bytes")
+
+    def angle(a, b):
+        d = a.rotation_difference(b).angle
+        return math.degrees(min(d, 2 * math.pi - d))
+
+    bpy.ops.cd_animator.retarget(face_forward=False, start=10, end=30, speed=0.5)
+    worst = 0.0
+    for i in range(21):
+        scene.frame_set(2 * i)
+        worst = max([worst] + [angle(truth_rot[g, 10 + i], world_rot(target, g)) for g in MIXAMO])
+    length = round(action.frame_range[1])
+    fails += report(length == 40 and worst < 0.1,
+                    f"frames 10 to 30 at half speed: {length} frames, worst bone {worst:.4f} degrees on the run's frames")
+
+    def pose(f):
+        scene.frame_set(f)
+        return {g: world_rot(target, g) for g in MIXAMO}, (target.matrix_world @ target.pose.bones["Bip01 Pelvis"].head).copy()
+
+    before = {f: pose(f) for f in (10, 20, 30)}
+    bpy.ops.cd_animator.make_loop(frames=10)
+    length = round(action.frame_range[1])
+    (first, first_hips), (last, last_hips) = pose(0), pose(length)
+    seam = max(angle(first[g], last[g]) for g in MIXAMO)
+    kept = max(angle(before[f][0][g], pose(f)[0][g]) for f in (10, 20, 30) for g in MIXAMO)
+    fails += report(length == 30 and seam < 0.1 and (first_hips - last_hips).length < 0.001 and kept < 0.1,
+                    f"made a loop: {length} frames, first and last frames {seam:.4f} degrees and "
+                    f"{(first_hips - last_hips).length * 1000:.2f} mm apart, frames 10 to 30 moved {kept:.4f} degrees")
     print("PASS" if not fails else f"FAIL: {fails} checks")
     sys.stdout.flush()
     os._exit(1 if fails else 0)

@@ -170,12 +170,29 @@ def _rest_turns(target, pairs, joints):
     return turns
 
 
+def _go(scene, f):
+    """Go to scene frame `f`, between frames when it has a fraction."""
+    whole = math.floor(f)
+    scene.frame_set(int(whole), subframe=f - whole)
+
+
+def times(frames, start=None, end=None, speed=1.0):
+    """The source frames to sample: from `start` to `end`, both in `frames`
+    when not given, `speed` frames of the source to each frame of the clip.
+    At 0.5 the clip plays the source at half speed."""
+    a = frames[0] if start is None else start
+    b = frames[-1] if end is None else end
+    if b <= a or speed <= 0:
+        raise RetargetError(f"no frames from {a} to {b} at speed {speed}")
+    return [a + i * speed for i in range(int((b - a) / speed + 1e-6) + 1)]
+
+
 def retarget(target, source, action, frames, face=True, reference=None):
     """Key `action` on armature `target` from `source`'s current animation
-    over scene frames `frames` (a range), frame f of the source onto frame
-    f - frames.start of the clip, facing forward with `face`. The source's
-    pose on frame `reference`, from split(), stands for its rest pose.
-    Returns the mapping used."""
+    at scene frames `frames`, the n-th onto frame n of the clip; a frame
+    with a fraction samples between frames. Facing forward with `face`.
+    The source's pose on frame `reference`, from split(), stands for its
+    rest pose. Returns the mapping used."""
     pairs = mapping(target, source)
     if not any(g == HIPS for g, _s in pairs) or len(pairs) < 10:
         raise RetargetError(f"only {len(pairs)} of the source's bones match a game bone"
@@ -203,7 +220,7 @@ def retarget(target, source, action, frames, face=True, reference=None):
     else:
         scale = (_hip_height(target, HIPS, [g for g, _s in pairs])
                  / max(_hip_height(source, hips_src, [s for _g, s in pairs]), 1e-6))
-    scene.frame_set(frames.start)
+    _go(scene, frames[0])
     first = sw @ source.pose.bones[hips_src].head
     hips_turn = (sw @ source.pose.bones[hips_src].matrix).to_quaternion() @ rest_s[hips_src].inverted()
     facing = Quaternion((0, 0, 1), -_yaw(hips_turn)) if face else Quaternion()
@@ -235,7 +252,7 @@ def retarget(target, source, action, frames, face=True, reference=None):
     def pose(f, lift):
         """Pose the target as the source stands on frame f, the pelvis
         raised by `lift`. Returns the lowest foot joint's height."""
-        scene.frame_set(f)
+        _go(scene, f)
         turns = {}
         for game, name in pairs:
             spb = source.pose.bones[name]
@@ -271,12 +288,12 @@ def retarget(target, source, action, frames, face=True, reference=None):
 
     # The feet's lowest point over the clip goes as low as they are at rest.
     lift = min(_joint(target, g).z for g in feet) - min(pose(f, 0.0) for f in frames) if feet else 0.0
-    for f in frames:
+    for n, f in enumerate(frames):
         pose(f, lift)
         for game, _s in pairs:
             tpb = target.pose.bones[game]
-            tpb.keyframe_insert("rotation_quaternion", frame=f - frames.start, group=game)
+            tpb.keyframe_insert("rotation_quaternion", frame=n, group=game)
             if game == HIPS:
-                tpb.keyframe_insert("location", frame=f - frames.start, group=game)
+                tpb.keyframe_insert("location", frame=n, group=game)
     scene.frame_set(keep_frame)
     return pairs
