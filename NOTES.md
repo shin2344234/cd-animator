@@ -237,6 +237,33 @@ The game has 1,688 blends (`.motionblending`, group 0009, under `character/binar
 
 Kliff's run, `cd_phm_basic_00_00_nor_move_run_f_ing_00`, is slot 0 of `basic_move_lv3` and of `basic_move_lv3_new`, and chart nodes in `basic_lower.paac` play it straight too. The game loads both blends while a save loads, so the log does not say which one runs. In the test on 3 October, `examples/new_name.py` put `cd_phm_cdanim_raised_run_00` in slot 0 of both, and Kliff ran with his arms raised. The log shows both male blends taken from `by_path` while the save loaded, the female `phw_locomotion/basic_move_lv3` loaded in the same millisecond and left the game's, and the new run and its LOD found through their stand-ins. The game never asked for the run's metadata, though it asked for the idle's, which a chart plays, so clips a blend plays seem to go without it.
 
+## Event types
+
+The exe names the parts of a `.paa_metabin` next to each other: `AnimationMetaData`, `AnimationFrameTag` with `_beginAnimTime`, `_endAnimTime` and `_animationFrameTagType`, and `FootStepInfo` with `_footStepType`, `_footIndex`, `_velocity`, `_footStepVelocity` and `_footPosition`. An event is a frame tag. The tag type is a plain enum with no value names in the exe, so the meanings below come from the clips. `UseFootPlantingByFrameTag` is among the exe's strings, so the game plants feet by these tags.
+
+Over all 280,011 metadata files there are 2,089,764 events. They come in left and right pairs. 4 and 5 are long windows, and in 214,143 clips each covers the whole clip. 2 and 3 run about 5 to 9 frames, 6 and 7 one frame, and 0 and 1 alternate so that together they cover the clip. The commonest sets are 1, 4 and 5 (176,959 clips, the standing ones) and all eight (28,264).
+
+Playing 120 of Kliff's clips with foot tags on his skeleton and measuring the feet inside each type's windows:
+
+| Type | Left foot | Right foot | Reading |
+|---|---|---|---|
+| 4 | 0.41 m/s | 1.49 m/s | left foot planted |
+| 5 | 1.51 m/s | 0.41 m/s | right foot planted |
+| 2 | 2.96 m/s, 51 cm up | 0.53 m/s | left foot swinging |
+| 3 | 0.48 m/s | 3.09 m/s | right foot swinging |
+| 6 | 3.66 m/s | 0.77 m/s | left step, one frame |
+| 7 | 0.78 m/s | 3.53 m/s | right step, one frame |
+
+Frame by frame, 6 sits where the foot is highest: in a panic turn the left foot leaves the ground at frame 10, tag 6 is on frames 13 and 14 at its 12 cm top, and tag 2 runs from there to touchdown at frame 17, where tag 4 begins. Types 0 and 1 barely differ in the feet: the left foot is 12 cm ahead in 0 windows and the right 7 cm ahead in 1, and whole runs carry 0 while idles carry 1, so neither "which foot leads" nor "moving or standing" fits; they stay unnamed.
+
+A phase is a `FootStepInfo`. `b` is the foot, 0 left and 1 right (2 and 3 in 20,000 phases, likely hands or a quadruped's back feet), and over a phase window that foot moves 16 to 17 cm, so a phase is a planted step. The vector is not a foot position (2.5 to 3 m from every foot and hand) nor the pelvis speed; its length is about 1.
+
+Tag footsteps marks a foot planted while slower than 1 m/s, joins one-frame flickers, counts a swing only if the foot rises 3 cm, and puts 6 or 7 on a swing's highest frame. On 60 of Kliff's clips with foot tags it agrees with the game on 83% of planted frames, against 64% for calling every frame planted, and 57 of the game's 150 step tops fall within 2 frames of its own. The game's tags look placed by hand: the thresholds from 0.4 to 1.4 m/s and 0 to 10 cm all land between 77% and 83%.
+
+## Retargeting
+
+Retarget from armature moves each matched bone by the source bone's turn away from its rest, in world space. The game bone's world rotation is the source bone's world rotation times the inverse of the source rest, times the game bone's rest. That leaves bone rolls and rest directions free to differ, which is where rigs disagree most; Mixamo bones point along the limb, BVH rest poses are often a T, and the game's Biped bones have their own axes. The pelvis takes the source hips' travel from rest, scaled by game hip height over source hip height, so a smaller rig's run covers the game character's ground. Bones are set parent first each frame, and each child's head comes from its parent, so bone lengths stay the game's. The check rebuilds Kliff's run on a made-up rig and back to within 0.0001 degrees and 0.001 mm. No real motion capture file has been through it yet, so the name lists for Mixamo, CMU, Daz and Rigify follow those rigs' published bone names, not a test.
+
 ## Gear
 
 The game's data tables are in group 0008 as pairs of files, `gamedata/binarystaticinfo__/bin/<table>.staticinfoheader` and `.staticinfobody`. The header is a u16 record count, then each record's u32 key and u32 offset into the body; a record runs to the next offset. Each record starts with its key again and its name, a u32 length and the bytes. `formats/staticinfo.py` reads them and finds the fields it needs by their shape, checking each against the game's files, without decoding the rest.

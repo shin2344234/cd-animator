@@ -10,14 +10,15 @@ from bpy.types import AddonPreferences, Operator, OperatorFileListElement, UILis
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 from mathutils import Matrix
 
-from . import actioncharts, anim, chains, clip, cloth, convert, export, ingame, mesh, meta, packs, skeleton, sway, voice
+from . import (actioncharts, anim, chains, clip, cloth, convert, export, ingame, mesh, meta, packs, retarget, skeleton,
+               sway, voice)
 from .formats import material, pac, paa_codec
 from .formats import sockets as sockets_format
 
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 23, 0),
+    "version": (0, 24, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -1367,6 +1368,68 @@ class CDANIM_UL_events(UIList):
         row.prop(item, "begin_frame", text="")
         row.prop(item, "end_frame", text="")
         row.prop(item, "type", text="")
+        row.label(text=meta.TAG_NAMES.get(item.type, ""))
+
+
+class CDANIM_OT_retarget(Operator):
+    """Key the active clip from another selected armature's animation, such as an imported BVH or Mixamo FBX: each
+    matched bone turns as the source bone does, the pelvis travels as the source hips do, scaled by hip height. The
+    clip takes the source's length. Make a new clip from a game clip first, to key into"""
+    bl_idname = "cd_animator.retarget"
+    bl_label = "Retarget from armature"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        if _clip_action(context) is None:
+            cls.poll_message_set("Make the game armature active with a clip, such as a new clip from a game clip")
+            return False
+        if not any(o.type == "ARMATURE" and o is not context.object for o in context.selected_objects):
+            cls.poll_message_set("Also select the armature that has the animation")
+            return False
+        return True
+
+    def execute(self, context):
+        target = context.object
+        source = next(o for o in context.selected_objects if o.type == "ARMATURE" and o is not target)
+        src_action = source.animation_data.action if source.animation_data else None
+        if src_action is None:
+            self.report({"ERROR"}, f"{source.name} has no animation to retarget")
+            return {"CANCELLED"}
+        start, end = (int(round(x)) for x in src_action.frame_range)
+        action = _clip_action(context)
+        try:
+            clip.set_length(context, target, action, end - start)
+            pairs = retarget.retarget(target, source, action, range(start, end + 1))
+        except (retarget.RetargetError, ValueError) as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        missing = [g for g, _c in retarget.HUMAN if g in target.pose.bones and g not in dict(pairs)]
+        self.report({"INFO"}, f"Retargeted {len(pairs)} bones over {end - start + 1} frames"
+                    + (f"; no source for {', '.join(missing)}" if missing else ""))
+        return {"FINISHED"}
+
+
+class CDANIM_OT_tag_footsteps(Operator):
+    """Replace the clip's footstep events (types 2 to 7) with ones from its feet: planted while a foot moves slower
+    than 1 m/s, swinging between, and the top of each step. Other events stay"""
+    bl_idname = "cd_animator.tag_footsteps"
+    bl_label = "Tag footsteps"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        if _clip_action(context) is None:
+            return False
+        if not all(b in context.object.pose.bones for b in meta.FEET):
+            cls.poll_message_set("The skeleton has no Bip01 L Foot and Bip01 R Foot")
+            return False
+        return True
+
+    def execute(self, context):
+        n = meta.tag_footsteps(context.object, _clip_action(context))
+        self.report({"INFO"}, f"Wrote {n} footstep events from the feet")
+        return {"FINISHED"}
 
 
 def _clip_action(context):
@@ -1835,6 +1898,7 @@ class CDANIM_PT_panel(bpy.types.Panel):
         col.operator(CDANIM_OT_game_characters.bl_idname, text="Build characters from a list", icon="COMMUNITY")
         col.operator(CDANIM_OT_game_prop.bl_idname, text="Attach weapon or prop", icon="TOOL_SETTINGS")
         col.operator(CDANIM_OT_game_new_clip.bl_idname, text="New clip from a game clip", icon="ADD")
+        col.operator(CDANIM_OT_retarget.bl_idname, icon="ARMATURE_DATA")
         col.separator()
         col.operator(CDANIM_OT_bake_chains.bl_idname, icon="LINKED")
         col.operator(CDANIM_OT_seat_rider.bl_idname, icon="CONSTRAINT_BONE")
@@ -1897,6 +1961,7 @@ class CDANIM_PT_panel(bpy.types.Panel):
             col = row.column(align=True)
             col.operator(CDANIM_OT_event_add.bl_idname, text="", icon="ADD")
             col.operator(CDANIM_OT_event_remove.bl_idname, text="", icon="REMOVE")
+            col.operator(CDANIM_OT_tag_footsteps.bl_idname, text="", icon="MOD_DYNAMICPAINT")
             if len(m.phases):
                 box.label(text=f"{len(m.phases)} phases, kept as the template has them")
 
@@ -1931,7 +1996,7 @@ def _menu_import(self, context):
 
 _classes = (CDANIM_AP_prefs, CDANIM_OT_import_pab, CDANIM_OT_import_paa, CDANIM_OT_export_paa, CDANIM_OT_new_clip,
             CDANIM_OT_game_skeleton, CDANIM_OT_game_clip, CDANIM_OT_game_new_clip, CDANIM_OT_game_mesh, CDANIM_OT_import_pac, CDANIM_OT_game_character, CDANIM_OT_game_characters, CDANIM_OT_game_prop, CDANIM_OT_bake_chains,
-            CDANIM_OT_set_length, CDANIM_OT_event_add, CDANIM_OT_event_remove, CDANIM_UL_events,
+            CDANIM_OT_set_length, CDANIM_OT_event_add, CDANIM_OT_event_remove, CDANIM_UL_events, CDANIM_OT_tag_footsteps, CDANIM_OT_retarget,
             CDANIM_OT_seat_rider, CDANIM_OT_unseat_rider, CDANIM_OT_remove_face, CDANIM_OT_send_to_game,
             CDANIM_OT_check_game, CDANIM_OT_remove_from_game, CDANIM_OT_seen_in_game, CDANIM_OT_log_clips,
             CDANIM_PG_use, CDANIM_UL_uses, CDANIM_OT_play_where,

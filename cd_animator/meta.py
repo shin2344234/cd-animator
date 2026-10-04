@@ -1,7 +1,7 @@
 """A clip's metadata on its action: the events and phases of its .paa_metabin.
 
-Events are timed tags the action charts react to, a begin and an end in
-seconds and a type from 0 to 7 whose meanings are not known. Phases are timed
+Events are timed tags, the exe's AnimationFrameTag: a begin and an end in
+seconds and a type from 0 to 7, TAG_NAMES below. Phases are timed
 windows with two small selectors and a vector; mount and dismount clips have
 them. Both are stored in seconds, as 32-bit floats like the file's own, so a
 clip exported unedited writes the same numbers back. The panel shows them in
@@ -42,7 +42,8 @@ def _frames(name):
 class CDEvent(PropertyGroup):
     begin: FloatProperty(name="Begin", unit="TIME_ABSOLUTE", description="Seconds from the clip's start")
     end: FloatProperty(name="End", unit="TIME_ABSOLUTE", description="Seconds from the clip's start")
-    type: IntProperty(name="Type", min=0, max=255, description="What the event signals; 0 to 7 in the game's clips")
+    type: IntProperty(name="Type", min=0, max=255, description="What the event marks: 2 and 3 a foot swinging, 4 and 5 "
+                      "it planted, 6 and 7 the top of its step, left then right; 0 and 1 alternate, meaning unknown")
     begin_frame: _frames("begin")
     end_frame: _frames("end")
 
@@ -105,6 +106,78 @@ def apply(action, mb):
         return
     mb.events = sorted((metabin_codec.Event(e.begin, e.end, e.type) for e in m.events), key=lambda e: e.begin)
     mb.phases = [metabin_codec.Phase(p.t0, p.t1, p.a, p.b, p.x, p.y, p.z) for p in m.phases]
+
+
+# What the event types mark, from the feet inside each type's windows over a
+# sample of 120 clips (NOTES.md). The exe calls them AnimationFrameTag.
+TAG_NAMES = {0: "Unknown A", 1: "Unknown B", 2: "Left foot swings", 3: "Right foot swings", 4: "Left foot planted",
+             5: "Right foot planted", 6: "Left step's top", 7: "Right step's top"}
+FEET = ("Bip01 L Foot", "Bip01 R Foot")
+FOOT_TYPES = (2, 3, 4, 5, 6, 7)
+PLANTED = 1.0   # m/s; a foot slower than this is planted
+LIFT = 0.03     # m; a foot that rises less than this between plants shuffled, not stepped
+
+
+def foot_tags(obj, action, planted=PLANTED, lift=LIFT):
+    """[(type, begin s, end s)] of the footstep tags the action's foot motion
+    gives, tagged as the game's clips are: each foot planted (4, 5) while
+    slower than `planted`, swinging (2, 3) otherwise, and lifting (6, 7) for
+    one frame where a swing starts. Plays the action on `obj`."""
+    scene = bpy.context.scene
+    keep = obj.animation_data.action, scene.frame_current
+    obj.animation_data.action = action
+    n = max(1, int(round(action.frame_range[1])))
+    pos = {b: [] for b in FEET}
+    for f in range(n + 1):
+        scene.frame_set(f)
+        for b in FEET:
+            pos[b].append((obj.matrix_world @ obj.pose.bones[b].head).copy())
+    obj.animation_data.action = keep[0]
+    scene.frame_set(keep[1])
+    out = []
+    for side, b in enumerate(FEET):
+        p = pos[b]
+        speed = [(p[min(f + 1, n)] - p[max(f - 1, 0)]).length * FPS / (min(f + 1, n) - max(f - 1, 0))
+                 for f in range(n + 1)]
+        down = [s < planted for s in speed]
+        # A one-frame flicker is noise, not a step.
+        for f in range(1, n):
+            if down[f - 1] == down[f + 1] != down[f]:
+                down[f] = down[f - 1]
+        f = 0
+        while f <= n:
+            g = f
+            while g + 1 <= n and down[g + 1] == down[f]:
+                g += 1
+            if not down[f] and max(q.z for q in p[f:g + 1]) - min(p[f].z, p[g].z) < lift:
+                down[f:g + 1] = [True] * (g + 1 - f)
+            f = g + 1
+        f = 0
+        while f <= n:
+            g = f
+            while g + 1 <= n and down[g + 1] == down[f]:
+                g += 1
+            end = g + 1 if g < n else g
+            out.append((4 + side if down[f] else 2 + side, f / FPS, end / FPS))
+            if not down[f]:
+                top = max(range(f, g + 1), key=lambda i: p[i].z)
+                out.append((6 + side, top / FPS, (top + 1) / FPS))
+            f = g + 1
+    return sorted(out, key=lambda t: (t[1], t[0]))
+
+
+def tag_footsteps(obj, action, planted=PLANTED, lift=LIFT):
+    """Replace the action's footstep tags (types 2 to 7) with ones from its
+    foot motion; the other types stay. Returns how many it wrote."""
+    tags = foot_tags(obj, action, planted, lift)
+    m = action.cd_meta
+    kept = [(e.begin, e.end, e.type) for e in m.events if e.type not in FOOT_TYPES]
+    m.events.clear()
+    for begin, end, t in sorted(kept + [(b, e, t) for t, b, e in tags]):
+        e = m.events.add()
+        e.begin, e.end, e.type = begin, end, t
+    m.loaded = True
+    return len(tags)
 
 
 def scale(action, factor):
