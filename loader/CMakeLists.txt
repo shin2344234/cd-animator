@@ -35,6 +35,7 @@ add_library(CDAnimator SHARED
     src/game/mem.cpp
     src/game/farhook.cpp
     src/game/files.cpp
+    src/game/states.cpp
 )
 
 target_include_directories(CDAnimator PRIVATE src ${minhook_SOURCE_DIR}/src/hde)

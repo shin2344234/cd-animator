@@ -48,6 +48,16 @@ A clip shows only the first time the game loads it. One the save loading already
 
 `LogClips=0`, the default, logs nothing extra. With the folder empty and `LogClips=0`, the plugin hooks nothing at all.
 
+## Finding an action
+
+Each character runs two action charts at once, layer 0 for the upper body and layer 1 for the lower. With `LogStates=1` the log gets a `[state]` line each time a layer moves to a new action, with that action's key in hex:
+
+```
+[state] comp 0000032BBFB3AA00 layer 0 -> FFCF8178 (record 0000032BF9876579)
+```
+
+`WatchActions` takes up to 8 action keys in hex, apart by spaces. Every branch into one of them gets a line at each check, taken or not, up to 2 a second per key. A branch not taken gives the game's error word as a number: 582938301 is `0x22BEEEBD`, a key condition that failed, and 915439992 is `0x36908178`, no condition of the branch that holds. Both settings are read at startup and are off by default. Version 0.3.0 added them.
+
 ## With Broomy
 
 Broomy hooks the same four functions of the game's file loader. The loader waits for Broomy to finish starting up, then puts its hooks on top of Broomy's, so both run. The log says so:

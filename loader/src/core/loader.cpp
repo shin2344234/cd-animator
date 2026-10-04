@@ -9,6 +9,7 @@
 #include "core/log.h"
 #include "core/paths.h"
 #include "game/files.h"
+#include "game/states.h"
 #include "game/mem.h"
 #include "version.h"
 
@@ -203,7 +204,14 @@ namespace
         "; Log each animation clip and blend the game loads, once, as a [clip] line\r\n"
         "; in CDAnimator.log. Play the moment you want to change and the log names\r\n"
         "; the clips behind it. 1 on, 0 off. Read at startup.\r\n"
-        "LogClips=0\r\n";
+        "LogClips=0\r\n"
+        ";\r\n"
+        "; Log each chart layer's next action as a [state] line, to find the action a\r\n"
+        "; character is in. 1 on, 0 off. Read at startup.\r\n"
+        "LogStates=0\r\n"
+        "; Action keys, in hex and apart by spaces, whose branches are logged at\r\n"
+        "; every check, taken or not, up to 2 a second each.\r\n"
+        "WatchActions=\r\n";
 
     // The documented ini, when there is none beside the plugin. An existing
     // file is never touched.
@@ -224,9 +232,11 @@ namespace
         LOG("[mod] " CDA_NAME " " CDA_VERSION " for Crimson Desert 2.03.02 (exe 1.0.0.2976).");
         const std::wstring dir = cda::Paths::Dir() + L"CDAnimator\\";
         WriteDefaultIni();
-        g_logClips = GetPrivateProfileIntW(L"settings", L"LogClips", 0, cda::Paths::File(CDA_FILEBASE L".ini").c_str()) != 0;
+        const std::wstring ini = cda::Paths::File(CDA_FILEBASE L".ini");
+        g_logClips = GetPrivateProfileIntW(L"settings", L"LogClips", 0, ini.c_str()) != 0;
+        const bool logStates = GetPrivateProfileIntW(L"settings", L"LogStates", 0, ini.c_str()) != 0;
         Scan(dir, L"CDAnimator/", true);
-        if (g_files.empty() && g_byPath.empty() && !g_logClips)
+        if (g_files.empty() && g_byPath.empty() && !g_logClips && !logStates)
         {
             LOG("[mod] the CDAnimator folder beside the plugin has no files and LogClips is off, so nothing is hooked "
                 "and every file is the game's own.");
@@ -254,6 +264,23 @@ namespace
         if (cda::files::Install(&Lookup, &StandIn, g_logClips ? &Note : nullptr))
             LOG_OK("[mod] %zu files from the CDAnimator folder go to the game in place of its own.",
                    g_files.size() + g_byPath.size());
+        wchar_t list[512] = {};
+        GetPrivateProfileStringW(L"settings", L"WatchActions", L"", list, 512, ini.c_str());
+        uint32_t watch[8] = {};
+        int watched = 0;
+        for (wchar_t* p = list; *p && watched < 8;)
+        {
+            wchar_t* end = nullptr;
+            const unsigned long v = wcstoul(p, &end, 16);
+            if (end == p)
+            {
+                ++p;
+                continue;
+            }
+            if (v) watch[watched++] = static_cast<uint32_t>(v);
+            p = end;
+        }
+        if (logStates || watched) cda::states::Install(logStates, watch, watched);
         return 0;
     }
 }
