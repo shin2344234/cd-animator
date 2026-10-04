@@ -27,8 +27,9 @@ in for the game's bin64. It requires:
   * a new run on the two blends to write both under by_path, each the
     game's with only slot 0 changed, though phw_locomotion has a
     basic_move_lv3 of its own;
-  * Play on a key to refuse e, which Kliff already uses standing, and a key
-    the game has no name for, and Send to game to put a move on L into both
+  * Play on a key to refuse e, which Kliff already uses standing, k, which
+    opens the skill view, and a key the game has no name for, and Send to
+    game to put a move on L into both
     charts, the move's action last and every action still sorted by key,
     the pointed nodes of basic_upper kept, and the key into the input map
     under by_path;
@@ -198,7 +199,7 @@ def main():
 
     mover = new_clip(arm, MOVER, [])
     refused = []
-    for key in ("e", "nosuchkey"):
+    for key in ("e", "k", "nosuchkey"):
         try:
             bpy.ops.cd_animator.play_on_key(key=key)
         except RuntimeError:
@@ -214,7 +215,7 @@ def main():
         move_ok.append(mine is not None and keys == sorted(keys) and len(mine.nodes) == len(game.nodes) + 1
                        and actioncharts.moves(mine, game) == [("1_pc/1_phm/" + MOVER, f"key_cda_{MOVER}")])
     kept = sorted(c for c, ns in actioncharts.pointed(chart(at(UPPER)), game_upper).items() if ns != [len(game_upper.nodes)])
-    fails += report(refused == ["e", "nosuchkey"] and mover.get("cd_key") == "l" and all(move_ok)
+    fails += report(refused == ["e", "k", "nosuchkey"] and mover.get("cd_key") == "l" and all(move_ok)
                     and kept == ["1_pc/1_phm/" + FIRST, "1_pc/1_phm/" + SECOND]
                     and f'<Input Name="Key_CDA_{MOVER}">\r\n\t\t<KeyboardMouse Key="l" Method="downonce"/>' in xml,
                     f"a move on L: refused {refused}, charts {move_ok}, upper keeps {kept}, input map {bool(xml)}")

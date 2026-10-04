@@ -11,7 +11,14 @@ skeleton must:
   * match all 22 body bones, refusing a rig that has only a few;
   * give every matched bone the run's world rotation within 0.1 degrees on
     every frame, and the pelvis the run's path within 1 mm, the travel
-    scaled back up by the hip heights;
+    scaled back up by the leg lengths, the first frame's pelvis over the
+    rest pelvis and the feet's lowest point at their rest height, with
+    Face forward off;
+  * do the same with a T-pose keyed before the run, the arms straight out
+    as CMU's BVH files start: that frame stands for the source's rest pose
+    and stays out of the clip;
+  * with Face forward, give the pelvis no turn about the vertical on the
+    first frame;
   * give the clip the source's length, and write keys Export accepts.
 
 Exit code 0 means every check passed.
@@ -23,7 +30,7 @@ import sys
 import tempfile
 
 import bpy
-from mathutils import Vector
+from mathutils import Quaternion, Vector
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
@@ -102,10 +109,11 @@ def main():
     rig.animation_data.action = bpy.data.actions.new("source")
     for pb in rig.pose.bones:
         pb.rotation_mode = "QUATERNION"
-    truth_rot, truth_hips = {}, []
+    truth_rot, truth_hips, truth_low = {}, [], 1e9
     for f in range(n + 1):
         scene.frame_set(f)
         truth_hips.append((truth.matrix_world @ truth.pose.bones["Bip01 Pelvis"].head).copy())
+        truth_low = min([truth_low] + [(truth.matrix_world @ truth.pose.bones[b].head).z for b in retarget.FEET])
         for g in MIXAMO:
             truth_rot[g, f] = world_rot(truth, g)
         for g, s in MIXAMO.items():
@@ -134,16 +142,55 @@ def main():
     rig.select_set(True)
     target.select_set(True)
     bpy.context.view_layer.objects.active = target
-    bpy.ops.cd_animator.retarget()
-    worst, worst_hips = 0.0, 0.0
-    for f in range(n + 1):
-        scene.frame_set(f)
-        for g in MIXAMO:
-            d = truth_rot[g, f].rotation_difference(world_rot(target, g)).angle
-            worst = max(worst, min(d, 2 * math.pi - d))
-        worst_hips = max(worst_hips, (target.matrix_world @ target.pose.bones["Bip01 Pelvis"].head - truth_hips[f]).length)
-    fails += report(math.degrees(worst) < 0.1 and worst_hips < 0.001,
-                    f"over {n + 1} frames: worst bone {math.degrees(worst):.4f} degrees, pelvis {worst_hips * 1000:.3f} mm")
+    rest_low = min((truth.matrix_world @ truth.data.bones[b].head_local).z for b in retarget.FEET)
+    shift = truth_hips[0] - truth.matrix_world @ hips_k
+    shift.z = truth_low - rest_low
+
+    def matches():
+        worst, worst_hips = 0.0, 0.0
+        for f in range(n + 1):
+            scene.frame_set(f)
+            for g in MIXAMO:
+                d = truth_rot[g, f].rotation_difference(world_rot(target, g)).angle
+                worst = max(worst, min(d, 2 * math.pi - d))
+            pelvis = target.matrix_world @ target.pose.bones["Bip01 Pelvis"].head
+            worst_hips = max(worst_hips, (pelvis - truth_hips[f] + shift).length)
+        return (math.degrees(worst) < 0.1 and worst_hips < 0.001 and round(action.frame_range[1]) == n,
+                f"over {n + 1} frames: worst bone {math.degrees(worst):.4f} degrees, pelvis {worst_hips * 1000:.3f} mm, "
+                f"clip {round(action.frame_range[1])} frames")
+
+    bpy.ops.cd_animator.retarget(face_forward=False)
+    ok, what = matches()
+    fails += report(ok, what)
+
+    # Frame -1: a T-pose, the source's bind pose with the arms aimed straight out.
+    aim = {}
+    for side, x in (("L", 1.0), ("R", -1.0)):
+        for g in (f"Bip01 {side} UpperArm", f"Bip01 {side} Forearm"):
+            d = truth.data.bones[retarget.NEXT[g][0]].head_local - truth.data.bones[g].head_local
+            aim[g] = d.rotation_difference(Vector((x, 0, 0)))
+        aim[f"Bip01 {side} Hand"] = aim[f"Bip01 {side} Forearm"]
+    scene.frame_set(-1)
+    for g, src in MIXAMO.items():
+        pb = rig.pose.bones["mixamorig:" + src]
+        m = (aim.get(g, Quaternion()) @ rest_s[g]).to_matrix().to_4x4()
+        bpy.context.view_layer.update()
+        m.translation = hips_s if src == "Hips" else pb.head
+        pb.matrix = m
+        bpy.context.view_layer.update()
+        pb.keyframe_insert("rotation_quaternion", frame=-1)
+        pb.keyframe_insert("location", frame=-1)
+    reference, frames = retarget.split(target, rig, range(-1, n + 1))
+    bpy.ops.cd_animator.retarget(face_forward=False)
+    ok, what = matches()
+    fails += report(ok and reference == -1 and frames.start == 0,
+                    f"with a T-pose on frame -1, the reference: {reference}; {what}")
+
+    bpy.ops.cd_animator.retarget(face_forward=True)
+    scene.frame_set(0)
+    pelvis = world_rot(target, "Bip01 Pelvis") @ rest_k["Bip01 Pelvis"].inverted()
+    yaw = math.degrees(retarget._yaw(pelvis))
+    fails += report(abs(yaw) < 0.1, f"facing forward: pelvis turned {yaw:.4f} degrees about the vertical on frame 0")
 
     out = os.path.join(tempfile.mkdtemp(prefix="cd_retarget_"), "run.paa")
     bpy.ops.cd_animator.export_paa(filepath=out, clip="ACTION")

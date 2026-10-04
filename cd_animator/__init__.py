@@ -18,7 +18,7 @@ from .formats import sockets as sockets_format
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 25, 0),
+    "version": (0, 26, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -1372,12 +1372,17 @@ class CDANIM_UL_events(UIList):
 
 
 class CDANIM_OT_retarget(Operator):
-    """Key the active clip from another selected armature's animation, such as an imported BVH or Mixamo FBX: each
-    matched bone turns as the source bone does, the pelvis travels as the source hips do, scaled by hip height. The
-    clip takes the source's length. Make a new clip from a game clip first, to key into"""
+    """Key the active clip from another selected armature's animation, such as an imported BVH (with Scale FPS) or
+    Mixamo FBX: each matched bone turns as the source bone does, the pelvis travels as the source hips do, scaled by
+    leg length, with the feet on the floor. A T-pose first frame, as CMU's BVH files have, is the source's rest pose and
+    stays out of the clip. Make a new clip from a game clip first, to key into"""
     bl_idname = "cd_animator.retarget"
     bl_label = "Retarget from armature"
     bl_options = {"REGISTER", "UNDO"}
+
+    face_forward: BoolProperty(name="Face forward", default=True,
+                               description="Turn the motion so the hips face on the first frame as the skeleton's "
+                               "rest does, wherever the actor faced")
 
     @classmethod
     def poll(cls, context):
@@ -1398,14 +1403,16 @@ class CDANIM_OT_retarget(Operator):
             return {"CANCELLED"}
         start, end = (int(round(x)) for x in src_action.frame_range)
         action = _clip_action(context)
+        reference, frames = retarget.split(target, source, range(start, end + 1))
         try:
-            clip.set_length(context, target, action, end - start)
-            pairs = retarget.retarget(target, source, action, range(start, end + 1))
+            clip.set_length(context, target, action, len(frames) - 1)
+            pairs = retarget.retarget(target, source, action, frames, self.face_forward, reference)
         except (retarget.RetargetError, ValueError) as exc:
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
         missing = [g for g, _c in retarget.HUMAN if g in target.pose.bones and g not in dict(pairs)]
-        self.report({"INFO"}, f"Retargeted {len(pairs)} bones over {end - start + 1} frames"
+        self.report({"INFO"}, f"Retargeted {len(pairs)} bones over {len(frames)} frames"
+                    + (f", with frame {reference}'s T-pose for the source's rest" if reference is not None else "")
                     + (f"; no source for {', '.join(missing)}" if missing else ""))
         return {"FINISHED"}
 
@@ -1696,7 +1703,8 @@ class CDANIM_OT_play_on_key(Operator):
     bl_label = "Play on a key"
     bl_options = {"REGISTER", "UNDO"}
 
-    key: StringProperty(name="Key", description="A keyboard key as the game names it, such as l, k or j")
+    key: StringProperty(name="Key", description="A keyboard key as the game names it that it binds to nothing, such as "
+                        "l, 7, 8 or num1")
 
     @classmethod
     def poll(cls, context):

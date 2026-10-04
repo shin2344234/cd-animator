@@ -1,12 +1,32 @@
 """Put another rig's animation on a game skeleton.
 
 Each mapped game bone takes the source bone's turn away from its own rest
-pose, in world space, on top of the game bone's rest: rest orientations and
-bone rolls may differ, but a source arm raised 90 degrees raises the game
-arm 90 degrees. The pelvis also takes the source hips' travel, scaled by the
-two rigs' hip heights. Bones without a source keep their bind pose under
-their parent. The keys go on the active action, every frame, so Export
-writes them like any other clip.
+pose, in world space, on top of the game bone's rest turned to point the way
+the source bone's rest points. A bone points from its joint to the next
+mapped joint down the chain, the upper arm to the elbow, since a bone's own
+axis says little (the game's pelvis bone points sideways). So the rests may
+differ: a T-pose source, as BVH and Mixamo rigs are, puts the game's arms
+out in a T where the source's are, though Kliff's bind pose has them down.
+Bone rolls may differ too. A bone with no next joint, a hand, the head or a
+foot, turns as its parent's rest does. A source whose first frame is a T-pose,
+as every frame 1 of CMU's BVH files is, takes that frame for its rest
+pose, and the clip starts on the next: CMU made those T-poses for
+retargeting, while the files' own rest pose splays the legs and bends the
+neck forward.
+
+The pelvis takes the source hips' travel from the first frame, scaled by
+the two rigs' leg lengths, hip to knee to ankle, so an actor anywhere in a
+capture area starts where the game skeleton stands. The pelvis height puts
+the feet's lowest point over the clip where the game skeleton's feet rest,
+on the floor, since where the hip joint sits on the leg differs between
+rigs. Each ankle goes where the source's ankle is from its hips, scaled the
+same, and the thigh swings to reach it with the knee bend kept: rigs set
+the hip joints apart differently (CMU's 43 cm at Kliff's size, his own
+23 cm), and the leg angles alone brought his feet together. Facing forward
+turns the whole motion about the vertical so the hips face on the first
+frame as the game skeleton's rest does, wherever the actor faced. Bones
+without a source keep their bind pose under their parent. The keys go on
+the active action, every frame, so Export writes them like any other clip.
 
 The source bone for each game bone is the first of its candidate names the
 source rig has, ignoring case and a "prefix:" such as Mixamo's "mixamorig:".
@@ -14,7 +34,10 @@ The candidates cover Mixamo, the BVH files of the CMU and Daz sets, Rigify's
 deform bones and plain names.
 """
 
+import math
+
 import bpy
+from mathutils import Matrix, Quaternion, Vector
 
 # Game bone: candidate source names, parent bones before their children.
 HUMAN = [
@@ -42,6 +65,20 @@ HUMAN = [
     ("Bip01 R Toe0", ["RightToeBase", "RightToe", "DEF-toe.R", "toe.R", "ball_r"]),
 ]
 HIPS = "Bip01 Pelvis"
+LEG = ["Bip01 L Thigh", "Bip01 L Calf", "Bip01 L Foot"]
+FEET = ["Bip01 L Foot", "Bip01 R Foot", "Bip01 L Toe0", "Bip01 R Toe0"]
+# The joints a bone points to, the first one mapped.
+NEXT = {"Bip01 Pelvis": ["Bip01 Spine", "Bip01 Spine1", "Bip01 Spine2", "Bip01 Neck"],
+        "Bip01 Spine": ["Bip01 Spine1", "Bip01 Spine2", "Bip01 Neck"],
+        "Bip01 Spine1": ["Bip01 Spine2", "Bip01 Neck"], "Bip01 Spine2": ["Bip01 Neck"],
+        "Bip01 Neck": ["Bip01 Head"]}
+for _s in "LR":
+    NEXT.update({f"Bip01 {_s} Clavicle": [f"Bip01 {_s} UpperArm"], f"Bip01 {_s} UpperArm": [f"Bip01 {_s} Forearm"],
+                 f"Bip01 {_s} Forearm": [f"Bip01 {_s} Hand"], f"Bip01 {_s} Thigh": [f"Bip01 {_s} Calf"],
+                 f"Bip01 {_s} Calf": [f"Bip01 {_s} Foot"]})
+# No foot points anywhere: rigs place the toe joint differently (CMU's sits
+# level with the ankle on a flat foot, the game's well below it), and both
+# rest poses stand on flat feet.
 
 
 class RetargetError(Exception):
@@ -71,14 +108,73 @@ def mapping(target, source):
     return out
 
 
-def _hip_height(obj, bone):
-    return (obj.matrix_world @ obj.data.bones[bone].head_local).z
+def _joint(obj, bone):
+    return obj.matrix_world @ obj.data.bones[bone].head_local
 
 
-def retarget(target, source, action, frames):
+def _hip_height(obj, hips, bones):
+    """The hips' height over the lowest of `bones`' joints, at rest."""
+    return _joint(obj, hips).z - min(_joint(obj, b).z for b in bones)
+
+
+def _length(obj, bones):
+    """The length from joint to joint along `bones`, at rest."""
+    pts = [_joint(obj, b) for b in bones]
+    return sum((b - a).length for a, b in zip(pts, pts[1:]))
+
+
+def _yaw(turn):
+    """How far `turn` swings a level line about the vertical, in radians."""
+    v = turn @ Vector((1, 0, 0))
+    return math.atan2(v.y, v.x)
+
+
+def split(target, source, frames):
+    """(reference frame or None, frames to key) for retarget(): a source
+    whose first frame is a T-pose, both arms level and pointing apart,
+    takes that frame for its rest pose and leaves it out of the clip."""
+    src = dict(mapping(target, source))
+    arms = [(f"Bip01 {side} UpperArm", f"Bip01 {side} Forearm") for side in "LR"]
+    if len(frames) < 2 or not all(a in src and b in src for a, b in arms):
+        return None, frames
+    scene = bpy.context.scene
+    keep = scene.frame_current
+    scene.frame_set(frames.start)
+    sw = source.matrix_world
+    dirs = [(sw @ source.pose.bones[src[b]].head - sw @ source.pose.bones[src[a]].head).normalized() for a, b in arms]
+    scene.frame_set(keep)
+    if all(abs(d.z) < 0.35 for d in dirs) and dirs[0].dot(dirs[1]) < -0.85:
+        return frames.start, frames[1:]
+    return None, frames
+
+
+def _rest_turns(target, pairs, joints):
+    """{game bone: the world turn that points its rest the way the source
+    bone points in its rest pose, whose joints are `joints`}, joint to next
+    joint."""
+    src = dict(pairs)
+    turns = {}
+    for game, _s in pairs:
+        nxt = next((n for n in NEXT.get(game, []) if n in src), None)
+        if nxt is not None:
+            a = _joint(target, nxt) - _joint(target, game)
+            b = joints[src[nxt]] - joints[src[game]]
+            if a.length > 1e-6 and b.length > 1e-6:
+                turns[game] = a.rotation_difference(b)
+                continue
+        p = target.data.bones[game].parent
+        while p is not None and p.name not in turns:
+            p = p.parent
+        turns[game] = turns[p.name].copy() if p is not None else Quaternion()
+    return turns
+
+
+def retarget(target, source, action, frames, face=True, reference=None):
     """Key `action` on armature `target` from `source`'s current animation
     over scene frames `frames` (a range), frame f of the source onto frame
-    f - frames.start of the clip. Returns the mapping used."""
+    f - frames.start of the clip, facing forward with `face`. The source's
+    pose on frame `reference`, from split(), stands for its rest pose.
+    Returns the mapping used."""
     pairs = mapping(target, source)
     if not any(g == HIPS for g, _s in pairs) or len(pairs) < 10:
         raise RetargetError(f"only {len(pairs)} of the source's bones match a game bone"
@@ -88,13 +184,33 @@ def retarget(target, source, action, frames):
     keep_frame = scene.frame_current
     target.animation_data.action = action
     tw, sw = target.matrix_world, source.matrix_world
-    # Each bone's world rest rotation on both rigs, and the hips at rest.
-    rest_t = {g: (tw @ target.data.bones[g].matrix_local).to_quaternion() for g, _s in pairs}
-    rest_s = {s: (sw @ source.data.bones[s].matrix_local).to_quaternion() for _g, s in pairs}
-    hips_src = dict(pairs)[HIPS]
-    rest_hips_s = sw @ source.data.bones[hips_src].head_local
-    rest_hips_t = tw @ target.data.bones[HIPS].head_local
-    scale = _hip_height(target, HIPS) / max(_hip_height(source, hips_src), 1e-6)
+    src = dict(pairs)
+    # The source's rest pose, each bone's world rotation and joint: its bind pose or the reference frame's.
+    if reference is None:
+        rest_s = {s: (sw @ source.data.bones[s].matrix_local).to_quaternion() for _g, s in pairs}
+        joints = {s: _joint(source, s) for _g, s in pairs}
+    else:
+        scene.frame_set(reference)
+        rest_s = {s: (sw @ source.pose.bones[s].matrix).to_quaternion() for _g, s in pairs}
+        joints = {s: sw @ source.pose.bones[s].head for _g, s in pairs}
+    align = _rest_turns(target, pairs, joints)
+    rest_t = {g: align[g] @ (tw @ target.data.bones[g].matrix_local).to_quaternion() for g, _s in pairs}
+    hips_src = src[HIPS]
+    rest_hips_t = _joint(target, HIPS)
+    if all(g in src for g in LEG):
+        scale = _length(target, LEG) / max(_length(source, [src[g] for g in LEG]), 1e-6)
+    else:
+        scale = (_hip_height(target, HIPS, [g for g, _s in pairs])
+                 / max(_hip_height(source, hips_src, [s for _g, s in pairs]), 1e-6))
+    scene.frame_set(frames.start)
+    first = sw @ source.pose.bones[hips_src].head
+    hips_turn = (sw @ source.pose.bones[hips_src].matrix).to_quaternion() @ rest_s[hips_src].inverted()
+    facing = Quaternion((0, 0, 1), -_yaw(hips_turn)) if face else Quaternion()
+    start = Vector((first.x, first.y, sw.translation.z))
+    ground = Vector((rest_hips_t.x, rest_hips_t.y, tw.translation.z))
+    feet = [g for g in FEET if g in src]
+    legs = [(f"Bip01 {side} Thigh", f"Bip01 {side} Foot", f"Bip01 {side} Toe0") for side in "LR"]
+    legs = [leg for leg in legs if leg[0] in src and leg[1] in src]
 
     # Unmapped bones hold their bind pose; mapped ones are set below.
     for pb in target.pose.bones:
@@ -114,24 +230,52 @@ def retarget(target, source, action, frames):
         pb.scale = (1, 1, 1)
 
     tw_inv = tw.inverted()
-    for f in frames:
+
+    def pose(f, lift):
+        """Pose the target as the source stands on frame f, the pelvis
+        raised by `lift`. Returns the lowest foot joint's height."""
         scene.frame_set(f)
-        out = f - frames.start
-        for game, src in pairs:
-            spb = source.pose.bones[src]
-            turn = (sw @ spb.matrix).to_quaternion() @ rest_s[src].inverted()
-            world_rot = (turn @ rest_t[game]).to_matrix().to_4x4()
+        turns = {}
+        for game, name in pairs:
+            spb = source.pose.bones[name]
+            turn = facing @ (sw @ spb.matrix).to_quaternion() @ rest_s[name].inverted()
+            turns[game] = turn @ rest_t[game]
+            world_rot = turns[game].to_matrix().to_4x4()
             tpb = target.pose.bones[game]
             if game == HIPS:
-                head = rest_hips_t + (sw @ spb.head - rest_hips_s) * scale
+                head = ground + facing @ (sw @ spb.head - start) * scale + Vector((0, 0, lift))
             else:
                 bpy.context.view_layer.update()
                 head = tw @ tpb.head
             world_rot.translation = head
             tpb.matrix = tw_inv @ world_rot
+        bpy.context.view_layer.update()
+        hips_t = tw @ target.pose.bones[HIPS].head
+        hips_s = sw @ source.pose.bones[hips_src].head
+        for thigh, foot, toe in legs:
+            hip = tw @ target.pose.bones[thigh].head
+            want = hips_t + facing @ (sw @ source.pose.bones[src[foot]].head - hips_s) * scale
+            swing = (tw @ target.pose.bones[foot].head - hip).rotation_difference(want - hip)
+            tpb = target.pose.bones[thigh]
+            tpb.matrix = tw_inv @ (Matrix.Translation(hip) @ swing.to_matrix().to_4x4() @ Matrix.Translation(-hip)
+                                   @ tw @ tpb.matrix)
             bpy.context.view_layer.update()
-            tpb.keyframe_insert("rotation_quaternion", frame=out, group=game)
+            for b in (foot, toe):   # the foot keeps the source's turn
+                if b in turns:
+                    m = turns[b].to_matrix().to_4x4()
+                    m.translation = tw @ target.pose.bones[b].head
+                    target.pose.bones[b].matrix = tw_inv @ m
+                    bpy.context.view_layer.update()
+        return min(((tw @ target.pose.bones[g].head).z for g in feet), default=0.0)
+
+    # The feet's lowest point over the clip goes as low as they are at rest.
+    lift = min(_joint(target, g).z for g in feet) - min(pose(f, 0.0) for f in frames) if feet else 0.0
+    for f in frames:
+        pose(f, lift)
+        for game, _s in pairs:
+            tpb = target.pose.bones[game]
+            tpb.keyframe_insert("rotation_quaternion", frame=f - frames.start, group=game)
             if game == HIPS:
-                tpb.keyframe_insert("location", frame=out, group=game)
+                tpb.keyframe_insert("location", frame=f - frames.start, group=game)
     scene.frame_set(keep_frame)
     return pairs

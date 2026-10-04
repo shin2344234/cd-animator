@@ -34,6 +34,7 @@ Action names are hashes. The names table of a chart (strings[0]) holds the
 names of other things, so 136 of the game's 84,133 actions have a name
 anywhere in the game; an action is shown by its key instead.
 """
+import bisect
 import copy
 import json
 import os
@@ -54,6 +55,7 @@ MOVE_FOLDER = "1_pc/1_phm/"            # clips Kliff's skeleton plays
 IDLE_CLIP = "1_pc/1_phm/cd_phm_basic_00_00_nor_std_idle_00"
 IDLE = 0x26107D3C                      # his standing idle, in both charts
 INPUTMAP = "ui/inputmap.xml"
+INPUTMAPS = (INPUTMAP, "ui/inputmap_common.xml")   # the second has the menus' keys, the skill view's K among them
 _GROUP = '<InputGroup Name="CharacterAction" LayerName="Action" EnableConsume="False">'
 
 
@@ -411,27 +413,56 @@ def _without(chart, game_data, leaf):
     return new
 
 
-def game_inputmap(idx):
-    if getattr(idx, "_inputmap", None) is None:
+def _game_xml(idx, path):
+    cache = idx.__dict__.setdefault("_xml", {})
+    if path not in cache:
         entry = next(e for e in paz.read_index(os.path.join(idx.folder, "0012", "0.pamt"), {"xml"})
-                     if e.path.lower() == INPUTMAP)
-        idx._inputmap = paz.read(entry).decode("utf-8-sig")
-    return idx._inputmap
+                     if e.path.lower() == path)
+        cache[path] = paz.read(entry).decode("utf-8-sig")
+    return cache[path]
+
+
+def game_inputmap(idx):
+    return _game_xml(idx, INPUTMAP)
 
 
 def _keys(xml):
-    return {k for ks in re.findall(r'Key="([^"]+)"', xml) for k in ks.split()}
+    """Every keyboard and mouse key name in an input map."""
+    return {k for ks in re.findall(r'<KeyboardMouse\b[^<>]*\bKey="([^"]+)"', xml) for k in ks.split()}
+
+
+def bound_keys(idx):
+    """{keyboard key: an input of the game's on it}, from both input maps.
+    A Key of four names or more is a row of the keyboard, such as
+    "f g h j k l ; &quot;", not a binding."""
+    out = {}
+    for path in INPUTMAPS:
+        xml = _game_xml(idx, path)
+        inputs = [(m.start(), m.group(1)) for m in re.finditer(r'<Input Name="([^"]+)"', xml)]
+        starts = [i for i, _n in inputs]
+        for m in re.finditer(r'<KeyboardMouse\b[^<>]*\bKey="([^"]+)"', xml):
+            keys = m.group(1).split()
+            if len(keys) <= 3:
+                at = bisect.bisect_right(starts, m.start()) - 1
+                for k in keys:
+                    out.setdefault(k, inputs[at][1] if at >= 0 else "something")
+    return out
+
+
+def free_keys(idx):
+    """The keyboard keys the game names but binds to nothing."""
+    every = set().union(*(_keys(_game_xml(idx, p)) for p in INPUTMAPS))
+    return sorted(k for k in every - set(bound_keys(idx)) if k.isalnum())
 
 
 def check_key(idx, key):
-    """Refuse a key the game has no name for, or one its standing actions
-    already use."""
-    xml = game_inputmap(idx)
-    if key not in _keys(xml):
-        raise ChartError(f'The game has no key named "{key}"')
-    i = xml.index(_GROUP)
-    if key in _keys(xml[i:xml.index("</InputGroup>", i)]):
-        raise ChartError(f'"{key}" already does something in the game while Kliff stands')
+    """Refuse a key the game has no name for, or one it already binds."""
+    free = ", ".join(free_keys(idx))
+    if key not in set().union(*(_keys(_game_xml(idx, p)) for p in INPUTMAPS)):
+        raise ChartError(f'The game has no key named "{key}". Free keys: {free}')
+    bound = bound_keys(idx)
+    if key in bound:
+        raise ChartError(f'"{key}" already does {bound[key]} in the game. Free keys: {free}')
 
 
 def _entry(name, key):
@@ -469,12 +500,15 @@ def send_move(idx, root, clip, key):
     charts written."""
     check_key(idx, key)
     name = input_name(clip)
+    xml = _drop_input(_folder_inputmap(idx, root), name)
+    other = re.search(r'<Input Name="(Key_CDA_[^"]+)">\s*<KeyboardMouse Key="%s"' % re.escape(key), xml)
+    if other:
+        raise ChartError(f'"{key}" already plays {other.group(1)[len("Key_CDA_"):]}')
     written = []
     for path in MOVE_CHARTS:
         chart, _game, mine = current(idx, root, path)
         add_move(chart, clip, name.lower())
         written.append(_write(root, path, chart.pack(), mine))
-    xml = _drop_input(_folder_inputmap(idx, root), name)
     _write_inputmap(idx, root, xml.replace(_GROUP, _GROUP + _entry(name, key), 1))
     return written
 
