@@ -3,7 +3,7 @@ pressed while he stands.
 
     blender -b --factory-startup --python examples/mocap_move.py -- [file.bvh] [--key=7] [--loop] [--name=...]
         [--start=frame] [--end=frame] [--speed=1] [--smooth=frames] [--travel] [--idle=frames] [--face=happy]
-        [--send]
+        [--sound=sfx_social_hand_clap] [--sound_frame=0] [--send]
 
 It does what the panel does by hand: a new clip from Kliff's standing idle,
 the BVH imported with Scale FPS so its frame rate becomes the game's 30,
@@ -11,8 +11,9 @@ Retarget from armature with Face forward, and Play on a key, with --loop
 looping until he moves. --start, --end and --speed are Retarget's, in the
 imported file's frames at 30 a second, --smooth runs Make it loop over
 that many frames, --travel moves him as far as the actor went, and --idle
-runs End on his idle over that many frames, and --face starts one of
-actioncharts.FACES, his expressions, with the move. With no file
+runs End on his idle over that many frames, --face starts one of
+actioncharts.FACES, his expressions, with the move, and --sound plays one
+of the game's sounds on --sound_frame. With no file
 it takes out/mocap/141_16.bvh, motion 141_16 ("Wave Hello") of the CMU
 Graphics Lab motion capture database, from the BVH release at
 github.com/una-dinosauria/cmu-mocap (data/141/141_16.bvh), which it does
@@ -71,7 +72,8 @@ def main():
         bpy.ops.cd_animator.make_loop(frames=int(opt["smooth"]))
     if "idle" in opt:
         bpy.ops.cd_animator.end_on_idle(frames=int(opt["idle"]))
-    bpy.ops.cd_animator.play_on_key(key=key, loop=loop, face=opt.get("face", "NONE"))
+    bpy.ops.cd_animator.play_on_key(key=key, loop=loop, face=opt.get("face", "NONE"), sound=opt.get("sound", ""),
+                                    sound_frame=int(opt.get("sound_frame", 0)))
     if send:
         bpy.ops.cd_animator.send_to_game(clip="ACTION")
         folder = ingame.folder()
@@ -79,7 +81,8 @@ def main():
         folder = out
         export.export_with_companions(kliff, action, os.path.join(folder, name + ".paa"))
         actioncharts.send_move(packs.index(), folder, actioncharts.new_path(action, name), key, int(action.frame_end),
-                               loop, "--travel" in argv, actioncharts.FACES.get(opt.get("face"), 0))
+                               loop, "--travel" in argv, actioncharts.FACES.get(opt.get("face"), 0),
+                               cd_animator._sound_of(action))
     print(f"{name}, {int(action.frame_end) + 1} frames, on {key.upper()}{', looping' if loop else ''}: into {folder}")
     sys.stdout.flush()
     os._exit(0)

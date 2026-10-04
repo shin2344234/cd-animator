@@ -11,14 +11,14 @@ from bpy_extras.io_utils import ExportHelper, ImportHelper
 from mathutils import Matrix
 
 from . import (actioncharts, anim, chains, clip, cloth, convert, export, ingame, mesh, meta, mocap, packs, retarget,
-               skeleton, sway, voice)
+               skeleton, sounds, sway, voice)
 from .formats import material, pac, paa_codec
 from .formats import sockets as sockets_format
 
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 35, 0),
+    "version": (0, 36, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -1732,7 +1732,8 @@ class CDANIM_OT_send_to_game(Operator):
                         charts += [c for c in actioncharts.send_move(idx, root, game_path, key, int(action.frame_end),
                                                                      bool(action.get("cd_loop")),
                                                                      clip.travels(obj, action),
-                                                                     actioncharts.FACES.get(action.get("cd_face"), 0))
+                                                                     actioncharts.FACES.get(action.get("cd_face"), 0),
+                                                                     _sound_of(action))
                                    if c not in charts]
                     if not plays and not key:
                         problems.append(f"No chart or blend plays {name}, so the game will not play it; choose Where it "
@@ -1811,10 +1812,24 @@ def _plays(action):
     return out
 
 
+def _sound_of(action):
+    """(sound, seconds in) of a move's sound, or None."""
+    if not action.get("cd_sound"):
+        return None
+    return action["cd_sound"], action.get("cd_sound_frame", 0) / anim.FPS
+
+
 def _is_new(idx, action, name):
     """True when the clip is a new one, under a name no pack has."""
     return "cd_template" in action and packs.MOTION + actioncharts.new_path(action, name).lower() + ".paa" \
         not in idx.by_path
+
+
+def _sound_names(self, context, edit_text):
+    try:
+        return packs.search(sounds.names(packs.index(context)), edit_text)
+    except (sounds.SoundError, packs.PackError, OSError):
+        return []
 
 
 class CDANIM_OT_play_on_key(Operator):
@@ -1833,6 +1848,10 @@ class CDANIM_OT_play_on_key(Operator):
                        + [(n, n.replace("_", " ").capitalize(), "") for n in actioncharts.FACES],
                        description="An expression from his facial chart that the move starts and that ends with "
                        "it, or within a round of a looping move once he stops")
+    sound: StringProperty(name="Sound", search=_sound_names, search_options={"SUGGESTION"},
+                          description="One of the game's sounds for the move to play, by its name, such as "
+                          "sfx_social_hand_clap; empty for none. A looping move plays it every round")
+    sound_frame: IntProperty(name="At frame", min=0, description="The frame of the move the sound starts on")
 
     @classmethod
     def poll(cls, context):
@@ -1852,6 +1871,8 @@ class CDANIM_OT_play_on_key(Operator):
         self.key = action.get("cd_key", "l")
         self.loop = bool(action.get("cd_loop"))
         self.face = action.get("cd_face") if action.get("cd_face") in actioncharts.FACES else "NONE"
+        self.sound = action.get("cd_sound", "")
+        self.sound_frame = action.get("cd_sound_frame", 0)
         return context.window_manager.invoke_props_dialog(self)
 
     def execute(self, context):
@@ -1861,13 +1882,25 @@ class CDANIM_OT_play_on_key(Operator):
             action.pop("cd_key", None)
             action.pop("cd_loop", None)
             action.pop("cd_face", None)
+            action.pop("cd_sound", None)
+            action.pop("cd_sound_frame", None)
             self.report({"INFO"}, f"{action.name} is no move; Send to game takes it out of the charts")
             return {"FINISHED"}
         try:
             actioncharts.check_key(packs.index(context), key)
-        except (actioncharts.ChartError, packs.PackError, OSError) as exc:
+            sound = sounds.find(packs.index(context), self.sound) if self.sound.strip() else ""
+        except (actioncharts.ChartError, sounds.SoundError, packs.PackError, OSError) as exc:
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
+        if sound and self.sound_frame >= int(action.frame_end):
+            self.report({"ERROR"}, f"The clip ends on frame {int(action.frame_end)}, so a sound on frame "
+                        f"{self.sound_frame} would never play")
+            return {"CANCELLED"}
+        if sound:
+            action["cd_sound"], action["cd_sound_frame"] = sound, self.sound_frame
+        else:
+            action.pop("cd_sound", None)
+            action.pop("cd_sound_frame", None)
         action["cd_key"] = key
         action["cd_loop"] = self.loop
         if self.face == "NONE":
@@ -1876,6 +1909,7 @@ class CDANIM_OT_play_on_key(Operator):
             action["cd_face"] = self.face
         how = "again and again until he moves" if self.loop else "once"
         looks = "" if self.face == "NONE" else f" with the {self.face.replace('_', ' ')} expression"
+        looks += f", playing {sound} on frame {self.sound_frame}," if sound else ""
         self.report({"INFO"}, f"Kliff plays {action.name} {how}{looks} on {key.upper()} while he stands; Send to game "
                     "puts it in")
         return {"FINISHED"}
@@ -2159,6 +2193,8 @@ class CDANIM_PT_panel(bpy.types.Panel):
                                 + (f", {action['cd_face'].replace('_', ' ')}" if action.get("cd_face") else ""))
                           if action.get("cd_key") else "On no key")
                 row.operator(CDANIM_OT_play_on_key.bl_idname, text="", icon="EVENT_K")
+                if action.get("cd_key") and action.get("cd_sound"):
+                    box.label(text=f"{action['cd_sound']} on frame {action.get('cd_sound_frame', 0)}", icon="SPEAKER")
             m = action.cd_meta
             box.label(text="Events: begin, end (frames), type" if m.loaded else "Events: the template's (no metadata read)")
             row = box.row()

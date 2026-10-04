@@ -30,7 +30,9 @@ in for the game's bin64. It requires:
   * Play on a key to refuse e, which Kliff already uses standing, k, which
     opens the skill view, and a key the game has no name for, and Send to
     game to put a move on L into both charts, with the anger expression
-    in basic_lower only, the move's action last and every action still
+    and a hand clap on frame 15 in basic_lower only, after refusing a
+    sound the game lacks, words two sounds match and a frame past the
+    clip's end, the move's action last and every action still
     sorted by key, the expression a copy of anger in his facial chart
     under the move's own key, lasting the move, the game's chart
     otherwise, and a second move's copy to go in beside it in key order
@@ -41,7 +43,8 @@ in for the game's bin64. It requires:
   * a looping move to end on its own branch back into itself, to go
     back to the idle on its own key from 0.13 s in in basic_lower alone,
     to start the happy expression there with the event the game's nodes
-    use, first in its node's events, the idle's kept after it, and to
+    use, first in its node's events, the idle's kept after it, and a clap
+    1 s in, in time order, its sound named by hashlittle, and to
     have the idle's ways out but its end and those into other standing
     idles, the lower chart's walk among them, and to go in again as a
     loop with its expression when a chart is made again; one that travels to have 1 in the low byte at
@@ -70,8 +73,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 
 import cd_animator  # noqa: E402
-from cd_animator import actioncharts, ingame, packs  # noqa: E402
+from cd_animator import actioncharts, ingame, packs, sounds  # noqa: E402
 from cd_animator.formats import motionblend, paac  # noqa: E402
+from cd_animator.formats.hashlittle import hashlittle  # noqa: E402
 
 KLIFF = "cd_phm_macduff_00000"
 IDLE = "1_pc/1_phm/cd_phm_basic_00_00_nor_std_idle_00"
@@ -222,7 +226,13 @@ def main():
             bpy.ops.cd_animator.play_on_key(key=key)
         except RuntimeError:
             refused.append(key)
-    bpy.ops.cd_animator.play_on_key(key="l", face="anger")
+    for sound, frame in (("no such sound", 0), ("hand clap", 0), ("sfx_social_hand_clap", length)):
+        try:
+            bpy.ops.cd_animator.play_on_key(key="l", sound=sound, sound_frame=frame)
+        except RuntimeError:
+            refused.append(sound)
+    every = sounds.names(idx)
+    bpy.ops.cd_animator.play_on_key(key="l", face="anger", sound="sfx_social_hand_clap", sound_frame=15)
     bpy.ops.cd_animator.send_to_game(clip="ACTION")
     mapped = os.path.join(root, actioncharts.BY_PATH, "ui", "inputmap.xml")
     xml = open(mapped, encoding="utf-8-sig", newline="").read() if os.path.isfile(mapped) else ""
@@ -235,7 +245,9 @@ def main():
         keys = [a.key_hash for a in mine.actions] if mine else []
         move_ok.append(mine is not None and keys == sorted(keys) and len(mine.nodes) == len(game.nodes) + 1
                        and actioncharts.moves(mine, game) == [("1_pc/1_phm/" + MOVER, f"key_cda_{MOVER}", False, False, length,
-                                                               face if path == LOWER else 0)])
+                                                               [(0.0, actioncharts.face_event(face)),
+                                                                (0.5, actioncharts.sound_event("sfx_social_hand_clap"))]
+                                                               if path == LOWER else [])])
     # The face, a copy of anger under the move's own key lasting the move, and the game's facial chart otherwise.
     mine = chart(at(actioncharts.FACIAL_CHART)) if os.path.isfile(at(actioncharts.FACIAL_CHART)) else None
     copied = mine.find_action(face) if mine else None
@@ -254,11 +266,14 @@ def main():
                and two.find_action(face) and two.find_action(other)
                and one.find_action(other) and not one.find_action(face) and len(one.actions) == len(facial.actions) + 1)
     kept = sorted(c for c, ns in actioncharts.pointed(chart(at(UPPER)), game_upper).items() if ns != [len(game_upper.nodes)])
-    fails += report(refused == ["e", "k", "nosuchkey"] and mover.get("cd_key") == "l" and mover.get("cd_face") == "anger"
+    fails += report(refused == ["e", "k", "nosuchkey", "no such sound", "hand clap", "sfx_social_hand_clap"]
+                    and len(every) > 7000 and "sfx_social_hand_clap" in every
+                    and mover.get("cd_key") == "l" and mover.get("cd_face") == "anger"
+                    and (mover.get("cd_sound"), mover.get("cd_sound_frame")) == ("sfx_social_hand_clap", 15)
                     and all(move_ok) and face_ok
                     and kept == ["1_pc/1_phm/" + FIRST, "1_pc/1_phm/" + SECOND]
                     and f'<Input Name="Key_CDA_{MOVER}">\r\n\t\t<KeyboardMouse Key="l" Method="downonce"/>' in xml,
-                    f"a move on L: refused {refused}, charts {move_ok}, its face {face_ok}, upper keeps {kept}, "
+                    f"a move on L: refused {refused}, {len(every)} sounds, charts {move_ok}, its face {face_ok}, upper keeps {kept}, "
                     f"input map {bool(xml)}")
 
     bpy.ops.cd_animator.check_game()
@@ -276,10 +291,12 @@ def main():
         data = actioncharts.game_bytes(idx, path)
         c = paac.Chart.parse(data)
         stop = path == actioncharts.STOP_CHART
-        face = actioncharts.FACES["happy"] if stop else 0
+        added = [(0.0, actioncharts.face_event(actioncharts.FACES["happy"])),
+                 (1.0, actioncharts.sound_event("sfx_social_hand_clap"))] if stop else []
         actioncharts.add_move(c, "1_pc/1_phm/" + MOVER, "key_cda_loop", length, loop=True, travel=True, stop=stop,
-                              face=face)
+                              events=added)
         act = c.actions[-1]
+        ours = len(game.frame_event_buffer) // 4
         events = c.nodes[act.node_first].frame_event_instances
         idle_events = game.nodes[game.find_action(actioncharts.IDLE).node_first].frame_event_instances
         out = [c.branches[c.slots[i].branch_index] for i in range(act.slot_first, act.slot_first + act.slot_count)]
@@ -298,12 +315,14 @@ def main():
                        == {b.target_hash for b in idle_out if b.kind != 7 and not actioncharts._standing(c, b.target_hash)}
                        and (path == UPPER or 0xFC18618C in {b.target_hash for b in out})
                        and made is None
-                       and actioncharts.moves(again, game) == [("1_pc/1_phm/" + MOVER, "key_cda_loop", True, True, length, face)]
+                       and actioncharts.moves(again, game) == [("1_pc/1_phm/" + MOVER, "key_cda_loop", True, True, length, added)]
                        and [e.ordinal for e in events] == list(range(len(events)))
-                       and [(e.time, e.event_index) for e in events[bool(face):]]
+                       and [e.time for e in events] == sorted(e.time for e in events)
+                       and [(e.time, e.event_index) for e in events if e.event_index < ours]
                        == [(e.time, e.event_index) for e in idle_events]
-                       and (not face or events[0].time == 0 and c.frame_event(events[0].event_index)
-                            == [0x40, 0x20000, 0, face, 0x3EAAA64C, 0x3EAAA64C, 1])
+                       and [(e.time, c.frame_event(e.event_index)) for e in events if e.event_index >= ours] == added
+                       and (not stop or events[0].event_index >= ours
+                            and added[1][1][48] == hashlittle(b"sfx_social_hand_clap", 0xC5EDE))
                        and again.nodes[act.node_first].header.unk_40 & 0xFF == actioncharts.ROOT_MOTION
                        and game.nodes[game.find_action(actioncharts.IDLE).node_first].header.unk_40 & 0xFF == 0
                        and abs(again.nodes[act.node_first].animation_speeds[0].time_end - (length / 30 + 0.1)) < 1e-4)

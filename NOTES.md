@@ -334,6 +334,16 @@ A move's face is now a copy of the game's action in his facial chart, every node
 
 In game on 4 October the copies worked. Kliff danced the Charleston on 8 with anger, its clip loading 1 ms after the dance began, and stopped it with 8 four times. The moonwalk's eyes-closed copy ran its 6.0 s, and his resting face's second clip, not loaded before that session, loaded 14 ms after the moonwalk ended. The wave's happy copy started with the wave and ran its 2 s.
 
+## Sounds
+
+The game's bank info, `sound/bin__/windows/soundbanksinfo_<language>.pasound` and the same under `soundcommon/`, names 12,579 and 2,235 Wwise objects. Each record is a u8 length, the name, hashlittle of the name in lower case with seed 0xC5EDE, and the object's Wwise ID, which is FNV-1 of the name, as Wwise makes its IDs. By the banks' HIRC sections 7,452 of the names are events, 6,880 of them starting `sfx_` and 899 `vce_`. The game's own files name sounds in plain text, such as `sfx_move_armor_lp` in `character/descriptors/modelboneanimationscript/soundscript/scripttable.xml`.
+
+No word of a chart's frame events is a Wwise ID. A frame event of type 0x41, 58 words, plays a sound by the hashlittle key at word 48. In Kliff's 96 charts 9,083 of the 16,235 type 0x41 events name a sound of the bank info, and 3,724 set no other word but 52 (-1.0 as a float), 54 (0x10000), 55 (0xFFFF0000) and 57 (0x50000), which is the event a move gets. Type 0x42 plays a voice: word 2 is the key of `voice` and word 7 names the situation, such as `atk_ready`, `dmg_f` or `soc_fear_p`. Type 0x43 names a sound at word 2.
+
+Most banks hold one to nine events, and some are named by the ID of their only event, so the game looks to load a sound's bank when the sound plays. A move's sound goes in `basic_lower` only, as its face does. Sounds lists the 7,452 by reading every bank once per game version, about 7 s, and keeps the list in the add-on's cache.
+
+In game on 4 October Kliff clapped on every round of the Charleston on 8, about four rounds before 8 stopped it, and the other moves' sounds played as well: a drum hit on the looping wave, his horse-call whistle with the moonwalk and a man's laugh with the short wave. Their banks hold one to nine events each.
+
 ## Gear
 
 The game's data tables are in group 0008 as pairs of files, `gamedata/binarystaticinfo__/bin/<table>.staticinfoheader` and `.staticinfobody`. The header is a u16 record count, then each record's u32 key and u32 offset into the body; a record runs to the next offset. Each record starts with its key again and its name, a u32 length and the bytes. `formats/staticinfo.py` reads them and finds the fields it needs by their shape, checking each against the game's files, without decoding the rest.
