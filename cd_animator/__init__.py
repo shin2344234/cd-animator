@@ -17,7 +17,7 @@ from .formats import sockets as sockets_format
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 22, 0),
+    "version": (0, 23, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -1537,9 +1537,10 @@ class CDANIM_OT_send_to_game(Operator):
                     actioncharts.take_out(idx, root, name)
                     plays = _plays(action)
                     if plays:
+                        ingame.need_by_path(context)
                         charts = actioncharts.send(idx, root, actioncharts.new_path(action, name), plays)
                     else:
-                        problems.append(f"No chart plays {name}, so the game will not play it; choose Where it plays")
+                        problems.append(f"No chart or blend plays {name}, so the game will not play it; choose Where it plays")
         except (ingame.SendError, actioncharts.ChartError, export.ExportError, packs.PackError, ValueError,
                 OSError) as exc:
             self.report({"ERROR"}, str(exc))
@@ -1549,7 +1550,7 @@ class CDANIM_OT_send_to_game(Operator):
         _check_game(context)
         running = ingame.game_running()
         after = "Restart the game to see it" if running else "Start the game to see it"
-        with_charts = f" and {len(charts)} chart{'s' if len(charts) != 1 else ''}" if charts else ""
+        with_charts = f" and {_files_text(charts)}" if charts else ""
         self.report({"INFO"}, f"Sent {name} to the game ({len(written)} files{with_charts}). {after}")
         return {"FINISHED"}
 
@@ -1590,9 +1591,18 @@ class CDANIM_OT_remove_from_game(Operator):
             return {"CANCELLED"}
         _check_game(context)
         charts = len(rewritten) + len(deleted)
-        and_charts = f", and its nodes put back in {charts} chart{'s' if charts != 1 else ''}" if charts else ""
+        and_charts = f", and put back in {_files_text(rewritten + deleted)}" if charts else ""
         self.report({"INFO"}, f"Took {self.name} out of the game ({len(gone)} files{and_charts})")
         return {"FINISHED"}
+
+
+def _files_text(paths):
+    """"2 charts and 1 blend" for a set of chart and blend paths."""
+    blends = sum(1 for p in paths if actioncharts.is_blend(p))
+    charts = len(paths) - blends
+    parts = [f"{charts} chart{'s' if charts != 1 else ''}"] if charts else []
+    parts += [f"{blends} blend{'s' if blends != 1 else ''}"] if blends else []
+    return " and ".join(parts) or "no files"
 
 
 def _plays(action):
@@ -1623,9 +1633,9 @@ class CDANIM_UL_uses(UIList):
 
 
 class CDANIM_OT_play_where(Operator):
-    """Choose the chart nodes that play this new clip in the game. The list holds every node of the game's action
-    charts that plays the clip it was started from; the chosen ones play the new clip instead, and the rest keep the
-    game's"""
+    """Choose where this new clip plays in the game. The list holds every node of the game's action charts that plays
+    the clip it was started from, and every blend that mixes it; the chosen ones play the new clip instead, and the
+    rest keep the game's"""
     bl_idname = "cd_animator.play_where"
     bl_label = "Where it plays"
     bl_options = {"REGISTER", "UNDO"}
@@ -1660,8 +1670,13 @@ class CDANIM_OT_play_where(Operator):
             listed.add((path, node))
             u = self.uses.add()
             u.chart, u.node, u.chosen = path, node, (path, node) in chosen
-            action_part = f", action {key:08X}" if key is not None else ""
-            u.name = f"{actioncharts.short(path)}{action_part}, node {node}"
+            if actioncharts.is_blend(path):
+                n = actioncharts.blend_users(idx, path)
+                u.name = (f"blend {actioncharts.short(path)}, clip {node}, named by {n} chart "
+                          f"node{'s' if n != 1 else ''}")
+            else:
+                action_part = f", action {key:08X}" if key is not None else ""
+                u.name = f"{actioncharts.short(path)}{action_part}, node {node}"
         if not self.uses:
             self.report({"ERROR"}, f"No action chart plays {self.source}")
             return {"CANCELLED"}
@@ -1669,7 +1684,7 @@ class CDANIM_OT_play_where(Operator):
 
     def draw(self, context):
         col = self.layout.column()
-        col.label(text=f"Nodes that play {self.source.rsplit('/', 1)[-1]}; ticked ones play "
+        col.label(text=f"Chart nodes and blends that play {self.source.rsplit('/', 1)[-1]}; ticked ones play "
                   f"{_clip_action(context).name} instead")
         col.template_list("CDANIM_UL_uses", "", self, "uses", self, "active", rows=12)
 
@@ -1677,10 +1692,9 @@ class CDANIM_OT_play_where(Operator):
         action = _clip_action(context)
         action["cd_plays"] = [f"{u.chart}#{u.node}" for u in self.uses if u.chosen]
         n = len(action["cd_plays"])
-        charts = len({u.chart for u in self.uses if u.chosen})
-        self.report({"INFO"}, f"{action.name} plays at {n} node{'s' if n != 1 else ''} of {charts} "
-                    f"chart{'s' if charts != 1 else ''}; Send to game puts them in" if n else
-                    f"No chart plays {action.name}; the game will not play it")
+        self.report({"INFO"}, f"{action.name} plays in {n} place{'s' if n != 1 else ''} in "
+                    f"{_files_text({u.chart for u in self.uses if u.chosen})}; Send to game puts them in" if n else
+                    f"Nothing plays {action.name}; the game will not play it")
         return {"FINISHED"}
 
 
@@ -1848,7 +1862,8 @@ class CDANIM_PT_panel(bpy.types.Panel):
                 op = row.operator(CDANIM_OT_remove_from_game.bl_idname, text="", icon="X")
                 op.name = name
             for chart, leaf, n, there in _in_game.get("charts", []):
-                text = f"{chart}: {n} node{'s' if n != 1 else ''} play {leaf}"
+                what = "slot" if chart.lower().endswith(actioncharts.BLEND_SUFFIX) else "node"
+                text = f"{chart}: {n} {what}{'s' if n != 1 else ''} play {leaf}"
                 col.label(text=text if there else text + ", which is not in the folder",
                           icon="NODETREE" if there else "ERROR")
         obj = context.object
@@ -1872,9 +1887,8 @@ class CDANIM_PT_panel(bpy.types.Panel):
                 box.label(text="Template: " + os.path.basename(action["cd_template"]))
                 plays = _plays(action)
                 row = box.row()
-                charts = len({p for p, _n in plays})
-                row.label(text=f"Plays at {len(plays)} chart node{'s' if len(plays) != 1 else ''} in {charts} "
-                          f"chart{'s' if charts != 1 else ''}" if plays else "No chart plays it yet")
+                row.label(text=f"Plays in {len(plays)} place{'s' if len(plays) != 1 else ''} in "
+                          f"{_files_text({p for p, _n in plays})}" if plays else "Nothing plays it yet")
                 row.operator(CDANIM_OT_play_where.bl_idname, text="", icon="NODETREE")
             m = action.cd_meta
             box.label(text="Events: begin, end (frames), type" if m.loaded else "Events: the template's (no metadata read)")

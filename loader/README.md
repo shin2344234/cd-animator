@@ -76,6 +76,16 @@ Then each time the game takes one of your files it logs a line for it, up to 200
 
 If a file you put in never gets that line, the game hasn't loaded it yet, or its name doesn't match what the game asks for. `LogClips` shows the exact names the game uses.
 
+## Files at a game path
+
+A file under `CDAnimator\by_path`, at the game's own path for it below that folder, goes in for that path only, never by name. Some of the game's files share a name in different folders, such as the male and female run blends `phm_locomotion/basic_move_lv3.motionblending` and `phw_locomotion/basic_move_lv3.motionblending`, and this replaces one without the other:
+
+```
+CDAnimator\by_path\character\binary\motionblending\phm_locomotion\basic_move_lv3.motionblending
+```
+
+The log says so at startup, with the path it is for. CD Animator puts the charts and blends it edits there. Version 0.2.0 added it; 0.1.0 matched these files by name like any other.
+
 ## New files
 
 A file no pack has, a clip under a new name, only does anything if something in the game names it, such as a chart another mod changed. For those, the game's find and existence checks are pointed at a shipped file of the same kind, and the read then gets your bytes. The stand-ins are Kliff's broom idle and its LOD and metadata, and his broom riding blend, all of which every install has. It first ran on 3 October 2026: Kliff's push-off for Broomy, `cd_phm_rd_broom_basic_00_00_nor_std_takeoff_00`, played in game from this folder after the Broomy test build pointed a spare action of his lower chart at that name. The log shows each of the three files found through its stand-in and then read as the plugin's.

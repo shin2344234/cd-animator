@@ -18,9 +18,16 @@ namespace
     constexpr size_t kMinGameImage = 64ull * 1024 * 1024;
     bool IsGame() { return cda::mem::Game().base && cda::mem::Game().size >= kMinGameImage; }
 
-    // Lower-case file name to bytes. Filled once before the hooks go in and
-    // never changed after, so lookups need no lock.
+    // Lower-case file name to bytes, and lower-case game path to bytes for
+    // the files under by_path. Filled once before the hooks go in and never
+    // changed after, so lookups need no lock.
     std::unordered_map<std::string, std::string> g_files;
+    std::unordered_map<std::string, std::string> g_byPath;
+
+    // Files under CDAnimator/by_path/ sit at the game's own path for them and
+    // go in for that path only, so one of two game files that share a name,
+    // such as the male and female run blends, can be replaced alone.
+    constexpr wchar_t kByPath[] = L"by_path";
 
     std::string Lower(std::string s)
     {
@@ -46,10 +53,39 @@ namespace
         return true;
     }
 
+    // Every file under `dir` by its path below by_path, `rel`.
+    void ScanByPath(const std::wstring& dir, const std::wstring& shown, const std::string& rel)
+    {
+        WIN32_FIND_DATAW fd;
+        HANDLE h = FindFirstFileW((dir + L"*").c_str(), &fd);
+        if (h == INVALID_HANDLE_VALUE) return;
+        do
+        {
+            const std::wstring name = fd.cFileName;
+            if (name == L"." || name == L"..") continue;
+            const std::string key = rel + Lower(Utf8(name));
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+            {
+                ScanByPath(dir + name + L"\\", shown + name + L"/", key + "/");
+                continue;
+            }
+            std::string bytes;
+            if (!ReadWhole(dir + name, bytes))
+            {
+                LOG_ERR("[folder] %s could not be read.", Utf8(shown + name).c_str());
+                continue;
+            }
+            LOG("[folder] %s (%zu bytes) goes in for the game's %s only.", Utf8(shown + name).c_str(), bytes.size(),
+                key.c_str());
+            g_byPath.emplace(key, std::move(bytes));
+        } while (FindNextFileW(h, &fd));
+        FindClose(h);
+    }
+
     // Every file under `dir`, subfolders included, by its name alone: the
     // game's pack index names clips that way, so the folder layout is the
-    // player's to choose.
-    void Scan(const std::wstring& dir, const std::wstring& shown)
+    // player's to choose. by_path at the top is the exception.
+    void Scan(const std::wstring& dir, const std::wstring& shown, bool top = false)
     {
         WIN32_FIND_DATAW fd;
         HANDLE h = FindFirstFileW((dir + L"*").c_str(), &fd);
@@ -60,7 +96,10 @@ namespace
             if (name == L"." || name == L"..") continue;
             if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
             {
-                Scan(dir + name + L"\\", shown + name + L"/");
+                if (top && _wcsicmp(name.c_str(), kByPath) == 0)
+                    ScanByPath(dir + name + L"\\", shown + name + L"/", "");
+                else
+                    Scan(dir + name + L"\\", shown + name + L"/");
                 continue;
             }
             const std::string key = Lower(Utf8(name));
@@ -116,6 +155,14 @@ namespace
 
     const std::string* Lookup(const char* path)
     {
+        if (!g_byPath.empty())
+        {
+            std::string full;
+            for (const char* c = path; *c; ++c)
+                full += *c == '\\' ? '/' : static_cast<char>(tolower(static_cast<unsigned char>(*c)));
+            const auto at = g_byPath.find(full);
+            if (at != g_byPath.end()) return &at->second;
+        }
         const char* slash = strrchr(path, '/');
         const char* leaf = slash ? slash + 1 : path;
         char key[260];
@@ -173,12 +220,13 @@ namespace
 
     DWORD WINAPI Worker(LPVOID)
     {
-        LOG("[mod] %s %s for Crimson Desert 2.03.02 (exe 1.0.0.2976).", CDA_NAME, CDA_VERSION);
+        // One literal, so the add-on can read the version from the plugin file.
+        LOG("[mod] " CDA_NAME " " CDA_VERSION " for Crimson Desert 2.03.02 (exe 1.0.0.2976).");
         const std::wstring dir = cda::Paths::Dir() + L"CDAnimator\\";
         WriteDefaultIni();
         g_logClips = GetPrivateProfileIntW(L"settings", L"LogClips", 0, cda::Paths::File(CDA_FILEBASE L".ini").c_str()) != 0;
-        Scan(dir, L"CDAnimator/");
-        if (g_files.empty() && !g_logClips)
+        Scan(dir, L"CDAnimator/", true);
+        if (g_files.empty() && g_byPath.empty() && !g_logClips)
         {
             LOG("[mod] the CDAnimator folder beside the plugin has no files and LogClips is off, so nothing is hooked "
                 "and every file is the game's own.");
@@ -204,7 +252,8 @@ namespace
                        : "[mod] Broomy.asi is beside the plugin but did not load within 10 s.");
         }
         if (cda::files::Install(&Lookup, &StandIn, g_logClips ? &Note : nullptr))
-            LOG_OK("[mod] %zu files from the CDAnimator folder go to the game in place of its own.", g_files.size());
+            LOG_OK("[mod] %zu files from the CDAnimator folder go to the game in place of its own.",
+                   g_files.size() + g_byPath.size());
         return 0;
     }
 }

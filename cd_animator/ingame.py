@@ -47,6 +47,33 @@ def folder(context=None):
     return path
 
 
+BY_PATH_LOADER = (0, 2, 0)
+
+
+def loader_version(context=None):
+    """The installed loader's version as a tuple, or None when it is not
+    installed or too old to say (0.1.0 did not write it as one string)."""
+    path = os.path.join(bin64(context), LOADER)
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError:
+        return None
+    m = re.search(rb"CD Animator Loader (\d+)\.(\d+)\.(\d+) for ", data)
+    return tuple(int(x) for x in m.groups()) if m else None
+
+
+def need_by_path(context=None):
+    """Raise SendError unless the installed loader serves files under
+    by_path by their game path, which edited charts and blends need."""
+    v = loader_version(context)
+    if v is None or v < BY_PATH_LOADER:
+        have = ".".join(map(str, v)) if v else "0.1.0"
+        raise SendError(f"the CD Animator Loader in bin64 is {have}, which serves files by name only, so an edited "
+                        "chart or blend could also replace another of the game's files of that name. Copy "
+                        "CDAnimator.asi 0.2.0 or later from the loader's dist folder into bin64")
+
+
 def clip_name(action):
     """The game's name for the clip an action holds: the file it was
     imported from, or the name a new clip was given."""

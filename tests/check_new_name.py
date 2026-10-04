@@ -1,4 +1,4 @@
-"""Check new clip names: action charts pointed at new clips.
+"""Check new clip names: action charts and blends pointed at new clips.
 
     blender -b --factory-startup --python tests/check_new_name.py -- [game folder]
 
@@ -7,23 +7,29 @@ in for the game's bin64. It requires:
 
   * the chart reader to pack 556 of the game's 558 charts back byte for
     byte, the two it cannot parse being commonactioninfo and its
-    _serialized copy;
+    _serialized copy, and the blend reader all 1,688 blends;
   * the chart nodes that play Kliff's standing idle to include node 0 of
     basic_upper and of basic_lower, both in action 26107D3C, the upper
-    chart's default action;
+    chart's default action, and the uses of his run to include slot 0 of
+    the blends basic_move_lv3 and basic_move_lv3_new;
+  * Send to game to refuse charts and blends with a loader older than
+    0.2.0, which serves files by name only;
   * Where it plays to store the nodes chosen on a new clip;
-  * Send to game to write the clip's three files and the two charts, each
-    chart the game's with the new path added at the end of its clip table
-    and the chosen node on it, every other node and the rest of the file
-    unchanged;
+  * Send to game to write the clip's three files and the two charts under
+    by_path at their game paths, each chart the game's with the new path
+    added at the end of its clip table and the chosen node on it, every
+    other node and the rest of the file unchanged;
   * a second new clip on another node of basic_upper to go into the same
     chart, keeping the first;
   * sending the first again with only its upper node chosen to put its
     lower node back, which leaves basic_lower the game's own, so it is
     deleted;
-  * Check the game to list each chart with the clip its nodes play;
-  * Take out of the game to put a clip's nodes back, and the chart, once
-    nothing in it differs from the game's, to go.
+  * a new run on the two blends to write both under by_path, each the
+    game's with only slot 0 changed, though phw_locomotion has a
+    basic_move_lv3 of its own;
+  * Check the game to list each chart and blend with the clip it plays;
+  * Take out of the game to put a clip's nodes and slots back, and a file
+    that then matches the game's to go, leaving the folder empty.
 
 Exit code 0 means every check passed.
 """
@@ -40,13 +46,17 @@ sys.path.insert(0, os.path.dirname(HERE))
 
 import cd_animator  # noqa: E402
 from cd_animator import actioncharts, ingame, packs  # noqa: E402
-from cd_animator.formats import paac  # noqa: E402
+from cd_animator.formats import motionblend, paac  # noqa: E402
 
 KLIFF = "cd_phm_macduff_00000"
 IDLE = "1_pc/1_phm/cd_phm_basic_00_00_nor_std_idle_00"
 UPPER = actioncharts.CHARTS + "upperaction/1_pc/1_phm/basic_upper.paac"
 LOWER = actioncharts.CHARTS + "loweraction/1_pc/1_phm/basic_lower.paac"
+RUN = "1_pc/1_phm/cd_phm_basic_00_00_nor_move_run_f_ing_00"
+LV3 = actioncharts.BLENDS + "phm_locomotion/basic_move_lv3.motionblending"
+LV3_NEW = actioncharts.BLENDS + "phm_locomotion/basic_move_lv3_new.motionblending"
 FIRST, SECOND = "cd_phm_cdanim_check_first_00", "cd_phm_cdanim_check_second_00"
+RUNNER = "cd_phm_cdanim_check_run_00"
 
 
 def report(ok, what):
@@ -72,9 +82,9 @@ def differs(mine, game):
     return nodes, extra, mine.pack() == game.pack()
 
 
-def new_clip(arm, name, plays):
+def new_clip(arm, name, plays, template=IDLE):
     bpy.context.view_layer.objects.active = arm
-    bpy.ops.cd_animator.game_new_clip(clip=IDLE, clip_name=name, start="MOTION")
+    bpy.ops.cd_animator.game_new_clip(clip=template, clip_name=name, start="MOTION")
     bpy.ops.cd_animator.play_where(uses=[{"chart": p, "node": n, "chosen": True, "name": f"{p} {n}"}
                                          for p, n in plays])
     return arm.animation_data.action
@@ -98,6 +108,9 @@ def main():
     fails += report(same == 556 and sorted(unread) == ["commonactioninfo.paac", "commonactioninfo_serialized.paac"],
                     f"charts packed back byte for byte: {same} of {len(actioncharts.chart_paths(idx))}; "
                     f"unread {unread}")
+    blends = actioncharts.blend_paths(idx)
+    same = sum(motionblend.write(motionblend.parse(d)) == d for d in (actioncharts.game_bytes(idx, p) for p in blends))
+    fails += report(same == len(blends) == 1688, f"blends written back byte for byte: {same} of {len(blends)}")
 
     uses = actioncharts.uses(idx, IDLE)
     keys = {(p, n): k for p, n, k in uses}
@@ -106,13 +119,20 @@ def main():
                     and upper.default_action_hash == 0x26107D3C,
                     f"the idle plays at {len(uses)} nodes of {len({p for p, _n, _k in uses})} charts, "
                     "node 0 of basic_upper and basic_lower in action 26107D3C")
+    run_uses = actioncharts.uses(idx, RUN)
+    fails += report((LV3, 0, None) in run_uses and (LV3_NEW, 0, None) in run_uses,
+                    f"the run plays at {len(run_uses)} places, slot 0 of basic_move_lv3 and basic_move_lv3_new among them")
 
     tmp = tempfile.mkdtemp(prefix="cd_newname_")
     b64 = os.path.join(tmp, "bin64")
     os.makedirs(b64)
-    open(os.path.join(b64, ingame.LOADER), "wb").close()
+    loader = os.path.join(b64, ingame.LOADER)
+    open(loader, "wb").close()
     ingame.bin64 = lambda context=None: b64
     root = os.path.join(b64, ingame.FOLDER)
+
+    def at(path):
+        return os.path.join(root, actioncharts.BY_PATH, *path.split("/"))
 
     bpy.ops.cd_animator.game_character(character=KLIFF, textures=False, cloth=False, sway=False, gear="NONE")
     arm = bpy.context.view_layer.objects.active
@@ -120,44 +140,69 @@ def main():
     fails += report(list(first.get("cd_plays", [])) == [f"{UPPER}#0", f"{LOWER}#0"],
                     f"Where it plays stored {list(first.get('cd_plays', []))}")
 
+    try:
+        bpy.ops.cd_animator.send_to_game(clip="ACTION")
+        refused = False
+    except RuntimeError as exc:
+        refused = "0.2.0" in str(exc)
+    fails += report(refused and not os.path.exists(at(UPPER)), "a loader older than 0.2.0: charts refused")
+    with open(loader, "wb") as f:
+        f.write(b"\0MZ [mod] CD Animator Loader 0.2.0 for Crimson Desert 2.03.02 (exe 1.0.0.2976).\0")
+
     bpy.ops.cd_animator.send_to_game(clip="ACTION")
-    files = sorted(os.listdir(root))
+    files = sorted(n for n in os.listdir(root) if n != actioncharts.BY_PATH)
     game_upper = paac.Chart.parse(actioncharts.game_bytes(idx, UPPER))
     game_lower = paac.Chart.parse(actioncharts.game_bytes(idx, LOWER))
-    up = differs(chart(os.path.join(root, "basic_upper.paac")), game_upper) if "basic_upper.paac" in files else None
-    low = differs(chart(os.path.join(root, "basic_lower.paac")), game_lower) if "basic_lower.paac" in files else None
+    up = differs(chart(at(UPPER)), game_upper) if os.path.isfile(at(UPPER)) else None
+    low = differs(chart(at(LOWER)), game_lower) if os.path.isfile(at(LOWER)) else None
     want = ([0], ["1_pc/1_phm/" + FIRST + ".paa"], True)
-    fails += report(files == sorted(["basic_lower.paac", "basic_upper.paac", FIRST + ".paa", FIRST + "_lod.paa",
-                                     FIRST + ".paa_metabin"]) and up == want and low == want,
-                    f"sent {files}; upper chart {up}, lower {low}")
+    fails += report(files == sorted([FIRST + ".paa", FIRST + "_lod.paa", FIRST + ".paa_metabin"])
+                    and up == want and low == want, f"sent {files} and the charts under by_path; upper {up}, lower {low}")
 
     new_clip(arm, SECOND, [(UPPER, 1)])
     bpy.ops.cd_animator.send_to_game(clip="ACTION")
-    up = differs(chart(os.path.join(root, "basic_upper.paac")), game_upper)
+    up = differs(chart(at(UPPER)), game_upper)
     fails += report(up == ([0, 1], ["1_pc/1_phm/" + FIRST + ".paa", "1_pc/1_phm/" + SECOND + ".paa"], True),
                     f"a second clip in the same chart: {up}")
 
     arm.animation_data.action = first
     first["cd_plays"] = [f"{UPPER}#0"]
     bpy.ops.cd_animator.send_to_game(clip="ACTION")
-    up = differs(chart(os.path.join(root, "basic_upper.paac")), game_upper)
+    up = differs(chart(at(UPPER)), game_upper)
     # The first clip's path goes out and comes back in after the second's.
-    fails += report(not os.path.exists(os.path.join(root, "basic_lower.paac"))
+    fails += report(not os.path.exists(at(LOWER))
                     and up == ([0, 1], ["1_pc/1_phm/" + SECOND + ".paa", "1_pc/1_phm/" + FIRST + ".paa"], True),
                     f"sent again on the upper node only: basic_lower gone, upper {up}")
 
+    new_clip(arm, RUNNER, [(LV3, 0), (LV3_NEW, 0)], template=RUN)
+    bpy.ops.cd_animator.send_to_game(clip="ACTION")
+    blend_ok = []
+    for path in (LV3, LV3_NEW):
+        game = motionblend.parse(actioncharts.game_bytes(idx, path))
+        mine = motionblend.parse(open(at(path), "rb").read()) if os.path.isfile(at(path)) else None
+        names = mine.root.values["_animationFileNames"] if mine else []
+        expect = [("1_pc/1_phm/" + RUNNER + ".paa").encode()] + game.root.values["_animationFileNames"][1:]
+        if mine:
+            mine.root.values["_animationFileNames"] = game.root.values["_animationFileNames"]
+        blend_ok.append(mine is not None and names == expect
+                        and motionblend.write(mine) == actioncharts.game_bytes(idx, path))
+    fails += report(all(blend_ok), f"the run went into both blends at slot 0, the rest the game's: {blend_ok}")
+
     bpy.ops.cd_animator.check_game()
     lines = cd_animator._in_game["charts"]
-    fails += report(sorted(lines) == [("basic_upper.paac", FIRST, 1, True), ("basic_upper.paac", SECOND, 1, True)],
+    fails += report(sorted(lines) == [("basic_move_lv3.motionblending", RUNNER, 1, True),
+                                      ("basic_move_lv3_new.motionblending", RUNNER, 1, True),
+                                      ("basic_upper.paac", FIRST, 1, True), ("basic_upper.paac", SECOND, 1, True)],
                     f"Check the game lists {lines}")
 
     bpy.ops.cd_animator.remove_from_game(name=FIRST)
-    up = differs(chart(os.path.join(root, "basic_upper.paac")), game_upper)
+    up = differs(chart(at(UPPER)), game_upper)
     left_first = [n for n in os.listdir(root) if n.startswith(FIRST)]
     bpy.ops.cd_animator.remove_from_game(name=SECOND)
+    bpy.ops.cd_animator.remove_from_game(name=RUNNER)
     left = sorted(os.listdir(root))
     fails += report(up == ([1], ["1_pc/1_phm/" + SECOND + ".paa"], True) and not left_first and left == [],
-                    f"took the first out: upper {up}; took the second out: left {left}")
+                    f"took the first out: upper {up}; took the others out: left {left}")
 
     shutil.rmtree(tmp, ignore_errors=True)
     print("PASS" if not fails else f"FAIL: {fails} checks")

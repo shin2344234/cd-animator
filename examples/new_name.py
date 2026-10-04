@@ -1,18 +1,21 @@
-"""Give Kliff a standing idle under a new name, with his arms raised.
+"""Give Kliff a standing idle and a run under new names, with his arms raised.
 
     blender -b --factory-startup --python examples/new_name.py -- [--send] [out folder]
 
-Starts a new clip, cd_phm_cdanim_raised_idle_00, from Kliff's standing idle
-cd_phm_basic_00_00_nor_std_idle_00, and turns both upper arms on every frame
-so they point up and out. The idle itself is left alone: the new clip plays
-only because the charts point Kliff's idle action (key 26107D3C, the upper
-chart's default action) at it, node 0 of basic_upper.paac and node 0 of
-basic_lower.paac.
+Starts two new clips and turns both upper arms on every frame so they point
+up and out. cd_phm_cdanim_raised_idle_00 comes from Kliff's standing idle
+cd_phm_basic_00_00_nor_std_idle_00 and plays because the charts point his
+idle action (key 26107D3C, the upper chart's default action) at it, node 0
+of basic_upper.paac and node 0 of basic_lower.paac. cd_phm_cdanim_raised_run_00
+comes from his run cd_phm_basic_00_00_nor_move_run_f_ing_00 and plays
+because the run blends basic_move_lv3 and basic_move_lv3_new name it in
+place of the run, in slot 0 of each; the chart nodes that play the run
+straight are left alone. The game's own idle and run stay as they are.
 
-The three clip files and the two charts go into the out folder,
-out/new_name by default, with a front view render of frame 0. With --send
-they go into the CD Animator Loader's folder instead, as Send to game puts
-them, and show from the game's next start.
+The clip files, the two charts and the two blends go into the out folder,
+out/new_name by default, with a front view render of each clip's frame 0.
+With --send they go into the CD Animator Loader's folder instead, as Send
+to game puts them, and show from the game's next start.
 """
 
 import os
@@ -29,11 +32,14 @@ import cd_animator  # noqa: E402
 from cd_animator import actioncharts, export, ingame, packs  # noqa: E402
 
 KLIFF = "cd_phm_macduff_00000"
-IDLE = "1_pc/1_phm/cd_phm_basic_00_00_nor_std_idle_00"
-NAME = "cd_phm_cdanim_raised_idle_00"
 UPPER = actioncharts.CHARTS + "upperaction/1_pc/1_phm/basic_upper.paac"
 LOWER = actioncharts.CHARTS + "loweraction/1_pc/1_phm/basic_lower.paac"
-PLAYS = [(UPPER, 0), (LOWER, 0)]
+RUN_BLENDS = [actioncharts.BLENDS + f"phm_locomotion/basic_move_{n}.motionblending" for n in ("lv3", "lv3_new")]
+# (template, new name, where it plays)
+CLIPS = [("1_pc/1_phm/cd_phm_basic_00_00_nor_std_idle_00", "cd_phm_cdanim_raised_idle_00",
+          [(UPPER, 0), (LOWER, 0)]),
+         ("1_pc/1_phm/cd_phm_basic_00_00_nor_move_run_f_ing_00", "cd_phm_cdanim_raised_run_00",
+          [(b, 0) for b in RUN_BLENDS])]
 ARMS = ("Bip01 L UpperArm", "Bip01 R UpperArm")
 OUT = 0.45   # how far out from straight up the arms point
 
@@ -82,20 +88,24 @@ def main():
         bpy.data.objects.remove(o)
     bpy.ops.cd_animator.game_character(character=KLIFF, textures=False, cloth=False, sway=False, gear="NONE")
     arm = bpy.context.view_layer.objects.active
-    bpy.ops.cd_animator.game_new_clip(clip=IDLE, clip_name=NAME, start="MOTION")
-    action = arm.animation_data.action
-    raise_arms(arm)
     idx = packs.index()
-    clip = actioncharts.new_path(action, NAME)
     folder = ingame.folder() if send else out
-    os.makedirs(folder, exist_ok=True)
     if send:
-        _name, written, _problems = ingame.send(arm, action, folder)
-    else:
-        written, _problems = export.export_with_companions(arm, action, os.path.join(folder, NAME + ".paa"))
-        render(arm, os.path.join(out, "frame0.png"))
-    written += actioncharts.send(idx, folder, clip, PLAYS)
-    print("wrote", ", ".join(os.path.basename(w) for w in written), "to", folder, "for", clip)
+        ingame.need_by_path()
+    os.makedirs(folder, exist_ok=True)
+    for template, name, plays in CLIPS:
+        bpy.context.view_layer.objects.active = arm
+        bpy.ops.cd_animator.game_new_clip(clip=template, clip_name=name, start="MOTION")
+        action = arm.animation_data.action
+        raise_arms(arm)
+        clip = actioncharts.new_path(action, name)
+        if send:
+            _name, written, _problems = ingame.send(arm, action, folder)
+        else:
+            written, _problems = export.export_with_companions(arm, action, os.path.join(folder, name + ".paa"))
+            render(arm, os.path.join(out, name + "_frame0.png"))
+        written += actioncharts.send(idx, folder, clip, plays)
+        print("wrote", ", ".join(os.path.basename(w) for w in written), "to", folder, "for", clip)
     sys.stdout.flush()
     os._exit(0)
 
