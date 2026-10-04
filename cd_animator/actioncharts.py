@@ -56,6 +56,10 @@ SUFFIX = ".paac"
 BLENDS = "character/binary/motionblending/"
 BLEND_SUFFIX = ".motionblending"
 MOVE_CHARTS = (CHARTS + "upperaction/1_pc/1_phm/basic_upper.paac", CHARTS + "loweraction/1_pc/1_phm/basic_lower.paac")
+# A loop's key stops it in the lower chart only, whose clip shows. Each layer takes keys from its own idle, so with
+# a stop in both, a press while one layer was still busy flipped the two out of step and left the upper in its
+# idle under a dance, where its idle's variations pulled the lower layer out of it, as with no upper copy at all.
+STOP_CHART = MOVE_CHARTS[1]
 MOVE_FOLDER = "1_pc/1_phm/"            # clips Kliff's skeleton plays
 IDLE_CLIP = "1_pc/1_phm/cd_phm_basic_00_00_nor_std_idle_00"
 IDLE = 0x26107D3C                      # his standing idle, in both charts
@@ -343,13 +347,13 @@ def _standing(chart, key):
     return False
 
 
-def add_move(chart, clip, key, frames, loop=False, travel=False):
+def add_move(chart, clip, key, frames, loop=False, travel=False, stop=True):
     """Add to `chart` a move that plays `clip` (under character/motion/, no
     .paa), `frames` long, on the key condition `key`, an input name in lower
     case, with a branch into it on every action that plays Kliff's idle. A
     move that loops plays its clip again at the end, until its key is
-    pressed again or one of the idle's ways out but into another standing
-    idle fires, his walk among them. A move that travels moves him as the
+    pressed again, with `stop`, or one of the idle's ways out but into
+    another standing idle fires, his walk among them. A move that travels moves him as the
     clip's B_MoveControl_01 goes."""
     acts = {a.key_hash: a for a in chart.actions}
     if IDLE not in acts:
@@ -417,17 +421,20 @@ def add_move(chart, clip, key, frames, loop=False, travel=False):
         chart.branches.append(again)
         last = copy.deepcopy(chart.slots[end])
         last.branch_index = len(chart.branches) - 1
-        # Its key again stops it, blending into the idle as the idle's end does, but not straight away, so the
-        # press that started it cannot.
-        stop = copy.deepcopy(branch)
-        stop.target_hash, stop.target_hash2 = IDLE, 0
-        stop.time_a = LOOP_BLEND
-        chart.branches.append(stop)
-        out = copy.deepcopy(slot)
-        out.branch_index = len(chart.branches) - 1
-        out.time_min = STOP_AFTER
-        act.slot_first, act.slot_count = len(chart.slots), len(ways_out) + 2
-        chart.slots += [out] + ways_out + [last]
+        act.slot_first, act.slot_count = len(chart.slots), len(ways_out) + 1
+        if stop:
+            # Its key again stops it, blending into the idle as the idle's end does, but not straight away, so the
+            # press that started it cannot.
+            halt = copy.deepcopy(branch)
+            halt.target_hash, halt.target_hash2 = IDLE, 0
+            halt.time_a = LOOP_BLEND
+            chart.branches.append(halt)
+            out = copy.deepcopy(slot)
+            out.branch_index = len(chart.branches) - 1
+            out.time_min = STOP_AFTER
+            ways_out.insert(0, out)
+            act.slot_count += 1
+        chart.slots += ways_out + [last]
     chart.actions.append(act)
 
 
@@ -456,7 +463,7 @@ def _leaf(clip):
     return clip.rsplit("/", 1)[-1].lower() + ".paa"
 
 
-def _without(chart, game_data, leaf):
+def _without(chart, game_data, leaf, path):
     """`chart` made again from the game's, with its moves and pointed nodes
     but those whose clip file is `leaf`, or None when none is."""
     game = paac.Chart.parse(game_data)
@@ -468,7 +475,7 @@ def _without(chart, game_data, leaf):
     new = paac.Chart.parse(game_data)
     for c, k, loop, travel, frames in mine:
         if _leaf(c) != leaf:
-            add_move(new, c, k, frames, loop, travel)
+            add_move(new, c, k, frames, loop, travel, path == STOP_CHART)
     for c, ns in points.items():
         if _leaf(c) != leaf:
             point(new, ns, c)
@@ -558,9 +565,9 @@ def _folder_inputmap(idx, root):
 
 def send_move(idx, root, clip, key, frames, loop=False, travel=False):
     """Write into the loader folder `root` Kliff's two charts with a move
-    that plays `clip`, `frames` long, on `key`, looping with `loop`, moving him as the clip
-    travels with `travel`, and the input map with the key. Returns the
-    charts written."""
+    that plays `clip`, `frames` long, on `key`, looping with `loop`, moving
+    him as the clip travels with `travel`, and the input map with the key.
+    Returns the charts written."""
     check_key(idx, key)
     name = input_name(clip)
     xml = _drop_input(_folder_inputmap(idx, root), name)
@@ -570,7 +577,7 @@ def send_move(idx, root, clip, key, frames, loop=False, travel=False):
     written = []
     for path in MOVE_CHARTS:
         chart, _game, mine = current(idx, root, path)
-        add_move(chart, clip, name.lower(), frames, loop, travel)
+        add_move(chart, clip, name.lower(), frames, loop, travel, path == STOP_CHART)
         written.append(_write(root, path, chart.pack(), mine))
     _write_inputmap(idx, root, xml.replace(_GROUP, _GROUP + _entry(name, key), 1))
     return written
@@ -704,7 +711,7 @@ def take_out(idx, root, clip):
             if not [i for c in sorted(named) for i in unpoint(chart, game, c)]:
                 continue
         else:
-            chart = _without(chart, game_data, leaf)
+            chart = _without(chart, game_data, leaf, path)
             if chart is None:
                 continue
         data = chart.pack()
