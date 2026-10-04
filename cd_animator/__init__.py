@@ -18,7 +18,7 @@ from .formats import sockets as sockets_format
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 24, 0),
+    "version": (0, 25, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -1598,12 +1598,17 @@ class CDANIM_OT_send_to_game(Operator):
                 if _is_new(idx, action, name):
                     # Start from the game's nodes, so ones no longer chosen go back.
                     actioncharts.take_out(idx, root, name)
-                    plays = _plays(action)
-                    if plays:
+                    plays, key = _plays(action), action.get("cd_key")
+                    clip = actioncharts.new_path(action, name)
+                    if plays or key:
                         ingame.need_by_path(context)
-                        charts = actioncharts.send(idx, root, actioncharts.new_path(action, name), plays)
-                    else:
-                        problems.append(f"No chart or blend plays {name}, so the game will not play it; choose Where it plays")
+                    if plays:
+                        charts = actioncharts.send(idx, root, clip, plays)
+                    if key:
+                        charts += [c for c in actioncharts.send_move(idx, root, clip, key) if c not in charts]
+                    if not plays and not key:
+                        problems.append(f"No chart or blend plays {name}, so the game will not play it; choose Where it "
+                                        "plays or Play on a key")
         except (ingame.SendError, actioncharts.ChartError, export.ExportError, packs.PackError, ValueError,
                 OSError) as exc:
             self.report({"ERROR"}, str(exc))
@@ -1682,6 +1687,49 @@ def _is_new(idx, action, name):
     """True when the clip is a new one, under a name no pack has."""
     return "cd_template" in action and packs.MOTION + actioncharts.new_path(action, name).lower() + ".paa" \
         not in idx.by_path
+
+
+class CDANIM_OT_play_on_key(Operator):
+    """Make this new clip a move Kliff plays when a key is pressed while he stands. Send to game adds it to his two
+    action charts and the game's input map. Clear the key to take the move away"""
+    bl_idname = "cd_animator.play_on_key"
+    bl_label = "Play on a key"
+    bl_options = {"REGISTER", "UNDO"}
+
+    key: StringProperty(name="Key", description="A keyboard key as the game names it, such as l, k or j")
+
+    @classmethod
+    def poll(cls, context):
+        action = _clip_action(context)
+        if action is None or "cd_template" not in action:
+            cls.poll_message_set("Start a new clip from a game clip first")
+            return False
+        if not (actioncharts.template_clip(action) or "").lower().startswith(actioncharts.MOVE_FOLDER):
+            cls.poll_message_set("Only clips started from one of Kliff's (1_pc/1_phm) can be a move")
+            return False
+        return True
+
+    def invoke(self, context, event):
+        if not _open_index(self, context):
+            return {"CANCELLED"}
+        self.key = _clip_action(context).get("cd_key", "l")
+        return context.window_manager.invoke_props_dialog(self)
+
+    def execute(self, context):
+        action = _clip_action(context)
+        key = self.key.strip().lower()
+        if not key:
+            action.pop("cd_key", None)
+            self.report({"INFO"}, f"{action.name} is no move; Send to game takes it out of the charts")
+            return {"FINISHED"}
+        try:
+            actioncharts.check_key(packs.index(context), key)
+        except (actioncharts.ChartError, packs.PackError, OSError) as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        action["cd_key"] = key
+        self.report({"INFO"}, f"Kliff plays {action.name} on {key.upper()} while he stands; Send to game puts it in")
+        return {"FINISHED"}
 
 
 class CDANIM_PG_use(bpy.types.PropertyGroup):
@@ -1954,6 +2002,9 @@ class CDANIM_PT_panel(bpy.types.Panel):
                 row.label(text=f"Plays in {len(plays)} place{'s' if len(plays) != 1 else ''} in "
                           f"{_files_text({p for p, _n in plays})}" if plays else "Nothing plays it yet")
                 row.operator(CDANIM_OT_play_where.bl_idname, text="", icon="NODETREE")
+                row = box.row()
+                row.label(text=f"Played on {action['cd_key'].upper()}" if action.get("cd_key") else "On no key")
+                row.operator(CDANIM_OT_play_on_key.bl_idname, text="", icon="EVENT_K")
             m = action.cd_meta
             box.label(text="Events: begin, end (frames), type" if m.loaded else "Events: the template's (no metadata read)")
             row = box.row()
@@ -1999,7 +2050,7 @@ _classes = (CDANIM_AP_prefs, CDANIM_OT_import_pab, CDANIM_OT_import_paa, CDANIM_
             CDANIM_OT_set_length, CDANIM_OT_event_add, CDANIM_OT_event_remove, CDANIM_UL_events, CDANIM_OT_tag_footsteps, CDANIM_OT_retarget,
             CDANIM_OT_seat_rider, CDANIM_OT_unseat_rider, CDANIM_OT_remove_face, CDANIM_OT_send_to_game,
             CDANIM_OT_check_game, CDANIM_OT_remove_from_game, CDANIM_OT_seen_in_game, CDANIM_OT_log_clips,
-            CDANIM_PG_use, CDANIM_UL_uses, CDANIM_OT_play_where,
+            CDANIM_PG_use, CDANIM_UL_uses, CDANIM_OT_play_where, CDANIM_OT_play_on_key,
             CDANIM_PT_panel)
 
 

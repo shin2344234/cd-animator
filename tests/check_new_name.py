@@ -27,7 +27,14 @@ in for the game's bin64. It requires:
   * a new run on the two blends to write both under by_path, each the
     game's with only slot 0 changed, though phw_locomotion has a
     basic_move_lv3 of its own;
+  * Play on a key to refuse e, which Kliff already uses standing, and a key
+    the game has no name for, and Send to game to put a move on L into both
+    charts, the move's action last and every action still sorted by key,
+    the pointed nodes of basic_upper kept, and the key into the input map
+    under by_path;
   * Check the game to list each chart and blend with the clip it plays;
+  * Take out of the game to take the move out of both charts and the input
+    map, leaving basic_upper's pointed nodes and deleting the rest;
   * Take out of the game to put a clip's nodes and slots back, and a file
     that then matches the game's to go, leaving the folder empty.
 
@@ -57,6 +64,7 @@ LV3 = actioncharts.BLENDS + "phm_locomotion/basic_move_lv3.motionblending"
 LV3_NEW = actioncharts.BLENDS + "phm_locomotion/basic_move_lv3_new.motionblending"
 FIRST, SECOND = "cd_phm_cdanim_check_first_00", "cd_phm_cdanim_check_second_00"
 RUNNER = "cd_phm_cdanim_check_run_00"
+MOVER = "cd_phm_cdanim_check_move_00"
 
 
 def report(ok, what):
@@ -188,12 +196,44 @@ def main():
                         and motionblend.write(mine) == actioncharts.game_bytes(idx, path))
     fails += report(all(blend_ok), f"the run went into both blends at slot 0, the rest the game's: {blend_ok}")
 
+    mover = new_clip(arm, MOVER, [])
+    refused = []
+    for key in ("e", "nosuchkey"):
+        try:
+            bpy.ops.cd_animator.play_on_key(key=key)
+        except RuntimeError:
+            refused.append(key)
+    bpy.ops.cd_animator.play_on_key(key="l")
+    bpy.ops.cd_animator.send_to_game(clip="ACTION")
+    mapped = os.path.join(root, actioncharts.BY_PATH, "ui", "inputmap.xml")
+    xml = open(mapped, encoding="utf-8-sig", newline="").read() if os.path.isfile(mapped) else ""
+    move_ok = []
+    for path, game in ((UPPER, game_upper), (LOWER, game_lower)):
+        mine = chart(at(path)) if os.path.isfile(at(path)) else None
+        keys = [a.key_hash for a in mine.actions] if mine else []
+        move_ok.append(mine is not None and keys == sorted(keys) and len(mine.nodes) == len(game.nodes) + 1
+                       and actioncharts.moves(mine, game) == [("1_pc/1_phm/" + MOVER, f"key_cda_{MOVER}")])
+    kept = sorted(c for c, ns in actioncharts.pointed(chart(at(UPPER)), game_upper).items() if ns != [len(game_upper.nodes)])
+    fails += report(refused == ["e", "nosuchkey"] and mover.get("cd_key") == "l" and all(move_ok)
+                    and kept == ["1_pc/1_phm/" + FIRST, "1_pc/1_phm/" + SECOND]
+                    and f'<Input Name="Key_CDA_{MOVER}">\r\n\t\t<KeyboardMouse Key="l" Method="downonce"/>' in xml,
+                    f"a move on L: refused {refused}, charts {move_ok}, upper keeps {kept}, input map {bool(xml)}")
+
     bpy.ops.cd_animator.check_game()
     lines = cd_animator._in_game["charts"]
-    fails += report(sorted(lines) == [("basic_move_lv3.motionblending", RUNNER, 1, True),
+    fails += report(sorted(lines) == [("basic_lower.paac", MOVER, 1, True),
+                                      ("basic_move_lv3.motionblending", RUNNER, 1, True),
                                       ("basic_move_lv3_new.motionblending", RUNNER, 1, True),
-                                      ("basic_upper.paac", FIRST, 1, True), ("basic_upper.paac", SECOND, 1, True)],
+                                      ("basic_upper.paac", FIRST, 1, True), ("basic_upper.paac", MOVER, 1, True),
+                                      ("basic_upper.paac", SECOND, 1, True)],
                     f"Check the game lists {lines}")
+
+    bpy.ops.cd_animator.remove_from_game(name=MOVER)
+    up = differs(chart(at(UPPER)), game_upper)
+    fails += report(not os.path.exists(at(LOWER)) and not os.path.exists(mapped)
+                    and (up[0], sorted(up[1]), up[2]) == ([0, 1], sorted(["1_pc/1_phm/" + FIRST + ".paa",
+                                                                          "1_pc/1_phm/" + SECOND + ".paa"]), True),
+                    f"took the move out: basic_lower and the input map gone, upper {up}")
 
     bpy.ops.cd_animator.remove_from_game(name=FIRST)
     up = differs(chart(at(UPPER)), game_upper)

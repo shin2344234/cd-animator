@@ -19,22 +19,42 @@ starts from the copy already in the folder. Taking a clip out puts its
 nodes and slots back on the game's clips, and deletes the copy once it
 matches the game's again.
 
+A move is a new action in Kliff's two charts, basic_upper and basic_lower,
+that plays a new clip when a key is pressed while he stands: a copy of his
+standing idle with its own node, whose one exit is the idle's end branch,
+back to idle when the clip ends. Every action that plays his idle clip
+gets a branch into it on the key's condition, and the input map
+(ui/inputmap.xml) gets the key's input. Both layers need it, as the lower
+layer's moves hide the upper's. The game keeps every chart's actions
+sorted by key, so the move's name is one whose key sorts last. Taking a
+move or a pointed clip out of a chart makes the chart again from the
+game's, with what stays.
+
 Action names are hashes. The names table of a chart (strings[0]) holds the
 names of other things, so 136 of the game's 84,133 actions have a name
 anywhere in the game; an action is shown by its key instead.
 """
+import copy
 import json
 import os
+import re
 from struct import error as struct_error
 
 from . import packs
 from .formats import motionblend, paac, paz
+from .formats.hashlittle import hashlittle
 
 BY_PATH = "by_path"
 CHARTS = "actionchart/bin__/"
 SUFFIX = ".paac"
 BLENDS = "character/binary/motionblending/"
 BLEND_SUFFIX = ".motionblending"
+MOVE_CHARTS = (CHARTS + "upperaction/1_pc/1_phm/basic_upper.paac", CHARTS + "loweraction/1_pc/1_phm/basic_lower.paac")
+MOVE_FOLDER = "1_pc/1_phm/"            # clips Kliff's skeleton plays
+IDLE_CLIP = "1_pc/1_phm/cd_phm_basic_00_00_nor_std_idle_00"
+IDLE = 0x26107D3C                      # his standing idle, in both charts
+INPUTMAP = "ui/inputmap.xml"
+_GROUP = '<InputGroup Name="CharacterAction" LayerName="Action" EnableConsume="False">'
 
 
 class ChartError(Exception):
@@ -275,7 +295,188 @@ def pointed(chart, game):
         k, gk = n.header.anim_index, g.header.anim_index
         if k < len(table) and (gk >= len(gtable) or table[k].lower() != gtable[gk].lower()):
             out.setdefault(table[k][:-4] if table[k].lower().endswith(".paa") else table[k], []).append(i)
+    for i in range(len(game.nodes), len(chart.nodes)):
+        k = chart.nodes[i].header.anim_index
+        if k < len(table):
+            out.setdefault(table[k][:-4] if table[k].lower().endswith(".paa") else table[k], []).append(i)
     return out
+
+
+def _hash(name):
+    return hashlittle(name.encode(), 0xC5EDE)
+
+
+def input_name(clip):
+    """The input a move's key raises, from its clip's name."""
+    return "Key_CDA_" + clip.rsplit("/", 1)[-1]
+
+
+def _last_name(chart, base):
+    """`base` with a number whose key sorts after every action of the chart."""
+    # ponytail: each move halves the room left above the top key, so the
+    # search doubles per move; fine to a dozen or so moves a chart.
+    top = max(a.key_hash for a in chart.actions)
+    n = 0
+    while _hash(f"{base}_{n}") <= top:
+        n += 1
+    return f"{base}_{n}"
+
+
+def add_move(chart, clip, key):
+    """Add to `chart` a move that plays `clip` (under character/motion/, no
+    .paa) on the key condition `key`, an input name in lower case, with a
+    branch into it on every action that plays Kliff's idle."""
+    acts = {a.key_hash: a for a in chart.actions}
+    if IDLE not in acts:
+        raise ChartError("the chart has no standing idle to start a move from")
+    idle = acts[IDLE]
+    name = _last_name(chart, "CDA_Move")
+    names = chart.strings[0]
+    if key not in names:
+        names.append(key)
+    token = len(chart.condition_offsets)
+    chart.condition_offsets.append(len(chart.condition_words))
+    chart.condition_words += [0xE9, names.index(key), _hash(key), 0, 0]
+
+    # The key branch, from a plain key exit of this chart: one key token and no other condition.
+    def plain(sl):
+        b = chart.branches[sl.branch_index]
+        return b.kind == 4 and b.keycond_count == 1 and b.cond_count == 0 and sl.filter_count == 0
+    template = next(i for i, sl in enumerate(chart.slots) if plain(sl))
+    branch = copy.deepcopy(chart.branches[chart.slots[template].branch_index])
+    branch.target_hash, branch.target_hash2 = _hash(name), 0
+    branch.keycond_first, branch.keycond_count = token, 1
+    branch.cond_count = 0
+    branch.input_hash = 0
+    chart.branches.append(branch)
+    slot = copy.deepcopy(chart.slots[template])
+    slot.branch_index = len(chart.branches) - 1
+    slot.cond_count = slot.filter_count = 0
+
+    # Only the idle's end branch out: standing still meets some of its other exits' conditions at once.
+    end = next(i for i in range(idle.slot_first, idle.slot_first + idle.slot_count)
+               if chart.branches[chart.slots[i].branch_index].kind == 7)
+    want = IDLE_CLIP + ".paa"
+    for a in chart.actions:
+        if any((chart.anim_path(chart.nodes[i]) or "").lower() == want
+               for i in range(a.node_first, a.node_first + a.node_count)):
+            moved = [copy.deepcopy(chart.slots[i]) for i in range(a.slot_first, a.slot_first + a.slot_count)]
+            a.slot_first, a.slot_count = len(chart.slots), len(moved) + 1
+            chart.slots += [copy.deepcopy(slot)] + moved
+
+    chart.nodes.append(copy.deepcopy(chart.nodes[idle.node_first]))
+    point(chart, [len(chart.nodes) - 1], clip)
+    act = idle.copy()
+    act.key_hash = _hash(name)
+    act.node_first, act.node_count = len(chart.nodes) - 1, 1
+    act.slot_first, act.slot_count = end, 1
+    chart.actions.append(act)
+
+
+def moves(chart, game):
+    """[(clip, key)] of the moves in `chart`, the actions the game's chart
+    `game` lacks, in the order they went in."""
+    known = {a.key_hash for a in game.actions}
+    out = []
+    for a in chart.actions:
+        if a.key_hash in known:
+            continue
+        clip = chart.anim_path(chart.nodes[a.node_first]) or ""
+        b = next(b for b in chart.branches if b.target_hash == a.key_hash and b.keycond_count == 1)
+        o = chart.condition_offsets[b.keycond_first]
+        out.append((clip[:-4] if clip.lower().endswith(".paa") else clip, chart.strings[0][chart.condition_words[o + 1]]))
+    return out
+
+
+def _leaf(clip):
+    return clip.rsplit("/", 1)[-1].lower() + ".paa"
+
+
+def _without(chart, game_data, leaf):
+    """`chart` made again from the game's, with its moves and pointed nodes
+    but those whose clip file is `leaf`, or None when none is."""
+    game = paac.Chart.parse(game_data)
+    mine = moves(chart, game)
+    points = {c: [n for n in ns if n < len(game.nodes)] for c, ns in pointed(chart, game).items()}
+    points = {c: ns for c, ns in points.items() if ns}
+    if leaf not in {_leaf(c) for c, _k in mine} | {_leaf(c) for c in points}:
+        return None
+    new = paac.Chart.parse(game_data)
+    for c, k in mine:
+        if _leaf(c) != leaf:
+            add_move(new, c, k)
+    for c, ns in points.items():
+        if _leaf(c) != leaf:
+            point(new, ns, c)
+    return new
+
+
+def game_inputmap(idx):
+    if getattr(idx, "_inputmap", None) is None:
+        entry = next(e for e in paz.read_index(os.path.join(idx.folder, "0012", "0.pamt"), {"xml"})
+                     if e.path.lower() == INPUTMAP)
+        idx._inputmap = paz.read(entry).decode("utf-8-sig")
+    return idx._inputmap
+
+
+def _keys(xml):
+    return {k for ks in re.findall(r'Key="([^"]+)"', xml) for k in ks.split()}
+
+
+def check_key(idx, key):
+    """Refuse a key the game has no name for, or one its standing actions
+    already use."""
+    xml = game_inputmap(idx)
+    if key not in _keys(xml):
+        raise ChartError(f'The game has no key named "{key}"')
+    i = xml.index(_GROUP)
+    if key in _keys(xml[i:xml.index("</InputGroup>", i)]):
+        raise ChartError(f'"{key}" already does something in the game while Kliff stands')
+
+
+def _entry(name, key):
+    return f'\r\n\t<Input Name="{name}">\r\n\t\t<KeyboardMouse Key="{key}" Method="downonce"/>\r\n\t</>'
+
+
+def _drop_input(xml, name):
+    return re.sub(r'\r\n\t<Input Name="%s">.*?</>' % re.escape(name), "", xml, count=1, flags=re.S)
+
+
+def _write_inputmap(idx, root, xml):
+    """Write the input map under by_path, or delete it once it is the game's."""
+    target = _target(root, INPUTMAP)
+    if xml == game_inputmap(idx):
+        if os.path.isfile(target):
+            os.remove(target)
+            _prune(os.path.dirname(target), root)
+        return
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    with open(target, "wb") as f:
+        f.write(("﻿" + xml).encode("utf-8"))
+
+
+def _folder_inputmap(idx, root):
+    at = _target(root, INPUTMAP)
+    if not os.path.isfile(at):
+        return game_inputmap(idx)
+    with open(at, encoding="utf-8-sig", newline="") as f:
+        return f.read()
+
+
+def send_move(idx, root, clip, key):
+    """Write into the loader folder `root` Kliff's two charts with a move
+    that plays `clip` on `key`, and the input map with the key. Returns the
+    charts written."""
+    check_key(idx, key)
+    name = input_name(clip)
+    written = []
+    for path in MOVE_CHARTS:
+        chart, _game, mine = current(idx, root, path)
+        add_move(chart, clip, name.lower())
+        written.append(_write(root, path, chart.pack(), mine))
+    xml = _drop_input(_folder_inputmap(idx, root), name)
+    _write_inputmap(idx, root, xml.replace(_GROUP, _GROUP + _entry(name, key), 1))
+    return written
 
 
 def _target(root, path):
@@ -317,7 +518,8 @@ def current(idx, root, path):
     if mine:
         with open(mine, "rb") as f:
             chart = _parse(path, f.read())
-        if _size(chart) != _size(game):
+        n, g = _size(chart), _size(game)
+        if n < g or n != g and isinstance(chart, _Blend):
             raise ChartError(f"{mine} does not match the game's {chart_name(path)}; it was not made from this "
                              "version of the game's file")
     else:
@@ -336,15 +538,20 @@ def send(idx, root, clip, plays):
     for path, nodes in sorted(by_chart.items()):
         chart, _game, mine = current(idx, root, path)
         point(chart, nodes, clip)
-        target = _target(root, path)
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-        with open(target, "wb") as f:
-            f.write(chart.pack())
-        if mine and mine != target:
-            os.remove(mine)
-            _prune(os.path.dirname(mine), root)
-        written.append(target)
+        written.append(_write(root, path, chart.pack(), mine))
     return written
+
+
+def _write(root, path, data, mine):
+    """Write a chart or blend under by_path, deleting an old copy elsewhere."""
+    target = _target(root, path)
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    with open(target, "wb") as f:
+        f.write(data)
+    if mine and mine != target:
+        os.remove(mine)
+        _prune(os.path.dirname(mine), root)
+    return target
 
 
 def _ours(idx, root):
@@ -394,10 +601,15 @@ def take_out(idx, root, clip):
         with open(f, "rb") as h:
             chart = _parse(path, h.read())
         game_data = game_bytes(idx, path)
-        game = _parse(path, game_data)
-        named = {s[:-4] for s in _clips_of(chart) if s.rsplit("/", 1)[-1].lower() == leaf}
-        if not [i for c in sorted(named) for i in unpoint(chart, game, c)]:
-            continue
+        if isinstance(chart, _Blend):
+            game = _parse(path, game_data)
+            named = {s[:-4] for s in _clips_of(chart) if s.rsplit("/", 1)[-1].lower() == leaf}
+            if not [i for c in sorted(named) for i in unpoint(chart, game, c)]:
+                continue
+        else:
+            chart = _without(chart, game_data, leaf)
+            if chart is None:
+                continue
         data = chart.pack()
         if data == game_data:
             os.remove(f)
@@ -407,6 +619,8 @@ def take_out(idx, root, clip):
             with open(f, "wb") as h:
                 h.write(data)
             rewritten.append(f)
+    if os.path.isfile(_target(root, INPUTMAP)):
+        _write_inputmap(idx, root, _drop_input(_folder_inputmap(idx, root), input_name(clip)))
     return rewritten, deleted
 
 
