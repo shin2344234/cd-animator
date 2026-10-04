@@ -117,7 +117,7 @@ def main():
         folder = out
         os.makedirs(folder, exist_ok=True)
         export.export_with_companions(arm, action, os.path.join(folder, NAME + ".paa"))
-        actioncharts.send_move(packs.index(), folder, actioncharts.new_path(action, NAME), "l")
+        actioncharts.send_move(packs.index(), folder, actioncharts.new_path(action, NAME), "l", int(action.frame_end))
     print("wrote", ", ".join(sorted(os.path.relpath(os.path.join(d, f), folder) for d, _s, fs in os.walk(folder)
                                     for f in fs)), "to", folder)
     sys.stdout.flush()

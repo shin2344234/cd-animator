@@ -11,7 +11,7 @@ import json
 
 from mathutils import Quaternion
 
-from . import anim, export, meta
+from . import anim, export, meta, retarget
 from .anim import FPS
 
 
@@ -66,13 +66,23 @@ def set_length(context, obj, action, frames, stretch_events=False):
     _set_end(context, action, frames)
 
 
+def travels(obj, action):
+    """Whether the clip moves B_MoveControl_01, so the game should move the
+    character with it."""
+    path = f'pose.bones["{retarget.TRAVEL[0]}"].location'
+    return any(fc.data_path == path and len({round(p.co[1], 5) for p in fc.keyframe_points}) > 1
+               for fc in _curves(obj, action))
+
+
 def make_loop(context, obj, action, overlap):
     """Fold the clip's last `overlap` frames into its first, so it ends on
     the pose it starts with and loops without a seam. Frame t, up to
     `overlap`, takes the pose from frame end - overlap + t and eases into
     its own; the clip then ends at end - overlap, on the pose frame 0 now
     has. The motion runs on through the seam instead of slowing to a held
-    pose."""
+    pose. In a clip that travels, its B_MoveControl_01 moving, the travel
+    bones' frames taken from the end are moved back by the clip's travel,
+    so each round goes on from where the last one got to."""
     if action.get("cd_lod"):
         raise ValueError("a LOD clip follows its full clip; loop the full clip instead")
     end = int(action.frame_end)
@@ -82,14 +92,17 @@ def make_loop(context, obj, action, overlap):
     channels = {}
     for fc in _curves(obj, action):
         channels.setdefault(fc.data_path, {})[fc.array_index] = fc
+    roots = [f'pose.bones["{b}"].location' for b in retarget.TRAVEL]
+    travels = any(abs(fc.evaluate(tail) - fc.evaluate(0)) > 1e-4 for fc in channels.get(roots[0], {}).values())
     for path, fcs in channels.items():
         order = sorted(fcs)
         quat = path.endswith("rotation_quaternion") and order == [0, 1, 2, 3]
+        back = [fcs[i].evaluate(tail) - fcs[i].evaluate(0) if travels and path in roots else 0.0 for i in order]
         rows = []
         for t in range(overlap + 1):
             w = t / overlap
             w = w * w * (3 - 2 * w)
-            a = [fcs[i].evaluate(tail + t) for i in order]
+            a = [fcs[i].evaluate(tail + t) - d for i, d in zip(order, back)]
             b = [fcs[i].evaluate(t) for i in order]
             if quat:
                 qa, qb = Quaternion(a), Quaternion(b)

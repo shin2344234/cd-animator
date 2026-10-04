@@ -18,7 +18,7 @@ from .formats import sockets as sockets_format
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 28, 0),
+    "version": (0, 29, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -1375,8 +1375,8 @@ class CDANIM_OT_retarget(Operator):
     """Key the active clip from another selected armature's animation, such as an imported BVH (with Scale FPS) or
     Mixamo FBX: each matched bone turns as the source bone does, the pelvis travels as the source hips do, scaled by
     leg length, with the feet on the floor. A T-pose first frame, as CMU's BVH files have, is the source's rest pose and
-    stays out of the clip. A start, an end and a speed take part of the source, faster or slower. Make a new clip from
-    a game clip first, to key into"""
+    stays out of the clip. A start, an end and a speed take part of the source, faster or slower. With Travel the game
+    moves him as far as the actor went. Make a new clip from a game clip first, to key into"""
     bl_idname = "cd_animator.retarget"
     bl_label = "Retarget from armature"
     bl_options = {"REGISTER", "UNDO"}
@@ -1390,6 +1390,10 @@ class CDANIM_OT_retarget(Operator):
     end: IntProperty(name="End", default=0, min=0, description="The source's frame the clip ends on; 0 runs to the end")
     speed: FloatProperty(name="Speed", default=1.0, min=0.05, max=20.0,
                          description="How fast the clip plays the source: 0.5 is half speed and twice as long")
+    travel: BoolProperty(name="Travel", default=False,
+                         description="Key the actor's travel over the ground on B_MoveControl_01 and Bip01, so the "
+                         "game moves him with it and he ends where the actor did. Off, the body moves within the "
+                         "clip and he is back where he started when it ends")
 
     @classmethod
     def poll(cls, context):
@@ -1414,13 +1418,14 @@ class CDANIM_OT_retarget(Operator):
         try:
             frames = retarget.times(frames, self.start or None, self.end or None, self.speed)
             clip.set_length(context, target, action, len(frames) - 1)
-            pairs = retarget.retarget(target, source, action, frames, self.face_forward, reference)
+            pairs = retarget.retarget(target, source, action, frames, self.face_forward, reference, self.travel)
         except (retarget.RetargetError, ValueError) as exc:
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
         missing = [g for g, _c in retarget.HUMAN if g in target.pose.bones and g not in dict(pairs)]
         self.report({"INFO"}, f"Retargeted {len(pairs)} bones over {len(frames)} frames, from the source's "
                     f"{frames[0]:g} to {frames[-1]:g}" + (f" at speed {self.speed:g}" if self.speed != 1 else "")
+                    + (", travelling" if self.travel else "")
                     + (f", with frame {reference}'s T-pose for the source's rest" if reference is not None else "")
                     + (f"; no source for {', '.join(missing)}" if missing else ""))
         return {"FINISHED"}
@@ -1641,13 +1646,15 @@ class CDANIM_OT_send_to_game(Operator):
                     # Start from the game's nodes, so ones no longer chosen go back.
                     actioncharts.take_out(idx, root, name)
                     plays, key = _plays(action), action.get("cd_key")
-                    clip = actioncharts.new_path(action, name)
+                    game_path = actioncharts.new_path(action, name)
                     if plays or key:
                         ingame.need_by_path(context)
                     if plays:
-                        charts = actioncharts.send(idx, root, clip, plays)
+                        charts = actioncharts.send(idx, root, game_path, plays)
                     if key:
-                        charts += [c for c in actioncharts.send_move(idx, root, clip, key, bool(action.get("cd_loop"))) if c not in charts]
+                        charts += [c for c in actioncharts.send_move(idx, root, game_path, key, int(action.frame_end),
+                                                                     bool(action.get("cd_loop")),
+                                                                     clip.travels(obj, action)) if c not in charts]
                     if not plays and not key:
                         problems.append(f"No chart or blend plays {name}, so the game will not play it; choose Where it "
                                         "plays or Play on a key")

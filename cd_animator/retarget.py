@@ -29,6 +29,13 @@ frame as the game skeleton's rest does, wherever the actor faced. Bones
 without a source keep their bind pose under their parent. The keys go on
 the active action, every frame, so Export writes them like any other clip.
 
+On its own the pelvis's travel only moves the body within the clip, and
+the game puts him back where he started when it ends. With travel,
+B_MoveControl_01 and Bip01 also take
+the hips' travel over the ground. The game moves a character by
+B_MoveControl_01 and draws the body from it, and its own clips move Bip01
+the same distance, so he ends where the actor did.
+
 The source bone for each game bone is the first of its candidate names the
 source rig has, ignoring case and a "prefix:" such as Mixamo's "mixamorig:".
 The candidates cover Mixamo, the BVH files of the CMU and Daz sets, Rigify's
@@ -66,7 +73,8 @@ HUMAN = [
     ("Bip01 R Toe0", ["RightToeBase", "RightToe", "DEF-toe.R", "toe.R", "ball_r"]),
 ]
 HIPS = "Bip01 Pelvis"
-LEG = ["Bip01 L Thigh", "Bip01 L Calf", "Bip01 L Foot"]
+TRAVEL = ["B_MoveControl_01", "Bip01"]   # the root bones that carry travel over the ground
+LEG =["Bip01 L Thigh", "Bip01 L Calf", "Bip01 L Foot"]
 FEET = ["Bip01 L Foot", "Bip01 R Foot", "Bip01 L Toe0", "Bip01 R Toe0"]
 # The joints a limb bone points to, the first one mapped.
 NEXT = {}
@@ -187,17 +195,21 @@ def times(frames, start=None, end=None, speed=1.0):
     return [a + i * speed for i in range(int((b - a) / speed + 1e-6) + 1)]
 
 
-def retarget(target, source, action, frames, face=True, reference=None):
+def retarget(target, source, action, frames, face=True, reference=None, travel=False):
     """Key `action` on armature `target` from `source`'s current animation
     at scene frames `frames`, the n-th onto frame n of the clip; a frame
     with a fraction samples between frames. Facing forward with `face`.
     The source's pose on frame `reference`, from split(), stands for its
-    rest pose. Returns the mapping used."""
+    rest pose. With `travel` the TRAVEL bones carry the hips' travel over
+    the ground. Returns the mapping used."""
     pairs = mapping(target, source)
     if not any(g == HIPS for g, _s in pairs) or len(pairs) < 10:
         raise RetargetError(f"only {len(pairs)} of the source's bones match a game bone"
                             + ("" if any(g == HIPS for g, _s in pairs) else ", and none is the hips")
                             + "; it needs the hips and most of the limbs")
+    roots = TRAVEL if travel else []
+    if not all(b in target.pose.bones for b in roots):
+        raise RetargetError(f"the skeleton has no {' and '.join(TRAVEL)} to carry travel")
     scene = bpy.context.scene
     keep_frame = scene.frame_current
     target.animation_data.action = action
@@ -248,11 +260,17 @@ def retarget(target, source, action, frames, face=True, reference=None):
         pb.scale = (1, 1, 1)
 
     tw_inv = tw.inverted()
+    rest_roots = {b: tw @ target.data.bones[b].matrix_local for b in roots}
 
     def pose(f, lift):
         """Pose the target as the source stands on frame f, the pelvis
         raised by `lift`. Returns the lowest foot joint's height."""
         _go(scene, f)
+        if roots:
+            step = facing @ (sw @ source.pose.bones[hips_src].head - start) * scale
+            for b in roots:
+                target.pose.bones[b].matrix = tw_inv @ Matrix.Translation((step.x, step.y, 0)) @ rest_roots[b]
+            bpy.context.view_layer.update()
         turns = {}
         for game, name in pairs:
             spb = source.pose.bones[name]
@@ -295,5 +313,7 @@ def retarget(target, source, action, frames, face=True, reference=None):
             tpb.keyframe_insert("rotation_quaternion", frame=n, group=game)
             if game == HIPS:
                 tpb.keyframe_insert("location", frame=n, group=game)
+        for b in roots:
+            target.pose.bones[b].keyframe_insert("location", frame=n, group=b)
     scene.frame_set(keep_frame)
     return pairs

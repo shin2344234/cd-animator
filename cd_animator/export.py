@@ -160,16 +160,19 @@ def build_track_data(obj, action, bake=True):
     to_bake = baking.bones_to_bake(obj, action) if bake else {}
 
     # New bones (keyed now, absent from the template) take the compact key
-    # kind (8-bit in a LOD clip, half floats in a full one) and go after the
-    # last template bone of that kind that comes before them in the skeleton.
+    # kind (8-bit in a LOD clip, half floats in a full one), or floats for a
+    # root bone of a full clip, as the game keeps Bip01 and B_MoveControl_01,
+    # and go after the last template bone of that kind that comes before them
+    # in the skeleton.
     known = {b["name"] for b in blocks if b["name"]}
     bones = obj.data.bones
-    new_kind = paa_codec.KIND_I8 if lod else paa_codec.KIND_HALF
     # Bones the game's skeleton lacks, a weapon's chain links (chains.py), are never written.
     for name in sorted((n for n in set(curves) | set(to_bake) if n not in known and n in bones
                         and "cd_index" in bones[n]),
                        key=lambda n: bones[n]["cd_index"]):
         idx = bones[name]["cd_index"]
+        new_kind = (paa_codec.KIND_I8 if lod else paa_codec.KIND_FLOAT if bones[name].parent is None
+                    else paa_codec.KIND_HALF)
         pos = next((i for i, b in enumerate(blocks) if b["kind"] >= new_kind), len(blocks))
         for i in range(pos, len(blocks)):
             b = blocks[i]

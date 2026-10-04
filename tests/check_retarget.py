@@ -25,7 +25,15 @@ skeleton must:
     degrees;
   * Make it loop over 10 frames end the clip on its first frame's pose,
     the pelvis where it starts, and leave the frames after the blend as
-    they were.
+    they were;
+  * with Travel, on a clip from the standing idle, which has no
+    B_MoveControl_01 track, move the body as before and B_MoveControl_01
+    and Bip01 as the pelvis travels over the ground, within 1 mm, and
+    export B_MoveControl_01 in floats, as the game's clips have it, with a
+    motion block in the metadata;
+  * Make it loop on a travelling clip keep its travel: B_MoveControl_01
+    starts where it rests and ends as far on as before the loop, and the
+    body stands the same from it on the first and last frames.
 
 Exit code 0 means every check passed.
 """
@@ -43,8 +51,10 @@ sys.path.insert(0, os.path.dirname(HERE))
 
 import cd_animator  # noqa: E402
 from cd_animator import packs, retarget  # noqa: E402
+from cd_animator.formats import metabin_codec, paa_codec  # noqa: E402
 
 RUN = "1_pc/1_phm/cd_phm_basic_00_00_nor_move_run_f_ing_00"
+IDLE = "1_pc/1_phm/cd_phm_basic_00_00_nor_std_idle_00"
 SIZE = 0.8
 MIXAMO = {"Bip01 Pelvis": "Hips", "Bip01 Spine": "Spine", "Bip01 Spine1": "Spine1", "Bip01 Spine2": "Spine2",
           "Bip01 Neck": "Neck", "Bip01 Head": "Head"}
@@ -229,6 +239,51 @@ def main():
     fails += report(length == 30 and seam < 0.1 and (first_hips - last_hips).length < 0.001 and kept < 0.1,
                     f"made a loop: {length} frames, first and last frames {seam:.4f} degrees and "
                     f"{(first_hips - last_hips).length * 1000:.2f} mm apart, frames 10 to 30 moved {kept:.4f} degrees")
+
+    bpy.ops.cd_animator.game_new_clip(clip=IDLE, clip_name="cd_phm_travel_check_00", frames=12, start="HOLD")
+    action = target.animation_data.action
+    rig.select_set(True)
+    target.select_set(True)
+    bpy.context.view_layer.objects.active = target
+    bpy.ops.cd_animator.retarget(face_forward=False, travel=True)
+    ok, what = matches()
+    tw = target.matrix_world
+
+    def went(b, f):
+        scene.frame_set(f)
+        return tw @ target.pose.bones[b].head - tw @ target.data.bones[b].head_local
+
+    ground = truth_hips[n] - truth_hips[0]
+    ground.z = 0
+    off = max(max(went(b, 0).length, (went(b, n) - ground).length) for b in retarget.TRAVEL)
+    out = os.path.join(os.path.dirname(out), "travel.paa")
+    bpy.ops.cd_animator.export_paa(filepath=out, clip="ACTION")
+    _h, td = paa_codec.decode_file(open(out, "rb").read())
+    mc = next(b for b in td.bones if b.name_hash == paa_codec.bone_hash("B_MoveControl_01"))
+    stored = math.hypot(mc.pos_keys[-1].x - mc.pos_keys[0].x, mc.pos_keys[-1].z - mc.pos_keys[0].z)
+    motion = metabin_codec.read_metabin(open(out[:-4] + ".paa_metabin", "rb").read()).motion
+    fails += report(ok and off < 0.001 and mc.kind == paa_codec.KIND_FLOAT and abs(stored - ground.length) < 0.001
+                    and motion is not None and len(motion.pos_keys) == len(mc.pos_keys),
+                    f"with travel the roots go {ground.length:.3f} m within {off * 1000:.3f} mm, B_MoveControl_01 "
+                    f"exported as kind {mc.kind} going {stored:.3f} m, motion block "
+                    f"{'with ' + str(len(motion.pos_keys)) + ' position keys' if motion else 'missing'}; {what}")
+
+    bpy.ops.cd_animator.retarget(face_forward=False, start=10, end=30, speed=0.5, travel=True)
+    lap = went("B_MoveControl_01", 30) - went("B_MoveControl_01", 0)
+    bpy.ops.cd_animator.make_loop(frames=10)
+
+    def from_root(f):
+        scene.frame_set(f)
+        body = tw @ target.pose.bones["Bip01 Pelvis"].head - tw @ target.pose.bones["B_MoveControl_01"].head
+        return {g: world_rot(target, g) for g in MIXAMO}, body
+
+    (first, first_body), (last, last_body) = from_root(0), from_root(30)
+    seam = max(angle(first[g], last[g]) for g in MIXAMO)
+    start_off, lap_off = went("B_MoveControl_01", 0).length, (went("B_MoveControl_01", 30) - lap).length
+    fails += report(seam < 0.1 and (first_body - last_body).length < 0.001 and start_off < 0.001 and lap_off < 0.001,
+                    f"a travelling loop goes {lap.length:.3f} m a round, B_MoveControl_01 {start_off * 1000:.3f} mm "
+                    f"from rest on frame 0 and {lap_off * 1000:.3f} mm off the round's travel on frame 30; the body "
+                    f"from it {seam:.4f} degrees and {(first_body - last_body).length * 1000:.3f} mm apart")
     print("PASS" if not fails else f"FAIL: {fails} checks")
     sys.stdout.flush()
     os._exit(1 if fails else 0)
