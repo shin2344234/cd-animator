@@ -310,6 +310,10 @@ When a move that plays once ends, the upper layer goes back to the idle, 26107D3
 
 A looping move's first slot is its own key branch pointed at the idle, blending over 6 frames as the idle's end does. The slot's window opens 0.13 s into the move, the shortest wait among the game's key slots (6 in `basic_lower`, others wait 0.43 to 0.67 s), so the press that starts the loop cannot end it at once. In game on 4 October Kliff started the Charleston on 8 and stopped it with 8 after 1.35 s and again after 0.38 s. Both times the loader logged both layers going to the idle through the stop branch, whose record sits two branch records, 104 bytes, after the move's entry branch, where `add_move` appends it. A move's key pressed while he walks starts it on the upper layer alone, which the walk hides, because only the upper chart is in its idle then.
 
+## The CMU database
+
+The BVH release at github.com/una-dinosauria/cmu-mocap keeps each subject in a folder of three digits and names its files like the motions, `data/001/01_01.bvh` and `data/141/141_16.bvh`. Its `cmu-mocap-index-text.txt`, from 2008, lists 2,435 motions of 109 subjects as a name, a tab and a description under a "Subject #N (description)" heading, in UTF-8. The release has 113 subject folders, so a few later subjects, such as 144's cartwheels, are missing from the list. Its READMEFIRST says CMU recorded at 120 frames a second and that the release writes that frame time into every file, adds a T-pose as frame 1 and changes no other frame. CMU's terms put no restrictions on the data and ask published work to credit mocap.cs.cmu.edu and NSF EIA-0196217.
+
 The name lists for Mixamo, Daz and Rigify still follow those rigs' published bone names; only CMU's have met a real file.
 
 ## Gear

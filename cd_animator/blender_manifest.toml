@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "cd_animator"
-version = "0.31.0"
+version = "0.32.0"
 name = "CD Animator"
 tagline = "Import and export Crimson Desert animation clips"
 maintainer = "Seth"
@@ -12,3 +12,4 @@ tags = ["Animation", "Import-Export"]
 
 [permissions]
 files = "Reads clips from the game's packs and caches them"
+network = "Downloads motion capture from the CMU database"

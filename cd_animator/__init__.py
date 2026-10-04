@@ -10,15 +10,15 @@ from bpy.types import AddonPreferences, Operator, OperatorFileListElement, UILis
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 from mathutils import Matrix
 
-from . import (actioncharts, anim, chains, clip, cloth, convert, export, ingame, mesh, meta, packs, retarget, skeleton,
-               sway, voice)
+from . import (actioncharts, anim, chains, clip, cloth, convert, export, ingame, mesh, meta, mocap, packs, retarget,
+               skeleton, sway, voice)
 from .formats import material, pac, paa_codec
 from .formats import sockets as sockets_format
 
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 31, 0),
+    "version": (0, 32, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -1371,6 +1371,50 @@ class CDANIM_UL_events(UIList):
         row.label(text=meta.TAG_NAMES.get(item.type, ""))
 
 
+def _motion_names(self, context, edit_text):
+    return packs.search(mocap.motions(), edit_text)
+
+
+class CDANIM_OT_mocap(Operator):
+    """Import a motion from the CMU Graphics Lab motion capture database, found by words from its description, ready
+    for Retarget from armature: downloaded once from the database's BVH release and imported at the game's 30 frames a
+    second, the game armature left active. CMU asks published work to credit mocap.cs.cmu.edu"""
+    bl_idname = "cd_animator.mocap"
+    bl_label = "Motion capture from CMU"
+    bl_options = {"REGISTER", "UNDO"}
+
+    motion: StringProperty(name="Motion", search=_motion_names, search_options={"SUGGESTION"},
+                           description="Words from the motion's description, such as dance or jump, or its name, "
+                           "such as 93_03")
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=520)
+
+    def execute(self, context):
+        target = context.object if skeleton.is_cd_armature(context.object) else None
+        ready = target is not None and _clip_action(context) is not None
+        try:
+            motion = mocap.find(self.motion)
+            path = mocap.fetch(motion)
+        except (mocap.MocapError, OSError) as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        if context.object is not None and context.object.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        context.scene.render.fps, context.scene.render.fps_base = anim.FPS, 1.0
+        bpy.ops.import_anim.bvh(filepath=path, use_fps_scale=True)
+        source = context.view_layer.objects.active
+        source["cd_mocap"] = motion
+        if target is not None:
+            target.select_set(True)
+            context.view_layer.objects.active = target
+        frames = source.animation_data.action.frame_range
+        self.report({"INFO"}, f"Imported {motion}, {round(frames[1] - frames[0])} frames at 30 a second"
+                    + (", ready for Retarget from armature" if ready else
+                       "; make a new clip on the game armature, then Retarget from armature"))
+        return {"FINISHED"}
+
+
 class CDANIM_OT_retarget(Operator):
     """Key the active clip from another selected armature's animation, such as an imported BVH (with Scale FPS) or
     Mixamo FBX: each matched bone turns as the source bone does, the pelvis travels as the source hips do, scaled by
@@ -2038,6 +2082,7 @@ class CDANIM_PT_panel(bpy.types.Panel):
         col.operator(CDANIM_OT_game_characters.bl_idname, text="Build characters from a list", icon="COMMUNITY")
         col.operator(CDANIM_OT_game_prop.bl_idname, text="Attach weapon or prop", icon="TOOL_SETTINGS")
         col.operator(CDANIM_OT_game_new_clip.bl_idname, text="New clip from a game clip", icon="ADD")
+        col.operator(CDANIM_OT_mocap.bl_idname, icon="IMPORT")
         col.operator(CDANIM_OT_retarget.bl_idname, icon="ARMATURE_DATA")
         col.separator()
         col.operator(CDANIM_OT_bake_chains.bl_idname, icon="LINKED")
@@ -2142,7 +2187,7 @@ def _menu_import(self, context):
 
 _classes = (CDANIM_AP_prefs, CDANIM_OT_import_pab, CDANIM_OT_import_paa, CDANIM_OT_export_paa, CDANIM_OT_new_clip,
             CDANIM_OT_game_skeleton, CDANIM_OT_game_clip, CDANIM_OT_game_new_clip, CDANIM_OT_game_mesh, CDANIM_OT_import_pac, CDANIM_OT_game_character, CDANIM_OT_game_characters, CDANIM_OT_game_prop, CDANIM_OT_bake_chains,
-            CDANIM_OT_set_length, CDANIM_OT_make_loop, CDANIM_OT_end_on_idle, CDANIM_OT_event_add, CDANIM_OT_event_remove, CDANIM_UL_events, CDANIM_OT_tag_footsteps, CDANIM_OT_retarget,
+            CDANIM_OT_set_length, CDANIM_OT_make_loop, CDANIM_OT_end_on_idle, CDANIM_OT_event_add, CDANIM_OT_event_remove, CDANIM_UL_events, CDANIM_OT_tag_footsteps, CDANIM_OT_mocap, CDANIM_OT_retarget,
             CDANIM_OT_seat_rider, CDANIM_OT_unseat_rider, CDANIM_OT_remove_face, CDANIM_OT_send_to_game,
             CDANIM_OT_check_game, CDANIM_OT_remove_from_game, CDANIM_OT_seen_in_game, CDANIM_OT_log_clips,
             CDANIM_PG_use, CDANIM_UL_uses, CDANIM_OT_play_where, CDANIM_OT_play_on_key,
