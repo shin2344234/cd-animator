@@ -26,9 +26,13 @@ back to idle when the clip ends. Every action that plays his idle clip
 gets a branch into it on the key's condition, and the input map
 (ui/inputmap.xml) gets the key's input. Both layers need it, as the lower
 layer's moves hide the upper's. The game keeps every chart's actions
-sorted by key, so the move's name is one whose key sorts last. Taking a
-move or a pointed clip out of a chart makes the chart again from the
-game's, with what stays.
+sorted by key, so the move's name is one whose key sorts last. A move
+can loop instead, an emote until he moves: its end branch points back at
+itself, as the upper idle's does, and it takes the idle's other ways out
+but those into the sand, cliff and alert idles. The game starts walks,
+jumps and attacks from outside the idle's exits, so those end it too.
+Taking a move or a pointed clip out of a chart makes the chart again from
+the game's, with what stays.
 
 Action names are hashes. The names table of a chart (strings[0]) holds the
 names of other things, so 136 of the game's 84,133 actions have a name
@@ -54,6 +58,7 @@ MOVE_CHARTS = (CHARTS + "upperaction/1_pc/1_phm/basic_upper.paac", CHARTS + "low
 MOVE_FOLDER = "1_pc/1_phm/"            # clips Kliff's skeleton plays
 IDLE_CLIP = "1_pc/1_phm/cd_phm_basic_00_00_nor_std_idle_00"
 IDLE = 0x26107D3C                      # his standing idle, in both charts
+LOOP_BLEND = 6.0                       # a loop's blend into its own start, as the lower idle's end branch has
 INPUTMAP = "ui/inputmap.xml"
 INPUTMAPS = (INPUTMAP, "ui/inputmap_common.xml")   # the second has the menus' keys, the skill view's K among them
 _GROUP = '<InputGroup Name="CharacterAction" LayerName="Action" EnableConsume="False">'
@@ -324,10 +329,21 @@ def _last_name(chart, base):
     return f"{base}_{n}"
 
 
-def add_move(chart, clip, key):
+def _standing(chart, key):
+    """True when action `key` of `chart` is a standing idle, such as the
+    sand, cliff or alert idle Kliff's idle turns into where he stands."""
+    for a in chart.actions:
+        if a.key_hash == key and a.node_count:
+            return "_std_idle" in (chart.anim_path(chart.nodes[a.node_first]) or "").lower()
+    return False
+
+
+def add_move(chart, clip, key, loop=False):
     """Add to `chart` a move that plays `clip` (under character/motion/, no
     .paa) on the key condition `key`, an input name in lower case, with a
-    branch into it on every action that plays Kliff's idle."""
+    branch into it on every action that plays Kliff's idle. A move that
+    loops plays its clip again at the end, until one of the idle's ways out
+    but into another standing idle fires, his walk among them."""
     acts = {a.key_hash: a for a in chart.actions}
     if IDLE not in acts:
         raise ChartError("the chart has no standing idle to start a move from")
@@ -358,6 +374,12 @@ def add_move(chart, clip, key):
     # Only the idle's end branch out: standing still meets some of its other exits' conditions at once.
     end = next(i for i in range(idle.slot_first, idle.slot_first + idle.slot_count)
                if chart.branches[chart.slots[i].branch_index].kind == 7)
+    # A loop's ways out, taken before the idle's slots move: the idle's own, but its end, those into the
+    # other standing idles, which fire from the ground he stands on, and other moves' keys.
+    ways_out = [copy.deepcopy(chart.slots[i]) for i in range(idle.slot_first, idle.slot_first + idle.slot_count)
+                if chart.branches[chart.slots[i].branch_index].kind != 7
+                and not chart.branches[chart.slots[i].branch_index].keycond_count
+                and not _standing(chart, chart.branches[chart.slots[i].branch_index].target_hash)]
     want = IDLE_CLIP + ".paa"
     for a in chart.actions:
         if any((chart.anim_path(chart.nodes[i]) or "").lower() == want
@@ -372,12 +394,22 @@ def add_move(chart, clip, key):
     act.key_hash = _hash(name)
     act.node_first, act.node_count = len(chart.nodes) - 1, 1
     act.slot_first, act.slot_count = end, 1
+    if loop:
+        # The idle's end branch, pointed back at the move, as the upper idle's points at the idle.
+        again = copy.deepcopy(chart.branches[chart.slots[end].branch_index])
+        again.target_hash, again.target_hash2 = act.key_hash, 0
+        again.time_a = LOOP_BLEND
+        chart.branches.append(again)
+        last = copy.deepcopy(chart.slots[end])
+        last.branch_index = len(chart.branches) - 1
+        act.slot_first, act.slot_count = len(chart.slots), len(ways_out) + 1
+        chart.slots += ways_out + [last]
     chart.actions.append(act)
 
 
 def moves(chart, game):
-    """[(clip, key)] of the moves in `chart`, the actions the game's chart
-    `game` lacks, in the order they went in."""
+    """[(clip, key, loop)] of the moves in `chart`, the actions the game's
+    chart `game` lacks, in the order they went in."""
     known = {a.key_hash for a in game.actions}
     out = []
     for a in chart.actions:
@@ -386,7 +418,11 @@ def moves(chart, game):
         clip = chart.anim_path(chart.nodes[a.node_first]) or ""
         b = next(b for b in chart.branches if b.target_hash == a.key_hash and b.keycond_count == 1)
         o = chart.condition_offsets[b.keycond_first]
-        out.append((clip[:-4] if clip.lower().endswith(".paa") else clip, chart.strings[0][chart.condition_words[o + 1]]))
+        loop = any(chart.branches[chart.slots[i].branch_index].kind == 7
+                   and chart.branches[chart.slots[i].branch_index].target_hash == a.key_hash
+                   for i in range(a.slot_first, a.slot_first + a.slot_count))
+        out.append((clip[:-4] if clip.lower().endswith(".paa") else clip,
+                    chart.strings[0][chart.condition_words[o + 1]], loop))
     return out
 
 
@@ -401,12 +437,12 @@ def _without(chart, game_data, leaf):
     mine = moves(chart, game)
     points = {c: [n for n in ns if n < len(game.nodes)] for c, ns in pointed(chart, game).items()}
     points = {c: ns for c, ns in points.items() if ns}
-    if leaf not in {_leaf(c) for c, _k in mine} | {_leaf(c) for c in points}:
+    if leaf not in {_leaf(c) for c, _k, _l in mine} | {_leaf(c) for c in points}:
         return None
     new = paac.Chart.parse(game_data)
-    for c, k in mine:
+    for c, k, loop in mine:
         if _leaf(c) != leaf:
-            add_move(new, c, k)
+            add_move(new, c, k, loop)
     for c, ns in points.items():
         if _leaf(c) != leaf:
             point(new, ns, c)
@@ -494,10 +530,10 @@ def _folder_inputmap(idx, root):
         return f.read()
 
 
-def send_move(idx, root, clip, key):
+def send_move(idx, root, clip, key, loop=False):
     """Write into the loader folder `root` Kliff's two charts with a move
-    that plays `clip` on `key`, and the input map with the key. Returns the
-    charts written."""
+    that plays `clip` on `key`, looping with `loop`, and the input map with
+    the key. Returns the charts written."""
     check_key(idx, key)
     name = input_name(clip)
     xml = _drop_input(_folder_inputmap(idx, root), name)
@@ -507,7 +543,7 @@ def send_move(idx, root, clip, key):
     written = []
     for path in MOVE_CHARTS:
         chart, _game, mine = current(idx, root, path)
-        add_move(chart, clip, name.lower())
+        add_move(chart, clip, name.lower(), loop)
         written.append(_write(root, path, chart.pack(), mine))
     _write_inputmap(idx, root, xml.replace(_GROUP, _GROUP + _entry(name, key), 1))
     return written

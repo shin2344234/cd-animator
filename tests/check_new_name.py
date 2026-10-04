@@ -34,6 +34,10 @@ in for the game's bin64. It requires:
     the pointed nodes of basic_upper kept, and the key into the input map
     under by_path;
   * Check the game to list each chart and blend with the clip it plays;
+  * a looping move to end on its own branch back into itself, with the
+    idle's ways out but its end and those into other standing idles, the
+    lower chart's walk among them, and to go in again as a loop when a
+    chart is made again;
   * Take out of the game to take the move out of both charts and the input
     map, leaving basic_upper's pointed nodes and deleting the rest;
   * Take out of the game to put a clip's nodes and slots back, and a file
@@ -213,7 +217,7 @@ def main():
         mine = chart(at(path)) if os.path.isfile(at(path)) else None
         keys = [a.key_hash for a in mine.actions] if mine else []
         move_ok.append(mine is not None and keys == sorted(keys) and len(mine.nodes) == len(game.nodes) + 1
-                       and actioncharts.moves(mine, game) == [("1_pc/1_phm/" + MOVER, f"key_cda_{MOVER}")])
+                       and actioncharts.moves(mine, game) == [("1_pc/1_phm/" + MOVER, f"key_cda_{MOVER}", False)])
     kept = sorted(c for c, ns in actioncharts.pointed(chart(at(UPPER)), game_upper).items() if ns != [len(game_upper.nodes)])
     fails += report(refused == ["e", "k", "nosuchkey"] and mover.get("cd_key") == "l" and all(move_ok)
                     and kept == ["1_pc/1_phm/" + FIRST, "1_pc/1_phm/" + SECOND]
@@ -228,6 +232,26 @@ def main():
                                       ("basic_upper.paac", FIRST, 1, True), ("basic_upper.paac", MOVER, 1, True),
                                       ("basic_upper.paac", SECOND, 1, True)],
                     f"Check the game lists {lines}")
+
+    # A loop, straight on the game's charts.
+    loop_ok = []
+    for path, game in ((UPPER, game_upper), (LOWER, game_lower)):
+        data = actioncharts.game_bytes(idx, path)
+        c = paac.Chart.parse(data)
+        actioncharts.add_move(c, "1_pc/1_phm/" + MOVER, "key_cda_loop", loop=True)
+        act = c.actions[-1]
+        out = [c.branches[c.slots[i].branch_index] for i in range(act.slot_first, act.slot_first + act.slot_count)]
+        idle = c.find_action(actioncharts.IDLE)
+        idle_out = [c.branches[c.slots[i].branch_index] for i in range(idle.slot_first + 1, idle.slot_first + idle.slot_count)]
+        made = actioncharts._without(c, data, "nothing.paa")
+        again = paac.Chart.parse(c.pack())
+        loop_ok.append(out[-1].kind == 7 and out[-1].target_hash == act.key_hash
+                       and not any(b.kind == 7 and b.target_hash != act.key_hash for b in out)
+                       and {b.target_hash for b in out[:-1]}
+                       == {b.target_hash for b in idle_out if b.kind != 7 and not actioncharts._standing(c, b.target_hash)}
+                       and (path == UPPER or 0xFC18618C in {b.target_hash for b in out})
+                       and made is None and actioncharts.moves(again, game) == [("1_pc/1_phm/" + MOVER, "key_cda_loop", True)])
+    fails += report(all(loop_ok), f"a looping move, upper and lower: {loop_ok}")
 
     bpy.ops.cd_animator.remove_from_game(name=MOVER)
     up = differs(chart(at(UPPER)), game_upper)

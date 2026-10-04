@@ -18,7 +18,7 @@ from .formats import sockets as sockets_format
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 26, 0),
+    "version": (0, 27, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -1612,7 +1612,7 @@ class CDANIM_OT_send_to_game(Operator):
                     if plays:
                         charts = actioncharts.send(idx, root, clip, plays)
                     if key:
-                        charts += [c for c in actioncharts.send_move(idx, root, clip, key) if c not in charts]
+                        charts += [c for c in actioncharts.send_move(idx, root, clip, key, bool(action.get("cd_loop"))) if c not in charts]
                     if not plays and not key:
                         problems.append(f"No chart or blend plays {name}, so the game will not play it; choose Where it "
                                         "plays or Play on a key")
@@ -1697,14 +1697,17 @@ def _is_new(idx, action, name):
 
 
 class CDANIM_OT_play_on_key(Operator):
-    """Make this new clip a move Kliff plays when a key is pressed while he stands. Send to game adds it to his two
-    action charts and the game's input map. Clear the key to take the move away"""
+    """Make this new clip a move Kliff plays when a key is pressed while he stands, once or looping until he moves.
+    Send to game adds it to his two action charts and the game's input map. Clear the key to take the move away"""
     bl_idname = "cd_animator.play_on_key"
     bl_label = "Play on a key"
     bl_options = {"REGISTER", "UNDO"}
 
     key: StringProperty(name="Key", description="A keyboard key as the game names it that it binds to nothing, such as "
                         "l, 7, 8 or num1")
+    loop: BoolProperty(name="Loop until he moves",
+                       description="Play the clip again and again, as an emote, until Kliff walks, jumps or "
+                       "attacks; off, it plays once and he goes back to his idle")
 
     @classmethod
     def poll(cls, context):
@@ -1720,7 +1723,9 @@ class CDANIM_OT_play_on_key(Operator):
     def invoke(self, context, event):
         if not _open_index(self, context):
             return {"CANCELLED"}
-        self.key = _clip_action(context).get("cd_key", "l")
+        action = _clip_action(context)
+        self.key = action.get("cd_key", "l")
+        self.loop = bool(action.get("cd_loop"))
         return context.window_manager.invoke_props_dialog(self)
 
     def execute(self, context):
@@ -1728,6 +1733,7 @@ class CDANIM_OT_play_on_key(Operator):
         key = self.key.strip().lower()
         if not key:
             action.pop("cd_key", None)
+            action.pop("cd_loop", None)
             self.report({"INFO"}, f"{action.name} is no move; Send to game takes it out of the charts")
             return {"FINISHED"}
         try:
@@ -1736,7 +1742,10 @@ class CDANIM_OT_play_on_key(Operator):
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
         action["cd_key"] = key
-        self.report({"INFO"}, f"Kliff plays {action.name} on {key.upper()} while he stands; Send to game puts it in")
+        action["cd_loop"] = self.loop
+        how = "again and again until he moves" if self.loop else "once"
+        self.report({"INFO"}, f"Kliff plays {action.name} {how} on {key.upper()} while he stands; Send to game puts it "
+                    "in")
         return {"FINISHED"}
 
 
@@ -2011,7 +2020,8 @@ class CDANIM_PT_panel(bpy.types.Panel):
                           f"{_files_text({p for p, _n in plays})}" if plays else "Nothing plays it yet")
                 row.operator(CDANIM_OT_play_where.bl_idname, text="", icon="NODETREE")
                 row = box.row()
-                row.label(text=f"Played on {action['cd_key'].upper()}" if action.get("cd_key") else "On no key")
+                row.label(text=(f"Played on {action['cd_key'].upper()}" + (", looping" if action.get("cd_loop") else ""))
+                          if action.get("cd_key") else "On no key")
                 row.operator(CDANIM_OT_play_on_key.bl_idname, text="", icon="EVENT_K")
             m = action.cd_meta
             box.label(text="Events: begin, end (frames), type" if m.loaded else "Events: the template's (no metadata read)")
