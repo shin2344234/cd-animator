@@ -1,0 +1,320 @@
+<title>CD Animator Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+/* Layout: a field manual. The page list stays on the left, one page reads in the middle, its sections list on the right on wide screens. */
+:root {
+  --bg: #f7f5f5;
+  --panel: #eee9ea;
+  --fg: #1f1a1c;
+  --muted: #675c5f;
+  --line: #e0d6d8;
+  --accent: #a3132b;
+  --accent-soft: #f5e1e5;
+  --code: #ece5e7;
+  --display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141113; --panel: #1d181a; --fg: #ece5e7; --muted: #a8999e; --line: #31292c;
+    --accent: #f26b7e; --accent-soft: #3c1d25; --code: #231d20; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141113; --panel: #1d181a; --fg: #ece5e7; --muted: #a8999e; --line: #31292c;
+  --accent: #f26b7e; --accent-soft: #3c1d25; --code: #231d20; color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 16px/1.62 var(--body); }
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: .18em; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+
+.shell {
+  display: grid; grid-template-columns: 16.5rem minmax(0, 1fr) 13.5rem; column-gap: 3rem;
+  max-width: 84rem; margin: 0 auto; padding-inline: 1.5rem;
+}
+
+/* The page list */
+.side {
+  position: sticky; top: env(safe-area-inset-top, 0px); align-self: start;
+  max-height: 100vh; overflow-y: auto; padding-block: 1.75rem 2.5rem;
+}
+.brand { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.tools { display: flex; align-items: center; gap: .4rem; }
+.theme {
+  display: none; place-items: center; width: 2.1rem; height: 2.1rem; padding: 0; cursor: pointer;
+  color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+}
+.js .theme { display: inline-grid; }
+.theme:hover { color: var(--accent); border-color: var(--accent); }
+.theme svg { width: 1.05rem; height: 1.05rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.theme[data-mode="light"] .sun, .theme[data-mode="dark"] .moon { display: none; }
+.brand a { text-decoration: none; color: var(--fg); }
+.brand .name { font: 600 1.75rem/1 var(--display); letter-spacing: .01em; }
+.brand .name b { color: var(--accent); font-weight: 600; }
+.ver { margin: .5rem 0 1.1rem; font: .74rem/1.5 var(--mono); color: var(--muted); }
+.search label { display: block; font-size: .78rem; font-weight: 600; color: var(--muted); margin-bottom: .3rem; }
+#q {
+  width: 100%; font: inherit; font-size: .92rem; padding: .5rem .7rem;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg);
+}
+#q:focus-visible { outline-offset: 0; }
+.group-title {
+  margin: 1.5rem 0 .4rem; padding-left: .6rem;
+  font: 600 .72rem/1 var(--body); letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
+}
+.side ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+.side nav a {
+  display: block; padding: .32rem .6rem; border-radius: 5px;
+  color: var(--fg); text-decoration: none; font-size: .93rem; line-height: 1.35;
+}
+.side nav a:hover { background: var(--panel); }
+.side nav a[aria-current="page"] { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+#results { margin-top: .9rem; display: grid; gap: 2px; }
+#results a { display: grid; gap: .1rem; padding: .5rem .6rem; border-radius: 5px; color: var(--fg); text-decoration: none; font-size: .9rem; line-height: 1.35; }
+#results a:hover { background: var(--panel); }
+#results .where { font-size: .68rem; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+#results .snip { font-size: .8rem; color: var(--muted); }
+#results .none { font-size: .88rem; color: var(--muted); padding-left: .6rem; }
+.menu {
+  display: none; font: 600 .85rem/1 var(--body); color: var(--fg); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 6px; padding: .5rem .8rem; cursor: pointer;
+}
+
+/* The reading column */
+main { min-width: 0; padding-block: 2.4rem 5rem; }
+.eyebrow { margin: 0 0 .5rem; font: 600 .74rem/1 var(--body); letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
+article h1 { margin: 0 0 1.3rem; font: 600 clamp(2.1rem, 4vw, 2.9rem)/1.02 var(--display); letter-spacing: .005em; text-wrap: balance; }
+article h2 {
+  margin: 2.8rem 0 .8rem; padding-top: 1rem; border-top: 1px solid var(--line);
+  font: 600 1.7rem/1.1 var(--display); letter-spacing: .01em; text-wrap: balance; scroll-margin-top: 1rem;
+}
+article h3 { margin: 2rem 0 .5rem; font: 600 1.05rem/1.3 var(--body); text-wrap: balance; scroll-margin-top: 1rem; }
+article p, article ul, article ol { max-width: 68ch; }
+article p { margin: 0 0 1rem; }
+article ul, article ol { margin: 0 0 1.1rem; padding-left: 1.3rem; display: grid; gap: .35rem; }
+article li::marker { color: var(--muted); }
+article ol li::marker { font: 600 .9em var(--mono); color: var(--accent); }
+code { font-family: var(--mono); font-size: .86em; background: var(--code); padding: .08em .32em; border-radius: 3px; overflow-wrap: anywhere; }
+.code { position: relative; margin: 0 0 1.2rem; }
+pre {
+  margin: 0; padding: .95rem 1rem; padding-right: 4.8rem; overflow-x: auto;
+  background: var(--code); border: 1px solid var(--line); border-radius: 6px;
+  font-size: .84rem; line-height: 1.55;
+}
+pre code { background: none; padding: 0; font-size: inherit; white-space: pre; overflow-wrap: normal; }
+.copy {
+  position: absolute; top: .5rem; right: .5rem; font: 500 .74rem/1 var(--body);
+  color: var(--muted); background: var(--bg); border: 1px solid var(--line); border-radius: 5px;
+  padding: .35rem .55rem; cursor: pointer;
+}
+.copy:hover { color: var(--accent); border-color: var(--accent); }
+.table-wrap { overflow-x: auto; margin: .2rem 0 1.4rem; border: 1px solid var(--line); border-radius: 6px; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; line-height: 1.45; }
+th, td { text-align: left; vertical-align: top; padding: .55rem .8rem; border-bottom: 1px solid var(--line); }
+th { background: var(--panel); font-size: .72rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+tbody tr:last-child td { border-bottom: 0; }
+td:first-child { font-weight: 500; }
+.pager { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 3.5rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+.pager a { display: grid; gap: .2rem; padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 6px; text-decoration: none; }
+.pager a:hover { border-color: var(--accent); }
+.pager small { font-size: .7rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.pager span { font: 600 1.2rem/1.15 var(--display); color: var(--fg); }
+.pager .next { grid-column: 2; text-align: right; }
+
+.js article.page { display: none; }
+.js article.page.current { display: block; }
+html:not(.js) .toc { display: none; }
+
+/* Sections of the open page */
+.toc { position: sticky; top: env(safe-area-inset-top, 0px); align-self: start; max-height: 100vh; overflow-y: auto; padding-block: 2.6rem 2rem; font-size: .84rem; line-height: 1.35; }
+.toc .group-title { margin-top: 0; padding-left: 0; }
+#toc { list-style: none; margin: 0; padding: 0; display: grid; gap: .45rem; }
+#toc a { color: var(--muted); text-decoration: none; }
+#toc a:hover { color: var(--accent); }
+#toc .sub { padding-left: .85rem; }
+
+@media (max-width: 75rem) {
+  .shell { grid-template-columns: 15.5rem minmax(0, 1fr); }
+  .toc { display: none; }
+}
+@media (max-width: 52rem) {
+  .shell { grid-template-columns: minmax(0, 1fr); column-gap: 0; padding-inline: 1rem; }
+  .side { position: static; max-height: none; overflow: visible; padding-block: 1rem; border-bottom: 1px solid var(--line); }
+  .ver { margin-bottom: 0; }
+  .js .menu { display: inline-flex; }
+  .js .navwrap { display: none; padding-top: .9rem; }
+  .js .side.open .navwrap { display: block; }
+  main { padding-block: 1.6rem 4rem; }
+  .pager { grid-template-columns: minmax(0, 1fr); }
+  .pager .next { grid-column: 1; }
+}
+</style>
+<script>document.documentElement.classList.add('js');
+try { const t = localStorage.getItem('cd-guide-theme'); if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t; } catch (e) {}</script>
+
+<div class="shell">
+  <aside class="side">
+    <div class="brand">
+      <a href="#overview"><span class="name"><b>CD</b> Animator</span></a>
+      <div class="tools">
+        <button class="theme" id="theme" type="button" data-mode="light" aria-label="Switch to dark theme" title="Dark theme">
+          <svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+          <svg class="sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M2 12h2.5M19.5 12H22M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></svg>
+        </button>
+        <button class="menu" id="menu" type="button" aria-expanded="false" aria-controls="navwrap">Pages</button>
+      </div>
+    </div>
+    <p class="ver">Add-on 0.40.0 · Loader 0.3.0<br>Crimson Desert 2.03.02</p>
+    <div class="navwrap" id="navwrap">
+      <div class="search">
+        <label for="q">Search the guide</label>
+        <input id="q" type="search" placeholder="IK, LogClips, cloth…" autocomplete="off">
+      </div>
+      <nav id="nav" aria-label="Guide pages">
+{{NAV}}
+      </nav>
+      <div id="results" hidden></div>
+    </div>
+  </aside>
+
+  <main id="main">
+{{ARTICLES}}
+  </main>
+
+  <aside class="toc" aria-label="On this page">
+    <p class="group-title">On this page</p>
+    <ol id="toc"></ol>
+  </aside>
+</div>
+
+<script>
+(() => {
+  const pages = [...document.querySelectorAll('article.page')];
+  const navLinks = [...document.querySelectorAll('#nav a')];
+  const toc = document.getElementById('toc');
+  const side = document.querySelector('.side');
+  const menu = document.getElementById('menu');
+  const nav = document.getElementById('nav');
+  const results = document.getElementById('results');
+  const q = document.getElementById('q');
+
+  function show(token) {
+    const page = pages.find(p => p.id === token.split('.')[0]) || pages[0];
+    pages.forEach(p => p.classList.toggle('current', p === page));
+    navLinks.forEach(a => {
+      if (a.dataset.page === page.id) a.setAttribute('aria-current', 'page');
+      else a.removeAttribute('aria-current');
+    });
+    toc.replaceChildren(...[...page.querySelectorAll('h2, h3')].map(h => {
+      const li = document.createElement('li');
+      if (h.tagName === 'H3') li.className = 'sub';
+      const a = document.createElement('a');
+      a.href = '#' + h.id;
+      a.textContent = h.textContent;
+      li.append(a);
+      return li;
+    }));
+    toc.parentElement.hidden = !toc.children.length;
+    const target = token.includes('.') ? document.getElementById(token) : null;
+    if (target) target.scrollIntoView();
+    else window.scrollTo(0, 0);
+    side.classList.remove('open');
+    menu.setAttribute('aria-expanded', 'false');
+  }
+  const current = () => decodeURIComponent(location.hash.slice(1));
+  window.addEventListener('hashchange', () => show(current()));
+  show(current());
+
+  // Light and dark: a click sets the theme on the page and remembers it; until then the page follows the system or the host page's theme.
+  const root = document.documentElement;
+  const themeButton = document.getElementById('theme');
+  const systemDark = matchMedia('(prefers-color-scheme: dark)');
+  const isDark = () => (root.dataset.theme ? root.dataset.theme === 'dark' : systemDark.matches);
+  const labelTheme = () => {
+    const dark = isDark();
+    themeButton.dataset.mode = dark ? 'dark' : 'light';
+    themeButton.setAttribute('aria-label', dark ? 'Switch to light theme' : 'Switch to dark theme');
+    themeButton.title = dark ? 'Light theme' : 'Dark theme';
+  };
+  themeButton.addEventListener('click', () => {
+    const next = isDark() ? 'light' : 'dark';
+    root.dataset.theme = next;
+    try { localStorage.setItem('cd-guide-theme', next); } catch (e) {}
+  });
+  new MutationObserver(labelTheme).observe(root, { attributes: true, attributeFilter: ['data-theme'] });
+  systemDark.addEventListener('change', labelTheme);
+  labelTheme();
+
+  menu.addEventListener('click', () => {
+    menu.setAttribute('aria-expanded', String(side.classList.toggle('open')));
+  });
+
+  // Search: every page's intro and each of its sections, matched on all the words typed.
+  const index = [];
+  pages.forEach(p => {
+    const pageTitle = p.querySelector('h1').textContent;
+    let section = { id: p.id, title: pageTitle, page: pageTitle, text: '' };
+    index.push(section);
+    for (const el of p.children) {
+      if (el.matches('h2, h3')) {
+        section = { id: el.id, title: el.textContent, page: pageTitle, text: '' };
+        index.push(section);
+      } else if (!el.matches('h1, .eyebrow, .pager')) {
+        section.text += ' ' + el.textContent;
+      }
+    }
+  });
+  const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  q.addEventListener('input', () => {
+    const query = q.value.trim().toLowerCase();
+    const words = query.split(/\s+/).filter(Boolean);
+    if (query.length < 2) { results.hidden = true; nav.hidden = false; return; }
+    const hits = index.map(s => {
+      const hay = (s.title + ' ' + s.text).toLowerCase();
+      if (!words.every(w => hay.includes(w))) return null;
+      return { s, score: words.filter(w => s.title.toLowerCase().includes(w)).length };
+    }).filter(Boolean).sort((a, b) => b.score - a.score).slice(0, 25);
+    results.innerHTML = hits.length ? hits.map(({ s }) => {
+      const text = s.text.replace(/\s+/g, ' ').trim();
+      const at = Math.max(0, text.toLowerCase().indexOf(words[0]));
+      const from = Math.max(0, at - 40);
+      const snip = (from ? '…' : '') + text.slice(from, at + 90) + (at + 90 < text.length ? '…' : '');
+      const where = s.page === s.title ? 'Page' : s.page;
+      return `<a href="#${s.id}"><span class="where">${esc(where)}</span>${esc(s.title)}<span class="snip">${esc(snip)}</span></a>`;
+    }).join('') : '<p class="none">Nothing in the guide matches that.</p>';
+    nav.hidden = true;
+    results.hidden = false;
+  });
+
+  // Copy buttons on commands and code.
+  document.querySelectorAll('.code').forEach(box => {
+    const code = box.querySelector('code');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'copy';
+    button.textContent = 'Copy';
+    button.addEventListener('click', () => {
+      const done = label => { button.textContent = label; setTimeout(() => { button.textContent = 'Copy'; }, 1600); };
+      const select = () => {
+        const range = document.createRange();
+        range.selectNodeContents(code);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        done('Selected');
+      };
+      try {
+        navigator.clipboard.writeText(code.textContent).then(() => done('Copied'), select);
+      } catch (e) {
+        select();
+      }
+    });
+    box.append(button);
+  });
+})();
+</script>
