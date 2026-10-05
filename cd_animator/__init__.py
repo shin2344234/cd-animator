@@ -1,6 +1,7 @@
 """CD Animator: Crimson Desert skeletons and animations in Blender."""
 
 import os
+import types
 import re
 
 import bpy
@@ -18,7 +19,7 @@ from .formats import sockets as sockets_format
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 37, 0),
+    "version": (0, 38, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -1819,6 +1820,37 @@ def _sound_of(action):
     return action["cd_sound"], action.get("cd_sound_frame", 0) / anim.FPS
 
 
+def _show_move(context, arm, action):
+    """Put on armature `arm` what the game shows with move `action`, its
+    prop in his hand and its expression on his face, in place of the last
+    move's. With no key on the action, take them off. Returns notes."""
+    for obj in [o for o in arm.children if o.get("cd_move_prop")]:
+        bpy.data.objects.remove(obj)
+    face = anim.face_action(arm)
+    if face is not None and face.get("cd_move_face"):
+        anim.remove_face(arm)
+        bpy.data.actions.remove(face)
+    if not action.get("cd_key"):
+        return []
+    idx = packs.index(context)
+    notes = []
+    if action.get("cd_prop"):
+        opts = types.SimpleNamespace(level=0, textures=True, sway=False, cloth=False)
+        socket = actioncharts.HANDS[action.get("cd_prop_hand", "RIGHT")]
+        for component, path, socket_file in packs.prefab(idx, action["cd_prop"]):
+            with open(packs.fetch_mesh(idx, path), "rb") as f:
+                obj, _count, _parts, more = _place_mesh(opts, context, arm, f.read(), mesh.mesh_name(path), path,
+                                                        component=component, socket_file=socket_file, socket=socket)
+            obj["cd_move_prop"] = action.name
+            notes += [n for n in more if n[0] == "WARNING"]
+    if action.get("cd_face"):
+        clip_path = actioncharts.face_clip(idx, actioncharts.FACES[action["cd_face"]])
+        face, _unknown = anim.import_clip(context, arm, packs.fetch_clip(idx, clip_path), layer=True)
+        face["cd_move_face"] = action.name
+        context.scene.frame_end = max(int(action.frame_end), 1)  # the game's copy of the face lasts the move
+    return notes
+
+
 def _grip_pose(obj, idx, prefab, hand):
     """{data path: values} for clip.hold() to grip prefab `prefab` in
     `hand`, RIGHT or LEFT. That is the first frame of the clip GRIP_CLIPS
@@ -1929,6 +1961,7 @@ class CDANIM_OT_play_on_key(Operator):
             action.pop("cd_sound_frame", None)
             action.pop("cd_prop", None)
             action.pop("cd_prop_hand", None)
+            _show_move(context, context.object, action)
             self.report({"INFO"}, f"{action.name} is no move; Send to game takes it out of the charts")
             return {"FINISHED"}
         try:
@@ -1961,6 +1994,11 @@ class CDANIM_OT_play_on_key(Operator):
             action.pop("cd_face", None)
         else:
             action["cd_face"] = self.face
+        try:
+            for level, text in _show_move(context, context.object, action):
+                self.report({level}, text)
+        except (actioncharts.ChartError, mesh.MeshError, packs.PackError, ValueError, OSError) as exc:
+            self.report({"WARNING"}, f"The move is set, but Blender cannot show its prop or face: {exc}")
         how = "again and again until he moves" if self.loop else "once"
         looks = "" if self.face == "NONE" else f" with the {self.face.replace('_', ' ')} expression"
         looks += f", playing {sound} on frame {self.sound_frame}," if sound else ""

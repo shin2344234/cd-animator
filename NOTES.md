@@ -334,6 +334,8 @@ A move's face is now a copy of the game's action in his facial chart, every node
 
 In game on 4 October the copies worked. Kliff danced the Charleston on 8 with anger, its clip loading 1 ms after the dance began, and stopped it with 8 four times. The moonwalk's eyes-closed copy ran its 6.0 s, and his resting face's second clip, not loaded before that session, loaded 14 ms after the moonwalk ended. The wave's happy copy started with the wave and ran its 2 s.
 
+Play on a key shows a move's expression in Blender with the clip of the action's first node with group 0, such as `f_cd_phm_act_anger_00_0001_kliff` for anger. Six actions have more than one such node, so the game may pick another: battle two, wait two, attack three, hurt three, gamble three and dead three. The facial clip goes on the face layer while the move stays the active action. A move names its expression in the action's `cd_face`, and since 0.18.0 a facial clip's `cd_face` is True. Before 0.38.0 the import took a move with an expression for a facial clip, made the new facial clip the active action and left the move off the armature, so it now tests for True.
+
 ## Sounds
 
 The game's bank info, `sound/bin__/windows/soundbanksinfo_<language>.pasound` and the same under `soundcommon/`, names 12,579 and 2,235 Wwise objects. Each record is a u8 length, the name, hashlittle of the name in lower case with seed 0xC5EDE, and the object's Wwise ID, which is FNV-1 of the name, as Wwise makes its IDs. By the banks' HIRC sections 7,452 of the names are events, 6,880 of them starting `sfx_` and 899 `vce_`. The game's own files name sounds in plain text, such as `sfx_move_armor_lp` in `character/descriptors/modelboneanimationscript/soundscript/scripttable.xml`.

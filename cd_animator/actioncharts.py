@@ -684,6 +684,16 @@ def free_keys(idx):
     return sorted(k for k in every - set(bound_keys(idx)) if k.isalnum())
 
 
+def face_clip(idx, key):
+    """The clip the game's facial action `key` plays on Kliff's face, a
+    path under character/motion/ with no extension, from the action's
+    first node for him, group 0. Some actions have several and the game
+    picks one."""
+    chart = paac.Chart.parse(game_bytes(idx, FACIAL_CHART))
+    node = next(n for n in chart.action_nodes(chart.find_action(key)) if n.header.group_hash == 0)
+    return chart.anim_path(node)[:-len(".paa")]
+
+
 def check_key(idx, key):
     """Refuse a key the game has no name for, or one it already binds."""
     free = ", ".join(free_keys(idx))

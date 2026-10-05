@@ -186,7 +186,7 @@ def import_clip(context, obj, path, layer=True):
         action["cd_rec1"] = list(td.lead.rec1)
     action["cd_blocks"] = json.dumps(blocks)
     if face_only:
-        action["cd_face"] = True
+        action["cd_face"] = True  # a move's cd_face is a string instead, the expression Play on a key gives it
     metabin = None if td.lod else meta.companion(path, ".paa_metabin")
     if metabin is not None:
         with open(metabin, "rb") as f:
@@ -195,10 +195,10 @@ def import_clip(context, obj, path, layer=True):
     reset_pose(obj)
     ad = obj.animation_data or obj.animation_data_create()
     current = ad.action
-    if layer and face_only and current is not None and not current.get("cd_face"):
+    if layer and face_only and current is not None and current.get("cd_face") is not True:
         set_face(obj, action)
     else:
-        if layer and not face_only and current is not None and current.get("cd_face"):
+        if layer and not face_only and current is not None and current.get("cd_face") is True:
             set_face(obj, current)
         ad.action = action
         ad.action_slot = slot

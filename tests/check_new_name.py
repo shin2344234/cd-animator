@@ -38,6 +38,8 @@ in for the game's bin64. It requires:
     the bone where GRIP_CLIPS puts it,
     after refusing a sound the game lacks, words two sounds match, a frame
     past the clip's end, a prop the game lacks and a cup in his left hand,
+    and Blender to show the abacus in his left hand and anger's facial clip
+    on his face, which clearing the key takes off again,
     the move's action last and every action still
     sorted by key, the expression a copy of anger in his facial chart
     under the move's own key, lasting the move, the game's chart
@@ -80,7 +82,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 
 import cd_animator  # noqa: E402
-from cd_animator import actioncharts, anim, export, ingame, packs, sounds  # noqa: E402
+from cd_animator import actioncharts, anim, export, ingame, mesh, packs, sounds  # noqa: E402
 from cd_animator.formats import motionblend, paac  # noqa: E402
 from cd_animator.formats.hashlittle import hashlittle  # noqa: E402
 
@@ -270,6 +272,13 @@ def main():
     left = hand("L")
     grip_ok = [len(held) > 20, hand("R") == right, len(left) == sum(len(v) for _p, v in held),
                all(len(left[(p, i)]) == 1 and abs(left[(p, i)][0][1] - x) < 1e-6 for p, v in held for i, x in enumerate(v))]
+    # Blender shows the move as the game will: the abacus in his left hand in place of the cup, anger on his face.
+    shown = sorted((o.name.split(".")[0], o.get("cd_socket")) for o in arm.children if o.get("cd_move_prop") == mover.name)
+    parts = sorted((mesh.mesh_name(path), "LHand_Socket by its Basic_ChildSocket")
+                   for _c, path, _f in packs.prefab(idx, "cd_t0000_abacus_0001"))
+    worn = anim.face_action(arm)
+    seen_ok = (shown == parts and worn is not None and worn.get("cd_move_face") == mover.name
+               and worn.name.startswith("f_cd_phm_act_anger_00_0001_kliff") and arm.animation_data.action == mover)
     bpy.ops.cd_animator.send_to_game(clip="ACTION")
     mapped = os.path.join(root, actioncharts.BY_PATH, "ui", "inputmap.xml")
     xml = open(mapped, encoding="utf-8-sig", newline="").read() if os.path.isfile(mapped) else ""
@@ -312,11 +321,11 @@ def main():
                     and mover.get("cd_key") == "l" and mover.get("cd_face") == "anger"
                     and (mover.get("cd_sound"), mover.get("cd_sound_frame")) == ("sfx_social_hand_clap", 15)
                     and (mover.get("cd_prop"), mover.get("cd_prop_hand")) == ("cd_t0000_abacus_0001", "LEFT")
-                    and all(move_ok) and face_ok and all(grip_ok) and cup_ok
+                    and all(move_ok) and face_ok and all(grip_ok) and cup_ok and seen_ok
                     and kept == ["1_pc/1_phm/" + FIRST, "1_pc/1_phm/" + SECOND]
                     and f'<Input Name="Key_CDA_{MOVER}">\r\n\t\t<KeyboardMouse Key="l" Method="downonce"/>' in xml,
                     f"a move on L: refused {refused}, {len(every)} sounds, charts {move_ok}, its face {face_ok}, "
-                    f"left hand gripping {grip_ok}, a cup {cup_ok}, upper keeps {kept}, "
+                    f"left hand gripping {grip_ok}, a cup {cup_ok}, shown {shown} {worn.name if worn else None}, upper keeps {kept}, "
                     f"input map {bool(xml)}")
 
     bpy.ops.cd_animator.check_game()
@@ -398,6 +407,10 @@ def main():
     left = sorted(os.listdir(root))
     fails += report(up == ([1], ["1_pc/1_phm/" + SECOND + ".paa"], True) and not left_first and left == [],
                     f"took the first out: upper {up}; took the others out: left {left}")
+    arm.animation_data.action = mover
+    bpy.ops.cd_animator.play_on_key(key="")
+    gone = [o.name for o in arm.children if o.get("cd_move_prop")]
+    fails += report(not gone and anim.face_action(arm) is None, f"clearing the key took off his prop and face: left {gone}")
 
     shutil.rmtree(tmp, ignore_errors=True)
     print("PASS" if not fails else f"FAIL: {fails} checks")
