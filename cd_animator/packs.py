@@ -162,10 +162,15 @@ def clips_for(idx, skeleton):
     """The clips in skeleton `skeleton`'s own folder (its game path without
     .pab), such as 1_pc/1_phm/ for Kliff's phm_01, or every clip when that
     folder has none: 124 of the game's 273 skeletons have no clips of their
-    own folder, and some none at all."""
+    own folder, and some none at all. The folder's own clips come first and
+    its subfolders' after, each in path order. A search stops at 300 names,
+    and in path order the clips in Kliff's 00_mon and 00_riding came before
+    the 14,021 in 1_pc/1_phm/ itself, so `nor std idle` never reached his
+    standing idle."""
     folder = skeleton[len(MODEL):].rsplit("/", 1)[0] + "/" if skeleton and skeleton.startswith(MODEL) else ""
     if folder not in idx._clips_by_folder:
         found = [c for c in idx.clips if c.startswith(folder)] if folder else []
+        found.sort(key=lambda c: "/" in c[len(folder):])
         idx._clips_by_folder[folder] = found or idx.clips
     return idx._clips_by_folder[folder]
 

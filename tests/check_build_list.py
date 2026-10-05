@@ -9,6 +9,8 @@ Needs the game installed. It requires:
   * the clip search for Kliff's skeleton to list only clips in 1_pc/1_phm/,
     the Wyvern's only its own, and a skeleton with no clips of its own
     every clip;
+  * Kliff's own folder's clips to list before its subfolders', so
+    `nor std idle` finds his standing idle within the search's 300 names;
   * a list of Kliff with a broom idle, the Wyvern with its air idle and a
     name that matches no character to build the two, each in a collection
     of its own, side by side without overlapping, each playing its clip,
@@ -52,6 +54,20 @@ def check_clip_filter(idx):
           and none is idx.clips and 0 < len(wyv) < len(phm) < len(idx.clips))
     return report(ok, f"clip search per skeleton: {len(phm)} for Kliff, {len(wyv)} for the Wyvern, "
                       f"all {len(idx.clips)} for a skeleton with none of its own")
+
+
+def check_main_first(idx):
+    """Kliff's own folder's clips list before its subfolders', each in path
+    order, so the guide's first search finds his standing idle."""
+    folder = "1_pc/1_phm/"
+    phm = packs.clips_for(idx, "character/model/1_pc/1_phm/phm_01")
+    deep = ["/" in c[len(folder):] for c in phm]
+    main = deep.count(False)
+    hits = packs.search(phm, "nor std idle")
+    ok = (deep == sorted(deep) and phm[:main] == sorted(phm[:main]) and phm[main:] == sorted(phm[main:])
+          and folder + "cd_phm_basic_00_00_nor_std_idle_00" in hits)
+    return report(ok, f"Kliff's {main} own clips list before his subfolders', and nor std idle finds his "
+                      f"standing idle among its {len(hits)} names")
 
 
 def check_single():
@@ -116,6 +132,7 @@ def main():
         packs.game_folder = lambda context=None: argv[0]
     idx = packs.index()
     fails = check_clip_filter(idx)
+    fails += check_main_first(idx)
     fails += check_single()
     with tempfile.TemporaryDirectory() as folder:
         fails += check_list(folder)

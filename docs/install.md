@@ -8,10 +8,10 @@ The loader needs Ultimate ASI Loader, github.com/ThirteenAG/Ultimate-ASI-Loader,
 
 ## The add-on
 
-In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `dist/cd_animator-0.40.0.zip` from the repository. The same install from a command prompt:
+In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `dist/cd_animator-0.40.1.zip` from the repository. The same install from a command prompt:
 
 ```
-blender --command extension install-file -r user_default -e dist/cd_animator-0.40.0.zip
+blender --command extension install-file -r user_default -e dist/cd_animator-0.40.1.zip
 ```
 
 When Blender next opens, the 3D viewport's sidebar has a CD Animator tab. Press N over the viewport to show the sidebar. [The CD Animator tab](sidebar.md) goes through it.
