@@ -8,7 +8,7 @@ It needs Blender 4.4 or newer and was built on 5.2.2.
 
 ## Install
 
-In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `dist/cd_animator-0.40.1.zip`. To rebuild the zip after changing the code:
+In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `dist/cd_animator-0.40.2.zip`. To rebuild the zip after changing the code:
 
 ```
 blender --command extension build --source-dir cd_animator --output-dir dist
@@ -16,7 +16,7 @@ blender --command extension build --source-dir cd_animator --output-dir dist
 
 ## Use
 
-The add-on reads skeletons and clips straight from the game's packs. In the CD Animator tab of the sidebar, under From the game, Import skeleton, Import animation and New clip from a game clip each open a search field: type words of a name, such as `broom idle`, and pick from the list, or paste a path from CDAnimator.log. The list shows at most 300 names, and a clip search lists the skeleton's own folder before its subfolders. Kliff is `phm_01`. The game folder is found through Steam's libraries; if it is somewhere else, set it in the add-on's preferences. The first search in a session reads the packs' index, about 6 seconds. A file taken from the packs goes to a cache in Blender's user folder, the clip with its LOD and metadata, and stays there as the template its action is exported against.
+The add-on reads skeletons and clips straight from the game's packs. In the CD Animator tab of the sidebar, under From the game, Import skeleton, Import animation and New clip from a game clip each open a search field: type words of a name, such as `broom idle`, and pick from the list, or paste a path from CDAnimator.log. The list shows at most 300 names, the closest matches first, ranked as Blender's own search box ranks them, with ties going to the skeleton's own folder. Kliff is `phm_01`. The game folder is found through Steam's libraries; if it is somewhere else, set it in the add-on's preferences. The first search in a session reads the packs' index, about 6 seconds. A file taken from the packs goes to a cache in Blender's user folder, the clip with its LOD and metadata, and stays there as the template its action is exported against.
 
 Import mesh puts one of the game's meshes on the selected armature, skinned to its bones, so the clip on the armature moves it. The search field starts with the skeleton's folder; for Kliff, type `nude` and pick `nude/cd_phm_00_nude_00_0001`, his body with head shell and hands. The Wyvern's body is `cd_m0004_00_wyvern_00_0001`. Each part of a mesh gets a material named after the part, built from the mesh's material file in the packs: base colour, normal map, roughness and metal for most shaders, alpha for hair and eye covers, and the hair colour the game dyes hair with. Armour and cloth made with the game's layered shaders get an approximation, described in NOTES.md, so their colours may differ from the game's. Some meshes come in several colour variants; Colour variant picks one. Turn Textures off for plain materials. Textures are cached next to the meshes the first time they are used, so the first import of a mesh takes a few seconds longer. Detail level 0 is the most detailed of the four the game keeps. Clothing, armour, hair and beards are meshes of their own; import as many as you like onto one armature.
 
@@ -258,7 +258,7 @@ It needs the game installed. It reads the item and character tables and requires
 blender -b --factory-startup --python tests/check_build_list.py
 ```
 
-It needs the game installed. It checks that the clip search per skeleton lists only Kliff's clips for him and only the Wyvern's for it, and every clip for a skeleton with none of its own; that Kliff's own folder's clips list before its subfolders', so `nor std idle` finds his standing idle; that Import character plays the clip given with it; and that a list of Kliff, the Wyvern and a name that matches nothing builds the two in collections of their own, side by side, each playing its clip, reports the third, and saves each to a `.blend` that opens on a scene with the armature, its meshes and its clip.
+It needs the game installed. It checks that the clip search per skeleton lists only Kliff's clips for him and only the Wyvern's for it, and every clip for a skeleton with none of its own; that Kliff's own folder's clips list before its subfolders', so `nor std idle` finds his standing idle; that the search ranks every match by how closely it fits, so `idle` reaches his standing idle and `broom idle` lists names with a word starting broom first; that Import character plays the clip given with it; and that a list of Kliff, the Wyvern and a name that matches nothing builds the two in collections of their own, side by side, each playing its clip, reports the third, and saves each to a `.blend` that opens on a scene with the armature, its meshes and its clip.
 
 `tests/preview.py` opens Blender with the broom and Kliff seated on it for a look.
 

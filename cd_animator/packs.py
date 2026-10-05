@@ -10,6 +10,7 @@ and exporter find them as they would unpacked copies, and the cached clip
 stays the template its action is written against.
 """
 
+import heapq
 import os
 import re
 from dataclasses import dataclass
@@ -163,10 +164,10 @@ def clips_for(idx, skeleton):
     .pab), such as 1_pc/1_phm/ for Kliff's phm_01, or every clip when that
     folder has none: 124 of the game's 273 skeletons have no clips of their
     own folder, and some none at all. The folder's own clips come first and
-    its subfolders' after, each in path order. A search stops at 300 names,
-    and in path order the clips in Kliff's 00_mon and 00_riding came before
-    the 14,021 in 1_pc/1_phm/ itself, so `nor std idle` never reached his
-    standing idle."""
+    its subfolders' after, each in path order, and search() keeps that order
+    for names that match equally well. Before search() ranked its matches it
+    stopped at the first 300, and Kliff's 00_mon and 00_riding clips came
+    before the 14,021 in 1_pc/1_phm/ itself."""
     folder = skeleton[len(MODEL):].rsplit("/", 1)[0] + "/" if skeleton and skeleton.startswith(MODEL) else ""
     if folder not in idx._clips_by_folder:
         found = [c for c in idx.clips if c.startswith(folder)] if folder else []
@@ -175,16 +176,51 @@ def clips_for(idx, skeleton):
     return idx._clips_by_folder[folder]
 
 
+# The characters Blender's search popup splits a name and the typed text
+# into words at (blenlib's string_search.cc).
+WORD_BREAKS = re.compile(r"[\s_/\-]+")
+RANK_MAX = 20000   # matches past which search() keeps the list's order
+
+
 def search(names, text, limit=300):
-    """Names holding every word of `text`, at most `limit`."""
-    words = text.lower().replace("\\", "/").split()
-    out = []
+    """At most `limit` names holding every word of `text`, closest first.
+
+    Blender's search popup filters and re-sorts whatever this returns. A
+    typed word that starts a word of the name scores 10, one inside a word
+    3, and each pair of words out of the typed order loses 1. Of the best
+    score it shows the name with the fewest letters first, and the rest in
+    the order given. Every match is ranked here by that rule, so the names
+    handed over are the ones Blender would show had it searched every name,
+    and ties keep the list's order, which puts a skeleton's own folder
+    first. An empty text keeps the list's order."""
+    text = text.lower().replace("\\", "/")
+    words = text.split()
+    parts = [p for p in WORD_BREAKS.split(text) if p]
+    # ponytail: past RANK_MAX matches, as for one or two typed letters, the
+    # list's order stands, since ranking Kliff's 199,424 clips takes over a
+    # second a keystroke. Index the names' words if short queries matter.
+    cap = RANK_MAX + 1 if parts else limit
+    hits = []
     for n in names:
         if all(w in n for w in words):
-            out.append(n)
-            if len(out) >= limit:
-                break
-    return out
+            hits.append(n)
+            if len(hits) >= cap:
+                return hits[:limit]
+    if not parts:
+        return hits
+    start = r"(?:^|[\s_/\-])"
+    in_order = re.compile(start + r".*?[\s_/\-]".join(map(re.escape, parts)))
+    starts = [re.compile(start + re.escape(p)) for p in parts]
+
+    def closeness(name):
+        if in_order.search(name):
+            score = 10 * len(parts)
+        else:
+            begun = sum(1 for s in starts if s.search(name))
+            score = 10 * begun + 3 * (len(parts) - begun) - (begun == len(parts))
+        return -score, len(WORD_BREAKS.sub("", name)), len(name)
+
+    return heapq.nsmallest(limit, hits, key=closeness)
 
 
 def resolve(names, text, kind, prefix="", ext=""):

@@ -11,6 +11,9 @@ Needs the game installed. It requires:
     every clip;
   * Kliff's own folder's clips to list before its subfolders', so
     `nor std idle` finds his standing idle within the search's 300 names;
+  * the search to rank every match by how closely it fits, so `idle`
+    reaches his standing idle and `broom idle` lists names with a word
+    starting broom before lookbroom;
   * a list of Kliff with a broom idle, the Wyvern with its air idle and a
     name that matches no character to build the two, each in a collection
     of its own, side by side without overlapping, each playing its clip,
@@ -22,6 +25,7 @@ Exit code 0 means every check passed.
 """
 
 import os
+import re
 import sys
 import tempfile
 
@@ -68,6 +72,21 @@ def check_main_first(idx):
           and folder + "cd_phm_basic_00_00_nor_std_idle_00" in hits)
     return report(ok, f"Kliff's {main} own clips list before his subfolders', and nor std idle finds his "
                       f"standing idle among its {len(hits)} names")
+
+
+def check_closest_first(idx):
+    """The search ranks every match by how closely it fits, as Blender's
+    popup does: a broad word still reaches his standing idle, and names
+    where each word starts a word come before names where one sits inside a
+    word, such as lookbroom."""
+    phm = packs.clips_for(idx, "character/model/1_pc/1_phm/phm_01")
+    broad = packs.search(phm, "idle")
+    broom = packs.search(phm, "broom idle")
+    begun = [bool(re.search(r"(^|[_/])broom", n)) for n in broom]
+    ok = ("1_pc/1_phm/cd_phm_basic_00_00_nor_std_idle_00" in broad and len(broad) == 300
+          and begun == sorted(begun, reverse=True) and any(begun) and not all(begun))
+    return report(ok, f"idle reaches his standing idle among {len(broad)} of its matches; broom idle lists "
+                      f"{begun.count(True)} names with a word starting broom before {begun.count(False)} without")
 
 
 def check_single():
@@ -133,6 +152,7 @@ def main():
     idx = packs.index()
     fails = check_clip_filter(idx)
     fails += check_main_first(idx)
+    fails += check_closest_first(idx)
     fails += check_single()
     with tempfile.TemporaryDirectory() as folder:
         fails += check_list(folder)
