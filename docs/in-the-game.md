@@ -4,7 +4,7 @@ The buttons under In the game work with [the CD Animator Loader](loader.md). It 
 
 ## Send to game
 
-Select the armature and press Send to game. It exports the active clip into `bin64\CDAnimator` under the game's name for it, all three files, the same ones Export writes. An imported clip goes in under the name of the file it came from, even if Blender has numbered the action `.001`. A new clip goes in under the name you gave it.
+Select the armature and press Send to game. It exports the active clip into `bin64\CDAnimator` under the game's name for it, all three files, the same ones Export writes. An imported clip goes in under the name of the file it came from, even if Blender has numbered the action `.001`. A new clip goes in under its action's name, so give each new clip a name of its own. Blender numbers a clashing name `.001`, and the numbered name is the one that goes in.
 
 When the armature plays a facial clip over its body clip, a dialog asks which one to send.
 
@@ -52,6 +52,8 @@ The loader logs each clip the first time the game loads it, grouped in moments. 
 | All characters | Off | Lists every clip, not only those of the selected armature's skeleton |
 | Moments | 8 | How many of the newest moments to list, up to 50 |
 
+Seen in game lists clips only, not the blends the log also names, and never LODs, which the loader does not log.
+
 Click a clip to import it onto the selected armature, a facial clip onto its face. A moment lists its first 12 clips; for the rest, copy the name into Import animation. Loading a save brings in a moment or two of thousands of clips, Kliff's own first, then the people and animals around him.
 
 Standing Kliff in the desert, for example, gives four short moments after the save loads: his fidget's start, its loop, the generic wait face and his own.
@@ -65,7 +67,7 @@ A clip under a new name, one the game's packs do not have, plays only where some
 - An action chart is one of the game's state machines, and each of its nodes plays one clip. Each character runs two at once, the upper body's and the lower body's.
 - A blend (`.motionblending`) mixes a few clips by speed or angle, such as Kliff's walk, run and turns, and a chart node plays it like a clip.
 
-For a new clip started with New clip from a game clip, Where it plays, the button beside the clip's Template line in the sidebar, lists every chart node that plays the template, by chart, action key and node number, and every blend that mixes it, with how many chart nodes name that blend. Tick the ones that should play the new clip. The rest keep the game's clip. The sidebar then says how many places play it.
+For a new clip started with New clip from a game clip, Where it plays, the button at the end of the Plays in row below the clip's Template line, lists every chart node that plays the template, by chart, action key and node number, and every blend that mixes it, with how many chart nodes name that blend. Tick the ones that should play the new clip. The rest keep the game's clip. The sidebar then says how many places play it.
 
 Send to game writes each chart and blend those are in, with the new clip's path added. A chart gets the path in its clip table and the ticked nodes pointed at it. A blend gets the path in the template's slot. They go under `by_path` because some of the game's blends share a name, such as the male and female `basic_move_lv3`, and the loader matches files there by their whole path. That needs loader 0.2.0 or newer.
 
@@ -75,6 +77,30 @@ Several new clips can share a chart or blend. Sending a clip again puts nodes yo
 
 To make a new clip a move of its own instead, on a key, see [Moves on keys](moves.md).
 
+### What changes in a chart
+
+A chart Send to game writes is the game's own file with two changes. The new clip's path goes at the end of the chart's clip table, so every path the game had keeps its place, and each ticked node's two clip indexes, which the game keeps equal, point at the new path. Everything else stays byte for byte the game's. The game does not check that a clip exists when it loads a chart, only when a node plays it. A blend gets the new path in the template's slot. Taking a clip out puts its nodes back on the game's indexes and drops added paths no node plays.
+
+To edit a chart another way, [Scripting the add-on](scripting.md#functions-under-the-buttons) has the reader and writer. An action's key is the hash of its name, `hashlittle(name, 0xC5EDE)`, but the game's files name only 136 of its 84,133 actions, so most keys have no known name. Two charts, `commonactioninfo` and its `_serialized` copy, do not parse, so Where it plays never lists them.
+
+Broomy edits some of Kliff's riding charts in memory as the game reads them, `ride_upper.paac` among them. Whether its edits still land on a copy from the loader's folder is not tested, so leave those charts to Broomy.
+
+## After a game update
+
+Send to game writes whole copies of the game's charts, blends and input map under `by_path`, made from the game's files as they were then. The loader serves those copies with no check of the game's version, so after an update that changes one of those files, your old copy still replaces the new file. When a copy's size no longer fits the game's new file, Send to game notices and refuses with "... does not match the game's ...; it was not made from this version of the game's file". A change that keeps the size goes unnoticed.
+
+After an update, delete `bin64\CDAnimator\by_path` and send each new clip and move again, so the copies are made from the new files. That is the expected remedy, not yet tried against a real update.
+
 ## By hand
 
 Export a clip, put its three files anywhere under `bin64\CDAnimator`, and start the game. That is all Send to game does for a clip that replaces one of the game's.
+
+A file there replaces the game's file of that name in every folder, and a quarter of the game's clip file names are used in more than one folder. To replace the clip in one folder only, put its three files under `by_path` at their full game paths instead:
+
+```
+bin64\CDAnimator\by_path\character\motion\<folder>\<name>.paa
+bin64\CDAnimator\by_path\character\motion\motion_lod__\<folder>\<name>_lod.paa
+bin64\CDAnimator\by_path\actionchart\bin__\animmeta\<folder>\<name>.paa_metabin
+```
+
+Send to game cannot do this, and while a file of the clip's name sits anywhere under `CDAnimator`, `by_path` included, it refuses to send that clip.

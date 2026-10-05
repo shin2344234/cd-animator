@@ -35,7 +35,7 @@ Each rider clip's lead holds a transform record, a scale, rotation and position.
 
 The second record, `ref_scale` and the four `B_TL_Position` bones are not used for display. Earlier versions split the two records at a different place and called the parts the container scale, record A and record B; the bytes are the same.
 
-Speeder Bike's build measured on 5 October 2026 that the game seats Kliff's origin on the mount's B_Rider_01, 3.5 cm above where Seat rider on mount puts it, and found that it does not carry him with the bone afterwards, so motion one clip has and the other lacks takes his hands off the grips. That disagrees with the test of 2 October under What shows in game on a mount, where Kliff moved with a float on B_Body_00, and no test has settled which holds. B_Rider_01's frame is turned against the world, its Y world up and its Z world forward, so an offset in the seat's frame is not along the world's axes.
+Broomy's research found on 4 October 2026 that the game seats Kliff's origin on the mount's B_Rider_01, 3.5 cm above where Seat rider on mount puts it, and the Speeder Bike's rider clips follow that. Speeder Bike's build reported on 5 October that the game does not carry him with the bone afterwards, so motion one clip has and the other lacks takes his hands off the grips. That disagrees with the test of 2 October under What shows in game on a mount, where Kliff moved with a float on B_Body_00, and no test has settled which holds. B_Rider_01's frame is turned against the world, its Y world up and its Z world forward, so an offset in the seat's frame is not along the world's axes.
 
 ## What shows in game on a mount
 

@@ -6,7 +6,7 @@ The scripts in `examples` make real clips with the add-on, from a command prompt
 blender -b --factory-startup --python examples/<script>.py -- [options]
 ```
 
-Everything after `--` goes to the script. Each writes into a folder under `out/` unless you name another. The ones that take `--send` write straight into the loader's folder instead, as Send to game does, and show from the game's next start.
+Everything after `--` goes to the script. Each writes into a folder under `out/` unless you name another, except `mocap_move.py`, which always writes into `out/mocap`. The ones that take `--send` write straight into the loader's folder instead, as Send to game does, and show from the game's next start.
 
 The Broomy scripts and `raise_arm.py` read clips unpacked into `samples/character`, which `paz_unpack.py` makes as [Skeletons, clips and meshes](importing.md#files-on-disk) shows. Git leaves that folder out, since it is the game's own data. The other scripts read the game's packs, so the game has to be installed for them.
 

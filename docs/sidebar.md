@@ -1,6 +1,8 @@
 # The CD Animator tab
 
-Press N over the 3D viewport and pick the CD Animator tab. It runs top to bottom in five groups. A button that is greyed out tells you why when you hover over it; [When something does not work](troubleshooting.md) lists those reasons.
+Press N over the 3D viewport and pick the CD Animator tab. It runs top to bottom in four groups of buttons, then a box for the selected armature's clip. The tab labels two of the groups, From the game and In the game, and this page calls the other two Files on disk and Tools.
+
+A button that is greyed out tells you why when you hover over it, and [When something does not work](troubleshooting.md) lists those reasons. Unseat rider is the exception. It stays greyed out, with no reason given, until the active object is a rider that Seat rider on mount placed.
 
 ## Files on disk
 
@@ -72,6 +74,8 @@ Then a box for the active clip, when it came from a clip file or the game:
 | Prop | The prop in his hand and which hand | |
 | Events | The clip's events, begin and end frame, type and the type's name | Add event, Remove event, Tag footsteps |
 | Phases | How many phases the clip has, kept as the template has them | |
+
+The buttons in this box show only an icon, and hovering over one shows its name. Set clip length, Make it loop and End on his idle sit at the end of the Length row, in that order. Make it loop has the same circling arrows as the refresh button beside Send to game. Where it plays sits at the end of the Plays in row, Play on a key at the end of the Played on row, and Add event, Remove event and Tag footsteps beside the events list, top to bottom.
 
 Template, Plays in and Played on show only for a clip started with New clip from a game clip. The length buttons are in [Making and editing clips](making-clips.md#length-loops-and-endings), the events in [Making and editing clips](making-clips.md#events), Where it plays in [Sending clips to the game](in-the-game.md#new-clip-names) and Play on a key in [Moves on keys](moves.md).
 

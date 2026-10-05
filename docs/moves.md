@@ -12,7 +12,7 @@ A move is a new clip that Kliff plays when you press a key while he stands, once
 
 | Option | Default | What it does |
 |---|---|---|
-| Key | | A keyboard key the game binds to nothing. Empty takes the move off its key |
+| Key | `l`, or the move's own key | A keyboard key the game binds to nothing. Empty takes the move off its key |
 | Loop until he moves | Off | Plays the clip again and again, as an emote, until the key is pressed again or he walks, jumps or attacks. Off, he plays it once and goes back to his idle |
 | Expression | None | One of his expressions, started with the move and ended with it |
 | Sound | empty | One of the game's sounds, played as the move plays |
@@ -34,7 +34,7 @@ Press the key while he stands and he plays the move. A press while he is still f
 
 With Loop until he moves ticked he repeats the clip until you press the key again, or he walks, jumps or attacks.
 
-Several moves can live on different keys, and they share the charts with clips placed by Where it plays.
+Several moves can live on different keys, and they share the charts with clips placed by Where it plays. Each move's action gets a key above the chart's highest, and the search for one slows with every move, so a dozen or so moves to a chart is the practical limit.
 
 ## Expressions
 
@@ -65,13 +65,13 @@ Blender puts the sound in the timeline as a sound strip on its At frame, so you 
 
 Prop puts one of the game's prefabs in his hand for the whole move, such as `cd_t0000_cup_0006`, `cd_t0000_lute_0001` or `cd_t0000_torch_0001_l`. The search finds them by words, and Hand picks the hand.
 
-The hand closes around it the way his dual-sword idle holds a sword, or around a cup's handle the way the game's cup festival holds one. Play on a key keys that hand's fingers and its weapon bone once, on frame 0, in place of any keys they had, so the grip holds for the whole move. The game holds cups in the right hand only, so a cup in the left hand is refused.
+The hand closes around it the way his dual-sword idle holds a sword, or around a cup's handle the way the game's cup festival holds one. Play on a key keys that hand's fingers and its weapon bone once, on frame 0, in place of any keys they had, so the grip holds for the whole move. Cups, and the spoon `spoon_0003`, grip by a socket 13 cm off the hand, and the game holds them only in the right hand, so Play on a key refuses them in the left.
 
 Blender shows the prop in his hand as soon as Play on a key sets it. To attach a prop for a render without making a move, use [Attach weapon or prop](characters.md#attach-weapon-or-prop) instead.
 
 ## Changing or taking off a move
 
-Press Play on a key again to change anything; the dialog opens on the move's settings, and Send to game puts the new ones in. To take the move away, clear Key and press OK, which also takes the prop, expression and sound off in Blender, then press Send to game. The X beside the clip in the In the game list takes the clip and its move out of the game in one step, though the clip keeps its key in Blender until you clear it. A chart or input map left the same as the game's is deleted.
+Press Play on a key again to change anything; the dialog opens on the move's settings, and Send to game puts the new ones in. To take the move away, clear Key and press OK, which also takes the prop, expression and sound off in Blender, then press Send to game. The finger and weapon bone keys that closed his hand around the prop stay in the clip, so delete those by hand if the hand should open again. The X beside the clip in the In the game list takes the clip and its move out of the game in one step, though the clip keeps its key in Blender until you clear it. A chart or input map left the same as the game's is deleted.
 
 ## From a script
 

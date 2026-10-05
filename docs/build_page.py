@@ -20,11 +20,11 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE = os.path.join(HERE, "page_template.html")
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(HERE), "out", "cd-animator-guide.html")
-GROUPS = [("Start", ["README", "install", "sidebar"]),
+GROUPS = [("Start", ["README", "install", "sidebar", "concepts"]),
           ("Building a scene", ["importing", "characters", "physics", "faces"]),
           ("Animating", ["making-clips", "ik-controls", "mocap", "exporting"]),
-          ("In the game", ["in-the-game", "moves", "loader"]),
-          ("Reference", ["examples", "checks", "troubleshooting"])]
+          ("In the game", ["in-the-game", "moves", "loader", "mods"]),
+          ("Reference", ["scripting", "examples", "checks", "versions", "troubleshooting"])]
 
 
 def pid(name):

@@ -26,7 +26,7 @@ Every cloth gets the same settings, for heavy fabric, since the game's stiffness
 
 Hair and beards carry the same values as cloth, from fully held at the root to as little as a fifth held at the tips. Each side of the head with swaying strands, back, left, front and right, gets a spring bone named `<mesh>:Sway_<side>`, and each vertex follows it by the share the game leaves free, so the roots stay put and the tips move most.
 
-The spring hangs from the bone that carries most of its strands in the game: Bip01 Head for short hair, the upper back for Damian's long hair, and a face bone at the chin for a beard, so a beard follows the jaw in a facial clip. The hair lags when the head moves and settles back to its style, never more than 45 degrees off it. Kliff's short hair swings up to 23 degrees in his run and Damian's long hair up to 16. Standing still, both stay within a degree.
+The spring hangs from the bone that carries most of its strands in the game: Bip01 Head for short hair, the upper back for Damian's long hair, and a face bone at the chin for a beard, so a beard follows the jaw in a facial clip. The hair lags when the head moves and settles back to its style, never more than 45 degrees off it. Kliff's short hair swings up to 23 degrees in his run and Damian's long hair up to 13. Standing still, both stay within a degree.
 
 Only some beards sway. Kliff's and Oongka's are held whole by the skeleton, as the game holds them, while some NPCs' beards, such as the southern bandits', sway.
 
@@ -38,7 +38,7 @@ The springs and chains run again by themselves whenever a clip is imported. Afte
 
 | Option | Default | What it does |
 |---|---|---|
-| Chain damping | 0.03 | The share of a chain's speed lost every quarter frame. 0.1 nearly stops the swing |
+| Chain damping | 0.03 | The share of a chain's speed lost every quarter frame, from 0 to 0.5. 0.1 nearly stops the swing |
 | Collide | On | Keeps chains out of the body and no lower than the feet |
 | Cloth | On | Also simulates and stores the cloth, which takes a few seconds per second of clip |
 

@@ -6,6 +6,10 @@ Everything here comes straight out of the game's packs. Nothing has to be unpack
 
 Import skeleton, Import animation, Import mesh, Import character and New clip from a game clip each open a dialog with a search field. Type words from a name in any order, such as `broom idle`, and pick from the list. A full path works too, and so does a path copied out of `CDAnimator.log`, which is how [Seen in game](in-the-game.md#seen-in-game) hands clips over.
 
+The list shows the first 300 names that hold every word, in path order. Words that many names share can leave the one you want off it. `nor std idle` matches 1,709 of Kliff's clips, and his standing idle is not among the first 300. A more particular piece of the name narrows it, so `phm_basic_00_00_nor_std_idle` lists 21 clips with his idle first. A whole file name typed in and confirmed with OK works whether the list shows it or not.
+
+A bare file name has to belong to one clip only. A quarter of the game's clip file names, 33,102 of 136,014, are used in more than one folder, and for those the add-on stops with "N clips end in ...; pick one with its folder, such as ...". Type the folder in front, as the message shows. A name the game does not have stops with "no clip in the game is called ...". Build characters from a list looks in the character's own folder first, so a bare name that is unique there works in a list.
+
 The first search in a Blender session reads the packs' index, which takes about 6 seconds. Later searches are instant.
 
 ## Skeletons
@@ -25,9 +29,11 @@ The clip becomes an action named after the clip, and the armature plays it. Impo
 | Clip | | The clip to import. Type words to search, or paste a path from `CDAnimator.log` |
 | Voice | On | For a lip sync clip from `99_autofacial`, adds its spoken line to the scene from frame 0 |
 
-A facial clip goes on the armature's face, over the body clip, and the body clip stays the active action. [Faces and voice lines](faces.md) covers those. A `_lod` clip imports too, with its keys on the fifth-of-a-second ticks the game stores it in; the clip box in the sidebar says so and hides the events, which a LOD clip does not carry.
+A facial clip goes on the armature's face, over the body clip, and the body clip stays the active action. [Faces and voice lines](faces.md) covers those.
 
-Bones a clip does not key stay on their bind pose. If the armature carries chains or swaying hair, importing a clip runs them over the new clip, as [Chains, cloth and hair](physics.md) describes.
+The search leaves out LOD clips. A `_lod.paa` file on disk imports with Import animation (.paa), with its keys on the fifth-of-a-second ticks the game stores it in, and the clip box says so and hides the events, which a LOD clip does not carry. The length buttons and the new clip buttons refuse a LOD clip, and Export writes it as one file, without companions.
+
+Importing a clip first puts every bone back on its bind pose and sets every bone's rotation mode to quaternions. Bones a clip does not key stay on their bind pose. To put a pose back on the bind pose by hand, select every bone in Pose mode and press Alt+G, Alt+R and Alt+S. If the armature carries chains or swaying hair, importing a clip runs them over the new clip, as [Chains, cloth and hair](physics.md) describes.
 
 ## Meshes
 
@@ -58,7 +64,13 @@ py -3 paz_unpack.py "D:/SteamLibrary/steamapps/common/Crimson Desert/0009/0.pamt
 2. With that armature selected, Import animation (.paa) takes one clip file or several. Each becomes an action, and the last one plays.
 3. Import mesh (.pac) puts a mesh on the selected armature, with the options in the table above.
 
-A clip imported from disk exports against the file it came from, so keep that file where it is.
+A clip imported from disk exports against the file it came from, so keep that file where it is. Export also looks for the clip's `_lod.paa` and `.paa_metabin`, next to the clip or in a folder named `actionchart` beside the clip's folder, which is where `paz_unpack.py` puts metadata. Without the `_lod.paa` the LOD takes Kliff's bone list, and without the `.paa_metabin` the new metadata has no events. Each case gets a line in the export report.
+
+## Finding a clip's name
+
+To edit what you see in the game, you need the name of the clip that plays it. [Seen in game](in-the-game.md#seen-in-game) lists the clips the game loaded most recently, newest first, and imports one with a click. It reads the loader's log, so clip logging has to be on, and the game logs a clip only the first time it loads it in a session. A clip loaded earlier in the session does not show again. Restart the game, load the save and go straight to the thing you want, then look in the newest moments. If its clip came in with the save, look through the save's large moments for a likely name. [The CD Animator Loader](loader.md#clips) shows the raw log lines.
+
+The search fields also find clips by words from their names. Most names follow a pattern, such as `cd_phm_basic_00_00_nor_std_idle_00` for a man's basic standing idle, with `move`, `walk` and `run` in moving clips and the mount's name in riding clips, such as `cd_phm_rd_broom_basic_` for Kliff on the broom.
 
 ## What imports
 

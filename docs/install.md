@@ -4,7 +4,7 @@
 
 Blender 4.4 or newer runs the add-on. It was built and tested on Blender 5.2.2. Crimson Desert has to be installed on the same computer, because the add-on reads the game's packs directly and never asks you to unpack anything.
 
-The loader needs Ultimate ASI Loader in the game's `bin64` folder, the same loader every other ASI mod uses. If Broomy or another ASI mod already runs, it is there. The loader is made for Crimson Desert 2.03.02, exe 1.0.0.2976. It finds the game's file functions by their bytes, so a game update can stop it working until it is updated too.
+The loader needs Ultimate ASI Loader, github.com/ThirteenAG/Ultimate-ASI-Loader, the same loader every other ASI mod uses. It sits in the game's `bin64` folder under a system file's name, `winmm.dll` on the install these pages were tested on. If Broomy or another ASI mod already runs, it is there. The loader is made for Crimson Desert 2.03.02, exe 1.0.0.2976. It finds the game's file functions by their bytes, so a game update can stop it working until it is updated too.
 
 ## The add-on
 
@@ -20,7 +20,7 @@ To update, install the newer zip the same way and restart Blender. To remove it,
 
 ### Where the game is
 
-The add-on looks for Crimson Desert in Steam's libraries. If the game is somewhere else, open Edit > Preferences > Add-ons, expand CD Animator and set Game folder to the install folder, the one that holds the folders `0009` and `0010`. The Send to game buttons use the `bin64` folder inside it.
+The add-on looks for Crimson Desert in Steam's libraries. If the game is somewhere else, open Edit > Preferences > Add-ons, expand CD Animator and set Game folder to the install folder, the one that holds the folders `0009` and `0010`. When neither Steam nor Game folder leads to the game, every button that reads the packs stops with "Crimson Desert's folder was not found; set it in the add-on's preferences". The Send to game buttons use the `bin64` folder inside it.
 
 ### The cache
 
@@ -30,9 +30,11 @@ Everything the add-on takes from the packs is written to a cache folder the firs
 %APPDATA%\Blender Foundation\Blender\5.2\extensions\.user\user_default\cd_animator\game
 ```
 
-It holds `skeletons`, `clips`, `meshes`, `textures`, `voice` and `sounds`, and a few JSON lists the add-on worked out from the game's files, such as which chart nodes play each clip. Each list's name carries a stamp of the game's files, so after a game update the add-on works them out again on first use.
+It holds `skeletons`, `clips`, `meshes`, `textures`, `voice`, `sounds` and `mocap`, and a few JSON lists the add-on worked out from the game's files, such as which chart nodes play each clip. Each list's name carries a stamp of the game's files, so after a game update the add-on works them out again on first use.
 
-Keep the `clips` folder. An action imported from the game exports against the clip file it came from, which the action remembers by its path in the cache, and export stops with "cannot read the template clip" when that file is gone. Importing the same clip again puts it back. Anything else in the cache can be deleted, and is fetched again when next needed.
+A saved scene keeps using the cache. An action imported from the game exports against the clip file it came from, which the action remembers by its full path in the cache, and export stops with "cannot read the template clip" when that file is gone. Textures, voice lines and sounds also load from the cache by full path, and Blender does not pack them into the `.blend`. So after the cache is cleared, or on another computer, a saved scene shows missing textures and sounds, and its clips cannot export until each is imported again. Anything in the cache can be deleted, and the add-on fetches it again when next needed, so clear it between projects rather than during one.
+
+A script that loads the add-on from the repository, as the example scripts and checks do, keeps a separate cache, in `%APPDATA%\Blender Foundation\Blender\5.2\datafiles\cd_animator\game`. The `5.2` in both paths is Blender's version.
 
 ### Building the zip
 

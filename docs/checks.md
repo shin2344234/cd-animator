@@ -8,6 +8,8 @@ blender -b --factory-startup --python tests/check_ik.py
 
 Four of them read only the clips unpacked into `samples/character`, and take another samples folder after `--`. `check_packs.py` compares those files with the packs. The rest read the game's packs, and take another game folder after `--` when the game is not where Steam says. None of them touch the game's folder. The two that test sending to the game write into a temporary folder that stands in for `bin64`.
 
+A few need more than the game. `check_packs.py` takes the game folder first and then the samples folder. `check_mocap.py` needs `out/mocap/90_32.bvh`, CMU's moonwalk from the BVH release, and copies it into the add-on's cache so nothing downloads. `check_voice.py` needs the game's English voice installed.
+
 | Script | Reads | What it checks |
 |---|---|---|
 | `check_import.py` | samples | The importers, bone by bone, against the game's own maths |

@@ -20,13 +20,15 @@ New clip from a template, in the first group of the sidebar, does the same from 
 
 Template's first frame is the usual start for a pose or a move made from scratch. Template's motion suits a variation on an existing motion.
 
+Give each new clip a name no other action in the file has. The name becomes the action's name, Blender renames a clash with a number such as `.001`, and Send to game then writes that numbered name. Two new clips from the same template with Name left empty clash this way. A `_lod.paa` cannot be a template; start from the full clip.
+
 A new clip does nothing in the game until something plays it. [Where it plays](in-the-game.md#new-clip-names) puts it in place of its template at chosen spots, and [Play on a key](moves.md) makes it a move of Kliff's own.
 
 ## Length, loops and endings
 
 The clip box in the sidebar shows the clip's length in frames and seconds, with three buttons beside it.
 
-Set clip length changes the length. A shorter clip loses its keys past the new end.
+Set clip length changes the length. A shorter clip loses its keys past the new end and gets a key there holding the pose it had on that frame. A longer one holds its last keys to the new end.
 
 | Option | Default | What it does |
 |---|---|---|
@@ -35,9 +37,13 @@ Set clip length changes the length. A shorter clip loses its keys past the new e
 
 Make it loop blends the clip's end into its start, so it ends on the pose it starts with, as an idle or an emote needs. Each of its first frames takes the pose from the same distance into the clip's last frames and eases into its own, and the clip gets that many frames shorter, so the motion runs on through the seam instead of stopping. In a clip that travels, each round carries on from where the last one ended.
 
-End on his idle blends the clip's last frames into the first frame of Kliff's standing idle, the pose the game plays when a move ends, so he eases into standing instead of jumping from the clip's last pose. Bones the clip leaves alone, his fingers among them, ease from their bind pose, and a clip that travels still ends where it went. It works on clips started from one of Kliff's, under `1_pc/1_phm`.
+End on his idle blends the clip's last frames into the first frame of Kliff's standing idle, the pose the game plays when a move ends, so he eases into standing instead of jumping from the clip's last pose. Bones the clip leaves alone, his fingers among them, ease from their bind pose, and a clip that travels still ends where it went. It works only on a clip started with New clip from a game clip from one of Kliff's clips, under `1_pc/1_phm`. A clip of his brought in with Import animation is refused, since the button reads the template that a new clip records.
 
-Both take one option, Blend frames, 15 by default, which is half a second.
+Both take one option, Blend frames, from 1 to 300 and 15 by default, which is half a second. Make it loop needs a clip at least twice as long as Blend frames, and End on his idle one at least as long. None of the three length buttons works on a LOD clip. Change the full clip, and its LOD follows when it is exported.
+
+### Retiming a clip
+
+To make a clip play faster or slower, scale its keys. In the Dope Sheet, put the playhead on frame 0, select every key and press S, then type the factor, such as 0.5 for twice as fast. Then press Set clip length, enter the new length and tick Stretch events, so the events and phases keep their place in the motion. Export writes keys on whole frames, so a scaled key that lands between frames moves to the nearest one, and the report lists each. For motion capture, Retarget from armature has a Speed option that does this as it keys the clip.
 
 ## Keys
 
@@ -60,6 +66,8 @@ A clip carries events, each a begin frame, an end frame and a type, which the ga
 | 6 | Left step's top | The highest frame of the left foot's step |
 | 7 | Right step's top | |
 
+Begin and end frames snap to half frames as you edit them. Type takes any number from 0 to 255, for types the table does not name. An event can run past the clip's end, as the game's own walk clips' do.
+
 The buttons beside the list add an event on the current frame, remove the selected one, and Tag footsteps.
 
 Tag footsteps rewrites events 2 to 7 from the clip's own feet and leaves the others alone. A foot counts as planted while it moves slower than 1 m/s, a swing counts only if the foot rises 3 cm, and the top of a step is its highest frame. On 16 of the game's clips its planted frames agree with the game's own on 85% of frames. Use it after changing how a character walks or runs. It needs Bip01 L Foot and Bip01 R Foot.
@@ -80,10 +88,16 @@ The rider is parented to the mount and placed by the transform record at the sta
 What shows in the game on a mount differs from what you might expect:
 
 - On a mount, the root bone Bip01 shows its rotation, but its movement moves the mount itself, and while Broomy hovers in place a roll or float on Bip01 shows nothing.
-- Motion on the bone under it, B_Body_00 on the broom, does show, and the rider sits on B_Rider_01 below that, so he moves with it.
+- Motion on the bone under it, B_Body_00 on the broom, does show. The rider sits on B_Rider_01 below that, and in a test on 2 October he moved with a float on B_Body_00. Speeder Bike's build reported on 5 October that the game seats him once and does not carry him with the seat afterwards. No test has settled which holds, so keep a rider's clip and its mount's clip in step.
 - When the game restarts a clip with a short blend, the pose jumps to frame 0, so a clip that follows another should start on the pose the other ends in.
 
-The Speeder Bike measured the game seating Kliff 3.5 cm higher than Seat rider on mount does, a finding not yet checked here. `NOTES.md` has the details and the evidence for each point above.
+Broomy's research found the game seating Kliff's origin on B_Rider_01, 3.5 cm higher than Seat rider on mount puts him, and Speeder Bike's rider clips follow that. No test here has checked it. `NOTES.md` has the details and the evidence for each point above.
+
+### Making clips for a mount
+
+A rider's clips live under his skeleton folder's `00_riding`, such as `1_pc/1_phm/00_riding/` for Kliff, and a mount's in its own folder under `4_riding`, such as `4_riding/cd_r0032_00_broom/`. Start a new rider clip from the rider clip of the same mount that it replaces or follows, so it keeps that clip's transform record and Seat rider on mount places it the same way.
+
+The broom's rider clips have no tracks for the four `B_TL_IK_` bones, the targets of the game's limb IK, so those bones rest at Kliff's belt. A state whose node fires a frame event of type 0x65 hands his hands or feet to the limb IK, which then pulls them to those targets. Speeder Bike keys each `B_TL_IK_` bone onto its `B_IK_` bone on every frame, so the limb IK has nothing to move. [Using a clip in another mod](mods.md#rider-clips) has the rest of what its rider build settled.
 
 ## Posing tools
 

@@ -29,7 +29,7 @@ Open the NLA editor, select the facial clip's strip on `CD face` and press Tab. 
 
 ## Exporting and sending a face
 
-When the armature plays a facial clip over a body clip, Export animation and Send to game both ask whether to write the body clip or the facial one. An unedited facial clip, like an unedited body clip, comes out byte for byte as the game's own file.
+When the armature plays a facial clip over a body clip, Export animation and Send to game both ask whether to write the body clip or the facial one. An unedited facial clip, like an unedited body clip, comes out byte for byte as the game's own file. Its LOD has no tracks, as the game's facial LODs do, so the game never animates a face far from the camera.
 
 A move played on a key can start one of Kliff's expressions as it starts. That is a different thing from a facial clip, and [Moves on keys](moves.md#expressions) covers it.
 

@@ -4,9 +4,9 @@ Motion recorded on another skeleton, such as a motion capture file or a Mixamo a
 
 ## Motion capture from CMU
 
-Motion capture from CMU finds a motion in the CMU Graphics Lab Motion Capture Database by words from its description, such as `dance`, `jump` or `wave`, or by its name, such as `93_03`. The add-on carries the database's list of 2,435 motions.
+Motion capture from CMU finds a motion in the CMU Graphics Lab Motion Capture Database by words from its description, such as `dance`, `jump` or `wave`, or by its name, such as `93_03`. The add-on carries the database's list of 2,435 motions, which dates from 2008, so a few later subjects, such as 144's cartwheels, are not in it. Words that match more than one motion, or none, stop with "N CMU motions match ...; pick one from the list".
 
-Picking one downloads its BVH file once, from the database's BVH release at github.com/una-dinosauria/cmu-mocap, and imports it at the game's 30 frames a second. That needs Allow Online Access ticked in Edit > Preferences > System. If a game armature with a clip was active, it stays active with the BVH armature selected, so Retarget from armature can run straight away.
+Picking one downloads its BVH file once, from the database's BVH release at github.com/una-dinosauria/cmu-mocap, and imports it at the game's 30 frames a second. That needs Allow Online Access ticked in Edit > Preferences > System, or it stops with "Blender may not go online". The file goes into the cache's `mocap` folder, and a failed download says so with the address it tried. If a game armature with a clip was active, it stays active with the BVH armature selected, so Retarget from armature can run straight away.
 
 CMU's data is free for any use. CMU asks that published work credit mocap.cs.cmu.edu.
 
@@ -29,11 +29,15 @@ Retarget from armature keys the active clip of the game armature from another ar
 
 Without Travel the body moves within the clip, and he is back where he started when it ends.
 
+Retarget from armature replaces the whole clip. It first deletes every key of the active clip, then keys the 22 body bones it maps, the fingers on the template's first frame and, with Travel, the two roots. The face and the game's helper bones are left with no keys, so they hold their bind pose, and the export report has a "no keys left" line for each of them. The template's events stay as they were, so press Tag footsteps afterwards for anything with steps in it.
+
+Speed goes from 0.05 to 20. A Start and End with no frames between them stop with "no frames from ... to ...", and Travel on a skeleton without `B_MoveControl_01` and `Bip01` stops with "the skeleton has no B_MoveControl_01 and Bip01 to carry travel".
+
 Each body bone the two rigs share turns, in world space, as the source bone turns from its own rest pose, so the two rigs can have different rest poses and bone rolls, such as a T-pose source on Kliff's arms-down bind pose. A source that starts in a T-pose, as every file of CMU's BVH release does, takes that frame for its rest pose, and the clip starts on the next.
 
 The pelvis travels as the source's hips do, scaled by the two rigs' leg lengths, with the feet's lowest point in the clip on the floor. Each ankle goes where the source's is from its hips, so a source with wider hips than Kliff's does not bring his feet together.
 
-The add-on finds the source's bones by name. It knows Mixamo's names, those of the CMU and Daz BVH sets, Rigify's deform bones, and plain names such as Hips, LeftUpLeg and LeftForeArm. It needs the hips and at least ten bones. The game's twist, muscle and `_Sub` helper bones hold their bind pose under their parents. None of the rigs it knows has its fingers mapped, so the fingers hold the first frame of the clip the new clip started from; start from his idle for relaxed hands.
+The add-on finds the source's bones by name. It knows Mixamo's names, those of the CMU and Daz BVH sets, Rigify's deform bones, and plain names such as Hips, LeftUpLeg and LeftForeArm. It needs the hips and at least ten bones, and stops with "only N of the source's bones match a game bone" otherwise. Only CMU's names have met a real file so far. The Mixamo, Daz and Rigify lists follow those rigs' published bone names. The game's twist, muscle and `_Sub` helper bones hold their bind pose under their parents. None of the rigs it knows has its fingers mapped, so the fingers hold the first frame of the clip the new clip started from; start from his idle for relaxed hands.
 
 ## After a retarget
 
