@@ -19,7 +19,7 @@ from .formats import sockets as sockets_format
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 38, 0),
+    "version": (0, 39, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -1822,14 +1822,18 @@ def _sound_of(action):
 
 def _show_move(context, arm, action):
     """Put on armature `arm` what the game shows with move `action`, its
-    prop in his hand and its expression on his face, in place of the last
-    move's. With no key on the action, take them off. Returns notes."""
+    prop in his hand, its expression on his face and its sound in the
+    timeline, in place of the last move's. With no key on the action, take
+    them off. Returns notes."""
     for obj in [o for o in arm.children if o.get("cd_move_prop")]:
         bpy.data.objects.remove(obj)
     face = anim.face_action(arm)
     if face is not None and face.get("cd_move_face"):
         anim.remove_face(arm)
         bpy.data.actions.remove(face)
+    ed = context.scene.sequence_editor
+    for strip in [s for s in ed.strips if s.get("cd_move_sound")] if ed else []:
+        ed.strips.remove(strip)
     if not action.get("cd_key"):
         return []
     idx = packs.index(context)
@@ -1848,6 +1852,18 @@ def _show_move(context, arm, action):
         face, _unknown = anim.import_clip(context, arm, packs.fetch_clip(idx, clip_path), layer=True)
         face["cd_move_face"] = action.name
         context.scene.frame_end = max(int(action.frame_end), 1)  # the game's copy of the face lasts the move
+    if action.get("cd_sound"):
+        try:
+            path = sounds.fetch(idx, action["cd_sound"])
+        except (sounds.SoundError, ValueError) as exc:
+            notes.append(("WARNING", f"{action['cd_sound']}: {exc}"))
+        else:
+            ed = context.scene.sequence_editor or context.scene.sequence_editor_create()
+            used = {s.channel for s in ed.strips}
+            strip = ed.strips.new_sound(action["cd_sound"], path, next(c for c in range(1, 129) if c not in used),
+                                        action.get("cd_sound_frame", 0))
+            strip["cd_move_sound"] = action.name
+            context.scene.sync_mode = "AUDIO_SYNC"
     return notes
 
 

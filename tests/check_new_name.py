@@ -39,7 +39,9 @@ in for the game's bin64. It requires:
     after refusing a sound the game lacks, words two sounds match, a frame
     past the clip's end, a prop the game lacks and a cup in his left hand,
     and Blender to show the abacus in his left hand and anger's facial clip
-    on his face, which clearing the key takes off again,
+    on his face and put the clap in the timeline on frame 15, which
+    clearing the key takes off again, a sound streamed from its own file
+    decoding as well and one a plug-in makes refused,
     the move's action last and every action still
     sorted by key, the expression a copy of anger in his facial chart
     under the move's own key, lasting the move, the game's chart
@@ -277,8 +279,19 @@ def main():
     parts = sorted((mesh.mesh_name(path), "LHand_Socket by its Basic_ChildSocket")
                    for _c, path, _f in packs.prefab(idx, "cd_t0000_abacus_0001"))
     worn = anim.face_action(arm)
+    heard = [(s.frame_start, os.path.basename(s.sound.filepath), s.frame_final_duration > 0)
+             for s in bpy.context.scene.sequence_editor.strips if s.get("cd_move_sound") == mover.name]
     seen_ok = (shown == parts and worn is not None and worn.get("cd_move_face") == mover.name
-               and worn.name.startswith("f_cd_phm_act_anger_00_0001_kliff") and arm.animation_data.action == mover)
+               and worn.name.startswith("f_cd_phm_act_anger_00_0001_kliff") and arm.animation_data.action == mover
+               and heard == [(15, "sfx_social_hand_clap.ogg", True)])
+    # A sound streamed from its own file decodes too, and one a plug-in makes as the game runs is refused.
+    streamed = sounds.media(idx, "a_hard_wood_chop")[:4]
+    try:
+        sounds.media(idx, "explosion")
+        made = "played"
+    except sounds.SoundError:
+        made = "refused"
+    seen_ok = seen_ok and streamed == b"RIFF" and made == "refused"
     bpy.ops.cd_animator.send_to_game(clip="ACTION")
     mapped = os.path.join(root, actioncharts.BY_PATH, "ui", "inputmap.xml")
     xml = open(mapped, encoding="utf-8-sig", newline="").read() if os.path.isfile(mapped) else ""
@@ -325,7 +338,7 @@ def main():
                     and kept == ["1_pc/1_phm/" + FIRST, "1_pc/1_phm/" + SECOND]
                     and f'<Input Name="Key_CDA_{MOVER}">\r\n\t\t<KeyboardMouse Key="l" Method="downonce"/>' in xml,
                     f"a move on L: refused {refused}, {len(every)} sounds, charts {move_ok}, its face {face_ok}, "
-                    f"left hand gripping {grip_ok}, a cup {cup_ok}, shown {shown} {worn.name if worn else None}, upper keeps {kept}, "
+                    f"left hand gripping {grip_ok}, a cup {cup_ok}, shown {shown} {worn.name if worn else None}, heard {heard}, wood chop {streamed}, explosion {made}, upper keeps {kept}, "
                     f"input map {bool(xml)}")
 
     bpy.ops.cd_animator.check_game()
@@ -410,7 +423,9 @@ def main():
     arm.animation_data.action = mover
     bpy.ops.cd_animator.play_on_key(key="")
     gone = [o.name for o in arm.children if o.get("cd_move_prop")]
-    fails += report(not gone and anim.face_action(arm) is None, f"clearing the key took off his prop and face: left {gone}")
+    gone += [s.name for s in bpy.context.scene.sequence_editor.strips if s.get("cd_move_sound")]
+    fails += report(not gone and anim.face_action(arm) is None,
+                    f"clearing the key took off his prop, face and sound: left {gone}")
 
     shutil.rmtree(tmp, ignore_errors=True)
     print("PASS" if not fails else f"FAIL: {fails} checks")
