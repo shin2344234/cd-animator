@@ -37,7 +37,8 @@ def bones_to_bake(obj, action):
             if not _active(c):
                 continue
             if hasattr(c, "chain_count"):
-                for name in _chain(pb, c.chain_count):
+                # without its tail an IK chain starts at the bone's parent
+                for name in _chain(pb if getattr(c, "use_tail", True) else pb.parent, c.chain_count):
                     why.setdefault(name, f"{c.type.lower()} chain from {pb.name}")
             else:
                 why.setdefault(pb.name, c.type.lower())

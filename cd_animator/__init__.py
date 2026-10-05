@@ -11,15 +11,15 @@ from bpy.types import AddonPreferences, Operator, OperatorFileListElement, UILis
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 from mathutils import Matrix
 
-from . import (actioncharts, anim, chains, clip, cloth, convert, export, ingame, mesh, meta, mocap, packs, retarget,
-               skeleton, sounds, sway, voice)
+from . import (actioncharts, anim, chains, clip, cloth, convert, export, ik, ingame, mesh, meta, mocap, packs,
+               retarget, skeleton, sounds, sway, voice)
 from .formats import material, pac, paa_codec
 from .formats import sockets as sockets_format
 
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 39, 0),
+    "version": (0, 40, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -1620,6 +1620,33 @@ def _hang_chains(context, arm):
     return ("INFO", f"{arm.name}: {n} chain bones simulated over frames {start} to {end}")
 
 
+class CDANIM_OT_ik_controls(Operator):
+    """Give the armature hand and foot controls with elbow and knee controls, keyed to match the active clip, so moving a hand control poses its arm"""
+    bl_idname = "cd_animator.ik_controls"
+    bl_label = "Add IK controls"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.object
+        if not (skeleton.is_cd_armature(obj) and obj.animation_data and obj.animation_data.action):
+            cls.poll_message_set("Select an armature playing a clip")
+            return False
+        return True
+
+    def execute(self, context):
+        obj = context.object
+        action = obj.animation_data.action
+        try:
+            found, frames = ik.add_controls(context, obj, action)
+        except ValueError as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        self.report({"INFO"}, f"Keyed the controls of {len(found)} limbs on {len(frames)} frames of {action.name}. "
+                              "Move a hand or foot control to pose its limb, an elbow or knee control to turn it")
+        return {"FINISHED"}
+
+
 class CDANIM_OT_seat_rider(Operator):
     """Parent the active armature to the other selected armature and place it by the active clip's first transform record"""
     bl_idname = "cd_animator.seat_rider"
@@ -2242,6 +2269,7 @@ class CDANIM_PT_panel(bpy.types.Panel):
         col.operator(CDANIM_OT_retarget.bl_idname, icon="ARMATURE_DATA")
         col.separator()
         col.operator(CDANIM_OT_bake_chains.bl_idname, icon="LINKED")
+        col.operator(CDANIM_OT_ik_controls.bl_idname, icon="CON_KINEMATIC")
         col.operator(CDANIM_OT_seat_rider.bl_idname, icon="CONSTRAINT_BONE")
         col.operator(CDANIM_OT_unseat_rider.bl_idname, icon="X")
         col.operator(CDANIM_OT_remove_face.bl_idname, icon="X")
@@ -2348,7 +2376,7 @@ def _menu_import(self, context):
 
 
 _classes = (CDANIM_AP_prefs, CDANIM_OT_import_pab, CDANIM_OT_import_paa, CDANIM_OT_export_paa, CDANIM_OT_new_clip,
-            CDANIM_OT_game_skeleton, CDANIM_OT_game_clip, CDANIM_OT_game_new_clip, CDANIM_OT_game_mesh, CDANIM_OT_import_pac, CDANIM_OT_game_character, CDANIM_OT_game_characters, CDANIM_OT_game_prop, CDANIM_OT_bake_chains,
+            CDANIM_OT_game_skeleton, CDANIM_OT_game_clip, CDANIM_OT_game_new_clip, CDANIM_OT_game_mesh, CDANIM_OT_import_pac, CDANIM_OT_game_character, CDANIM_OT_game_characters, CDANIM_OT_game_prop, CDANIM_OT_bake_chains, CDANIM_OT_ik_controls,
             CDANIM_OT_set_length, CDANIM_OT_make_loop, CDANIM_OT_end_on_idle, CDANIM_OT_event_add, CDANIM_OT_event_remove, CDANIM_UL_events, CDANIM_OT_tag_footsteps, CDANIM_OT_mocap, CDANIM_OT_retarget,
             CDANIM_OT_seat_rider, CDANIM_OT_unseat_rider, CDANIM_OT_remove_face, CDANIM_OT_send_to_game,
             CDANIM_OT_check_game, CDANIM_OT_remove_from_game, CDANIM_OT_seen_in_game, CDANIM_OT_log_clips,
