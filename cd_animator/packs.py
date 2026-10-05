@@ -180,19 +180,25 @@ def clips_for(idx, skeleton):
 # into words at (blenlib's string_search.cc).
 WORD_BREAKS = re.compile(r"[\s_/\-]+")
 RANK_MAX = 20000   # matches past which search() keeps the list's order
+# A skeleton's basic set, its everyday motions, such as cd_phm_basic_ for
+# every man and cd_rd_broom_basic_ for the broom.
+BASIC = re.compile(r"(?:^|[_/])basic(?:[_/]|$)")
 
 
 def search(names, text, limit=300):
     """At most `limit` names holding every word of `text`, closest first.
 
-    Blender's search popup filters and re-sorts whatever this returns. A
-    typed word that starts a word of the name scores 10, one inside a word
-    3, and each pair of words out of the typed order loses 1. Of the best
-    score it shows the name with the fewest letters first, and the rest in
-    the order given. Every match is ranked here by that rule, so the names
-    handed over are the ones Blender would show had it searched every name,
-    and ties keep the list's order, which puts a skeleton's own folder
-    first. An empty text keeps the list's order."""
+    A typed word that starts a word of the name scores 10, one inside a word
+    3, and each pair of words out of the typed order loses 1, as in
+    Blender's search box. Of equally close names a skeleton's basic set
+    comes first, then the name with the fewest letters, then the list's
+    order, which puts a skeleton's own folder first. An empty text keeps the
+    list's order.
+
+    Blender's search box re-sorts whatever it is given, the fewest letters
+    first among its best score, so the basic set's place shows only in the
+    add-on's own lists, such as the Clip fields'. Elsewhere the ranking
+    decides which names reach the box."""
     text = text.lower().replace("\\", "/")
     words = text.split()
     parts = [p for p in WORD_BREAKS.split(text) if p]
@@ -218,7 +224,7 @@ def search(names, text, limit=300):
         else:
             begun = sum(1 for s in starts if s.search(name))
             score = 10 * begun + 3 * (len(parts) - begun) - (begun == len(parts))
-        return -score, len(WORD_BREAKS.sub("", name)), len(name)
+        return -score, not BASIC.search(name), len(WORD_BREAKS.sub("", name)), len(name)
 
     return heapq.nsmallest(limit, hits, key=closeness)
 

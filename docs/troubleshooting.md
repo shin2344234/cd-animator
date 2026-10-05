@@ -96,7 +96,7 @@ The first search of a session takes about 6 seconds while the add-on reads the p
 
 | What | Limit |
 |---|---|
-| Names a search lists | 300, the closest matches first. Past 20,000 matches the list keeps the folder order |
+| Names a search lists | 300, the closest matches first. Past 20,000 matches a list keeps the folder order |
 | Event type | 0 to 255. Begin and end snap to half frames |
 | Blend frames, for Make it loop and End on his idle | 1 to 300 |
 | Retarget Speed | 0.05 to 20 |

@@ -6,9 +6,11 @@ Everything here comes straight out of the game's packs. Nothing has to be unpack
 
 Import skeleton, Import animation, Import mesh, Import character and New clip from a game clip each open a dialog with a search field. Type words from a name in any order, such as `broom idle`, and pick from the list. A full path works too, and so does a path copied out of `CDAnimator.log`, which is how [Seen in game](in-the-game.md#seen-in-game) hands clips over.
 
-The list shows at most 300 names that hold every word, the closest matches first. A name where each word you typed starts a word of the name, in the order typed, comes before one where a word only sits inside another, as `broom` does in `lookbroom`, and among names that match equally well the one with the fewest letters comes first. Blender's search box sorts what it shows by the same rule, so the list is what Blender would show if it searched every name. Ties go to the skeleton's own folder, so Kliff's clips in `1_pc/1_phm/` itself come before those in `00_mon` and `00_riding`.
+The Clip fields, in Import animation, Import character and New clip from a game clip, have a list of their own under the field, and it follows each letter you type. It holds the 300 clips closest to your words, best first. A clip where each word you typed starts a word of its name, in the order typed, comes before one where a word only sits inside another, as `broom` does in `lookbroom`. Among clips that match equally well, the skeleton's basic set comes first. Those are its everyday motions, named like `cd_phm_basic_` for every man. After that a shorter name comes before a longer one, and a clip in the skeleton's own folder before one in a subfolder. So `nor std idle` lists Kliff's standing idle first, ahead of the box and cup idles. Click a row to put its name in the field.
 
-Words that many names fit equally well can still leave the one you want down the list. `nor std idle` shows his standing idle 29th, behind shorter names such as the box and cup idles, `basic idle` shows it 3rd, and `phm_basic_00_00_nor_std_idle` first. When more than 20,000 names match, as for one or two typed letters, the list keeps the folder order until you type more. A whole file name typed in and confirmed with OK works whether the list shows it or not.
+The other search fields, such as Character and Mesh, use Blender's own search box. The add-on hands it the 300 closest names by the same rule. The box then sorts them again, the shortest first among the closest, so in those fields the basic set does not come first.
+
+When more than 20,000 names match, as for one or two typed letters, a list keeps the folder order until you type more. A whole file name typed in and confirmed with OK works whether a list shows it or not.
 
 A bare file name has to belong to one clip only. A quarter of the game's clip file names, 33,102 of 136,014, are used in more than one folder, and for those the add-on stops with "N clips end in ...; pick one with its folder, such as ...". Type the folder in front, as the message shows. A name the game does not have stops with "no clip in the game is called ...". Build characters from a list looks in the character's own folder first, so a bare name that is unique there works in a list.
 
@@ -28,7 +30,7 @@ The clip becomes an action named after the clip, and the armature plays it. Impo
 
 | Option | Default | What it does |
 |---|---|---|
-| Clip | | The clip to import. Type words to search, or paste a path from `CDAnimator.log` |
+| Clip | | The clip to import. Type words and click a clip in the list under it, or paste a path from `CDAnimator.log` |
 | Voice | On | For a lip sync clip from `99_autofacial`, adds its spoken line to the scene from frame 0 |
 
 A facial clip goes on the armature's face, over the body clip, and the body clip stays the active action. [Faces and voice lines](faces.md) covers those.

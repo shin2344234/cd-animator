@@ -19,7 +19,7 @@ from .formats import sockets as sockets_format
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 40, 2),
+    "version": (0, 41, 0),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -225,15 +225,81 @@ def _start_clip(op, context, template):
     return {"FINISHED"}
 
 
-def _clip_names(self, context, edit_text):
-    """Clips for the selected armature's skeleton when it came from the game."""
-    try:
-        idx = packs.index(context)
+def _clip_pool(op, context):
+    """The clips an operator's Clip field searches: those of the character's
+    skeleton in Import character, else of the selected armature's, and every
+    clip when the skeleton has none of its own."""
+    idx = packs.index(context)
+    if hasattr(op, "character"):
+        skel = _character_skeleton(context, op.character)
+    else:
         obj = context.object
         skel = obj.get("cd_game_path") if skeleton.is_cd_armature(obj) else None
-        return packs.search(packs.clips_for(idx, skel) if skel else idx.clips, edit_text)
+    return packs.clips_for(idx, skel) if skel else idx.clips
+
+
+class CDANIM_PG_clip(bpy.types.PropertyGroup):
+    """One clip in a Clip field's list, its path under character/motion/ as its name."""
+
+
+class CDANIM_UL_clips(UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        folder, _, leaf = item.name.rpartition("/")
+        row = layout.row()
+        row.label(text=leaf)
+        sub = row.row()
+        sub.alignment = "RIGHT"
+        sub.active = False
+        sub.label(text=folder)
+
+
+_picking = False   # True while a picked row writes its name into the Clip field
+
+
+def _list_clips(self, context):
+    """Fill the dialog's list with the clips closest to its Clip text, best
+    first, at each letter typed. Blender's own search box would re-sort them
+    shortest first, so the dialog draws its own list."""
+    if _picking:
+        return
+    text = self.clip.strip().replace("\\", "/")
+    if text.lower().startswith(packs.MOTION):   # a path pasted from CDAnimator.log
+        text = text[len(packs.MOTION):]
+    if text.lower().endswith(".paa"):
+        text = text[:-len(".paa")]
+    try:
+        names = packs.search(_clip_pool(self, context), text)
     except (packs.PackError, OSError):
-        return []
+        names = []
+    self.clips.clear()
+    for n in names:
+        self.clips.add().name = n
+    self.picked = -1
+
+
+def _pick_clip(self, context):
+    global _picking
+    if 0 <= self.picked < len(self.clips):
+        _picking = True
+        try:
+            self.clip = self.clips[self.picked].name
+        finally:
+            _picking = False
+
+
+def _draw_clip_field(op, layout):
+    layout.prop(op, "clip")
+    layout.template_list("CDANIM_UL_clips", "", op, "clips", op, "picked", rows=8)
+
+
+def _clip_field(name):
+    """A Clip field typed into, with the list of the closest clips under it
+    in `clips` and the row picked from it in `picked`."""
+    return StringProperty(name=name, options={"TEXTEDIT_UPDATE"}, update=_list_clips, description=_GAME_CLIP)
+
+
+_CLIP_LIST = dict(type=CDANIM_PG_clip, options={"HIDDEN", "SKIP_SAVE"})
+_CLIP_PICKED = dict(default=-1, min=-1, update=_pick_clip, options={"HIDDEN", "SKIP_SAVE"})
 
 
 def _skeleton_names(self, context, edit_text):
@@ -258,8 +324,8 @@ def _open_index(op, context):
     return True
 
 
-_GAME_CLIP = ("A clip in the game. Type words of its name to search, such as broom idle, "
-              "or paste a path from CDAnimator.log")
+_GAME_CLIP = ("A clip in the game. Type words of its name, such as broom idle, and pick from the list "
+              "below, which puts the closest first, or paste a path from CDAnimator.log")
 
 
 class CDANIM_OT_game_skeleton(Operator):
@@ -302,7 +368,9 @@ class CDANIM_OT_game_clip(Operator):
     bl_label = "Import animation from the game"
     bl_options = {"REGISTER", "UNDO"}
 
-    clip: StringProperty(name="Clip", search=_clip_names, search_options={"SUGGESTION"}, description=_GAME_CLIP)
+    clip: _clip_field("Clip")
+    clips: CollectionProperty(**_CLIP_LIST)
+    picked: IntProperty(**_CLIP_PICKED)
     voice: BoolProperty(name="Voice", default=True,
                         description="For a lip sync clip from 99_autofacial, play its voice line from frame 0")
 
@@ -316,7 +384,13 @@ class CDANIM_OT_game_clip(Operator):
     def invoke(self, context, event):
         if not _open_index(self, context):
             return {"CANCELLED"}
+        _list_clips(self, context)
         return context.window_manager.invoke_props_dialog(self, width=560)
+
+    def draw(self, context):
+        self.layout.use_property_split = True
+        _draw_clip_field(self, self.layout)
+        self.layout.prop(self, "voice")
 
     def execute(self, context):
         obj = context.object
@@ -554,16 +628,6 @@ def _character_skeleton(context, text):
         except (packs.PackError, ValueError, OSError, SyntaxError):
             _character_skeletons[key] = None
     return _character_skeletons[key]
-
-
-def _character_clip_names(self, context, edit_text):
-    """Clips for the skeleton of the character in the same dialog."""
-    try:
-        idx = packs.index(context)
-        skel = _character_skeleton(context, self.character)
-        return packs.search(packs.clips_for(idx, skel) if skel else idx.clips, edit_text)
-    except (packs.PackError, OSError):
-        return []
 
 
 _face_clips = {}
@@ -856,13 +920,15 @@ class CDANIM_OT_game_character(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     character: StringProperty(
-        name="Character", search=_character_names, search_options={"SUGGESTION"}, default=KLIFF,
+        name="Character", search=_character_names, search_options={"SUGGESTION"}, default=KLIFF, update=_list_clips,
         description="A character's appearance in the game. Kliff is cd_phm_macduff_00000; "
         "other characters are under 1_pc, 3_npc, 2_mon and 4_riding. Type words to search")
     clip: StringProperty(
-        name="Clip", search=_character_clip_names, search_options={"SUGGESTION"}, default="",
-        description="A clip to play on the character, optional. The search lists the clips made for "
-        "the character's skeleton; type words to narrow it")
+        name="Clip", options={"TEXTEDIT_UPDATE"}, update=_list_clips, default="",
+        description="A clip to play on the character, optional. The list below holds the clips made for "
+        "the character's skeleton, the closest to the words typed here first")
+    clips: CollectionProperty(**_CLIP_LIST)
+    picked: IntProperty(**_CLIP_PICKED)
     face: StringProperty(
         name="Facial clip", search=_character_face_names, search_options={"SUGGESTION"}, default="",
         description="A facial clip to play on the character's face over the clip, optional: an expression from "
@@ -878,7 +944,15 @@ class CDANIM_OT_game_character(Operator):
     def invoke(self, context, event):
         if not _open_index(self, context):
             return {"CANCELLED"}
+        _list_clips(self, context)
         return context.window_manager.invoke_props_dialog(self, width=560)
+
+    def draw(self, context):
+        self.layout.use_property_split = True
+        self.layout.prop(self, "character")
+        _draw_clip_field(self, self.layout)
+        for name in ("face", "level", "textures", "proportions", "gear", "cloth", "sway", "voice"):
+            self.layout.prop(self, name)
 
     def execute(self, context):
         if context.object and context.object.mode != "OBJECT":
@@ -1245,7 +1319,9 @@ class CDANIM_OT_game_new_clip(Operator):
     bl_label = "New clip from a game clip"
     bl_options = {"REGISTER", "UNDO"}
 
-    clip: StringProperty(name="Template", search=_clip_names, search_options={"SUGGESTION"}, description=_GAME_CLIP)
+    clip: _clip_field("Template")
+    clips: CollectionProperty(**_CLIP_LIST)
+    picked: IntProperty(**_CLIP_PICKED)
     clip_name: StringProperty(
         name="Name", description="The new clip's name, which is also its file name on export. "
         "Empty gives the template's name with _new")
@@ -1270,7 +1346,14 @@ class CDANIM_OT_game_new_clip(Operator):
     def invoke(self, context, event):
         if not _open_index(self, context):
             return {"CANCELLED"}
+        _list_clips(self, context)
         return context.window_manager.invoke_props_dialog(self, width=560)
+
+    def draw(self, context):
+        self.layout.use_property_split = True
+        _draw_clip_field(self, self.layout)
+        for name in ("clip_name", "frames", "start", "stretch_events"):
+            self.layout.prop(self, name)
 
     def execute(self, context):
         try:
@@ -2375,7 +2458,7 @@ def _menu_import(self, context):
     self.layout.operator(CDANIM_OT_game_character.bl_idname, text="Crimson Desert character from the game")
 
 
-_classes = (CDANIM_AP_prefs, CDANIM_OT_import_pab, CDANIM_OT_import_paa, CDANIM_OT_export_paa, CDANIM_OT_new_clip,
+_classes = (CDANIM_AP_prefs, CDANIM_PG_clip, CDANIM_UL_clips, CDANIM_OT_import_pab, CDANIM_OT_import_paa, CDANIM_OT_export_paa, CDANIM_OT_new_clip,
             CDANIM_OT_game_skeleton, CDANIM_OT_game_clip, CDANIM_OT_game_new_clip, CDANIM_OT_game_mesh, CDANIM_OT_import_pac, CDANIM_OT_game_character, CDANIM_OT_game_characters, CDANIM_OT_game_prop, CDANIM_OT_bake_chains, CDANIM_OT_ik_controls,
             CDANIM_OT_set_length, CDANIM_OT_make_loop, CDANIM_OT_end_on_idle, CDANIM_OT_event_add, CDANIM_OT_event_remove, CDANIM_UL_events, CDANIM_OT_tag_footsteps, CDANIM_OT_mocap, CDANIM_OT_retarget,
             CDANIM_OT_seat_rider, CDANIM_OT_unseat_rider, CDANIM_OT_remove_face, CDANIM_OT_send_to_game,

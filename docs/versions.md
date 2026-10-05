@@ -50,6 +50,7 @@ Every release of the add-on and the loader, oldest first, with the date of its c
 | 0.40.0 | 5 October | Add IK controls. Export counts an IK chain with Use Tail off from the bone's parent, as Blender does |
 | 0.40.1 | 5 October | A clip search lists the skeleton's own folder before its subfolders, so `nor std idle` finds Kliff's standing idle |
 | 0.40.2 | 5 October | Searches list the closest matches first, ranked as Blender's search box ranks them |
+| 0.41.0 | 5 October | The Clip fields show the add-on's own list of the closest clips under the field, the basic set first among equal matches |
 
 ## The loader
 

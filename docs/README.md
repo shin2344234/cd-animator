@@ -2,7 +2,7 @@
 
 CD Animator makes and edits Crimson Desert animations in Blender and puts them in the game. It comes in two parts that work together.
 
-The add-on runs inside Blender 4.4 or newer. It reads skeletons, clips, meshes, textures, sounds and the game's action charts straight from the game's packs, builds characters with their gear, and writes clips the game can play. These pages describe version 0.40.2.
+The add-on runs inside Blender 4.4 or newer. It reads skeletons, clips, meshes, textures, sounds and the game's action charts straight from the game's packs, builds characters with their gear, and writes clips the game can play. These pages describe version 0.41.0.
 
 The loader is `CDAnimator.asi`, a plugin the game loads through Ultimate ASI Loader like any other ASI mod. Every time the game starts, it hands the game each file in `bin64\CDAnimator` in place of the game's own file of that name, and it can log each clip the game loads. These pages describe version 0.3.0, made for Crimson Desert 2.03.02, exe 1.0.0.2976.
 
@@ -12,7 +12,7 @@ The add-on writes into the loader's folder and reads the loader's log. A clip go
 
 1. Install both parts, as [Installing](install.md) describes.
 2. In Blender, hover over the 3D viewport, press N and open the CD Animator tab.
-3. Press Import character. Leave Character on Kliff, type `phm_basic_00_00_nor_std_idle` in Clip, pick `cd_phm_basic_00_00_nor_std_idle_00`, the first in the list, and press OK.
+3. Press Import character. Leave Character on Kliff, type `nor std idle` in Clip, click `cd_phm_basic_00_00_nor_std_idle_00` at the top of the list under it, and press OK.
 4. Change the pose. [Posing with IK controls](ik-controls.md) is the quickest way to move a hand or a foot.
 5. Press Send to game, under In the game.
 6. Start the game, load a save and let Kliff stand still. Most places give him this idle, so he plays your edit. A few, such as the desert, have idles of their own.

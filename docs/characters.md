@@ -7,7 +7,7 @@ Import character builds a character the way the game puts it together: the skele
 | Option | Default | What it does |
 |---|---|---|
 | Character | Kliff | The appearance to build. Type words to search |
-| Clip | empty | A clip for the character to play. The search lists the clips made for its skeleton |
+| Clip | empty | A clip for the character to play. The list under it holds the clips made for its skeleton, the closest to the words typed first |
 | Facial clip | empty | An expression from `99_facial` or a spoken line from `99_autofacial` for its face |
 | Detail level | 0 | 0 is the most detailed mesh level, 3 the coarsest |
 | Textures | On | Gives every part the game's textures |
