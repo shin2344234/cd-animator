@@ -14,3 +14,12 @@ out/
 
 # The loader's build tree. Rebuild with loader\build.bat.
 loader/build/
+
+# Release documents, templates and checksums, local only, as in the other mods.
+private/
+
+# API keys.
+keys.local.env
+*.local.env
+.env
+.env.*

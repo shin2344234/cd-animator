@@ -6,12 +6,16 @@ Blender 4.4 or newer runs the add-on. It was built on Blender 5.2.2, and every c
 
 The loader needs Ultimate ASI Loader, github.com/ThirteenAG/Ultimate-ASI-Loader, the same loader every other ASI mod uses. It sits in the game's `bin64` folder under a system file's name, `winmm.dll` on the install these pages were tested on. If Broomy or another ASI mod already runs, it is there. The loader is made for Crimson Desert 2.03.02, exe 1.0.0.2976. It finds the game's file functions by their bytes, so a game update can stop it working until it is updated too.
 
+## The release zips
+
+A release comes as two zips. `CDAnimator-<version>.zip` holds the add-on as `cd_animator-<version>.zip`, the loader as `CDAnimator.asi`, the README, the licence and `MinHook-LICENSE.txt`, MinHook's notice, which its licence asks to go with the plugin. `CDAnimator-<version>-DMM.zip` is the loader for Definitive Mod Manager, with the licence and the notice named `CDAnimator-LICENSE` and `CDAnimator-MinHook-LICENSE.txt`, since DMM keeps every ASI mod's files side by side in its library. The release kit's `scripts\package.ps1` builds both into `loader\dist`.
+
 ## The add-on
 
-In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `dist/cd_animator-0.41.2.zip` from the repository. The same install from a command prompt:
+In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `cd_animator-<version>.zip` from the release zip, or `dist/cd_animator-<version>.zip` after building it. Leave it zipped. The same install from a command prompt:
 
 ```
-blender --command extension install-file -r user_default -e dist/cd_animator-0.41.2.zip
+blender --command extension install-file -r user_default -e dist/cd_animator-<version>.zip
 ```
 
 When Blender next opens, the 3D viewport's sidebar has a CD Animator tab. Press N over the viewport to show the sidebar. [The CD Animator tab](sidebar.md) goes through it.
@@ -51,7 +55,7 @@ It writes `dist/cd_animator-<version>.zip`, the version taken from `cd_animator/
 ## The loader
 
 1. Quit the game if it is running. Windows keeps a running plugin's file locked.
-2. Copy `loader/dist/CDAnimator.asi` into the game's `bin64` folder.
+2. Copy `CDAnimator.asi`, from the release zip or from `loader/dist` after a build, into the game's `bin64` folder. With Definitive Mod Manager, import `CDAnimator-<version>-DMM.zip` instead.
 3. Make a folder named `CDAnimator` in `bin64`.
 4. Start the game once.
 
@@ -67,7 +71,7 @@ To update the loader, quit the game and replace `CDAnimator.asi`. To remove it, 
 loader\build.bat
 ```
 
-It needs the Visual Studio 2022 Build Tools and uses the CMake and Ninja they bundle. The first build downloads MinHook for its instruction length decoder. The plugin lands in `loader\dist\CDAnimator.asi`, and beside it two zips to share, `CDAnimator-Loader-<version>.zip` for a manual install and `CDAnimator-Loader-<version>-DMM.zip` for Definitive Mod Manager. Each holds the plugin and MinHook's notice, whose licence asks that it go with the plugin. The manual zip names it `MinHook-LICENSE.txt` and the DMM zip `CDAnimator-MinHook-LICENSE.txt`, since DMM keeps every ASI mod's files side by side in its library and deploys only the plugin. `build.bat clean` builds from an empty folder.
+It needs the Visual Studio 2022 Build Tools and uses the CMake and Ninja they bundle. The first build downloads MinHook for its instruction length decoder. The plugin lands in `loader\dist\CDAnimator.asi`. `build.bat clean` builds from an empty folder.
 
 ## Going online
 

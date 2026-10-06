@@ -1,0 +1,24 @@
+{
+  "name": "CD Animator",
+  "fileBase": "CDAnimator",
+  "version": { "header": "cd_animator/blender_manifest.toml", "pattern": "^version = \"([^\"]+)\"" },
+  "scriptsDir": "scripts",
+  "dist": "loader/dist",
+  "sources": ["loader/src", "loader/CMakeLists.txt"],
+  "manualZip": ["dist/cd_animator-{version}.zip", "README.md", "LICENSE", "loader/MinHook-LICENSE.txt"],
+  "dmmZip": ["LICENSE", "loader/MinHook-LICENSE.txt"],
+  "gates": [
+    { "name": "the add-on zip is the add-on as it stands", "run": "py -3 scripts/check_addon_zip.py" }
+  ],
+  "evergreen": [],
+  "github": "shin2344234/cd-animator",
+  "nexus": {
+    "game": "crimsondesert",
+    "page": "",
+    "modId": "",
+    "dmmFileId": "",
+    "manualFileId": ""
+  },
+  "discord": { "channel": "1547305058922668072" },
+  "requires": []
+}
