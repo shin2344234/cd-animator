@@ -1,8 +1,8 @@
 """Crimson Desert action charts (.paac): the game's state machines, which
 say which clip each state plays.
 
-From Broomy's research (its chart schema, MIT), reverse engineered from the game's
-own reader for build 1.0.0.2976. A chart is a flat run of count-prefixed
+From Broomy's research (its chart schema, MIT), reverse engineered from
+the game's own reader for build 1.0.0.2976. A chart is a flat run of count-prefixed
 arrays with no offsets, so it parses to the last byte and packs back byte
 for byte from the tree; 556 of the game's 558 charts do.
 

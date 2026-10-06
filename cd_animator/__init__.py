@@ -19,7 +19,7 @@ from .formats import sockets as sockets_format
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 41, 0),
+    "version": (0, 41, 1),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -287,7 +287,12 @@ def _pick_clip(self, context):
             _picking = False
 
 
-def _draw_clip_field(op, layout):
+def _draw_clip_field(op, layout, context):
+    if context.region and context.region.type == "HUD":
+        # The redo panel runs the operator again at every change, and the
+        # field changes at every letter typed, so there it only shows.
+        layout.label(text=f"{op.bl_rna.properties['clip'].name}: {op.clip}")
+        return
     layout.prop(op, "clip")
     layout.template_list("CDANIM_UL_clips", "", op, "clips", op, "picked", rows=8)
 
@@ -389,7 +394,7 @@ class CDANIM_OT_game_clip(Operator):
 
     def draw(self, context):
         self.layout.use_property_split = True
-        _draw_clip_field(self, self.layout)
+        _draw_clip_field(self, self.layout, context)
         self.layout.prop(self, "voice")
 
     def execute(self, context):
@@ -950,7 +955,7 @@ class CDANIM_OT_game_character(Operator):
     def draw(self, context):
         self.layout.use_property_split = True
         self.layout.prop(self, "character")
-        _draw_clip_field(self, self.layout)
+        _draw_clip_field(self, self.layout, context)
         for name in ("face", "level", "textures", "proportions", "gear", "cloth", "sway", "voice"):
             self.layout.prop(self, name)
 
@@ -1351,7 +1356,7 @@ class CDANIM_OT_game_new_clip(Operator):
 
     def draw(self, context):
         self.layout.use_property_split = True
-        _draw_clip_field(self, self.layout)
+        _draw_clip_field(self, self.layout, context)
         for name in ("clip_name", "frames", "start", "stretch_events"):
             self.layout.prop(self, name)
 

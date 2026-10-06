@@ -16,7 +16,9 @@ Needs the game installed. It requires:
     starting broom before lookbroom, and `nor std idle` lists his basic
     idle first;
   * Import character's Clip field to fill its own list as it is typed
-    into, and a row picked from the list to fill the field;
+    into, and a row picked from the list to fill the field, and the redo
+    panel to show the clip without the field, which would run the import
+    again at every letter;
   * a list of Kliff with a broom idle, the Wyvern with its air idle and a
     name that matches no character to build the two, each in a collection
     of its own, side by side without overlapping, each playing its clip,
@@ -107,11 +109,25 @@ def check_clip_list():
     kept = [c.name for c in props.clips] == listed
     props.clip = "character/motion/1_pc/1_phm/cd_phm_basic_00_00_nor_std_idle_00.paa"
     pasted = [c.name for c in props.clips][:1]
+
+    class Layout:   # records what a draw puts in the panel
+        def __init__(self):
+            self.drawn = []
+        def __getattr__(self, name):
+            return lambda *a, **k: self.drawn.append(name)
+    class Context:
+        def __init__(self, kind):
+            self.region = type("Region", (), {"type": kind})()
+    dialog, hud = Layout(), Layout()
+    cd_animator._draw_clip_field(props, dialog, Context("TEMPORARY"))
+    cd_animator._draw_clip_field(props, hud, Context("HUD"))
     ok = (len(listed) == 300 and listed[0] == "1_pc/1_phm/cd_phm_basic_00_00_nor_std_idle_00"
-          and picked == listed[1] and kept and pasted == listed[:1])
+          and picked == listed[1] and kept and pasted == listed[:1]
+          and dialog.drawn == ["prop", "template_list"] and hud.drawn == ["label"])
     return report(ok, f"Import character's Clip field lists {len(listed)} clips for nor std idle, "
                       f"{listed[0].rsplit('/', 1)[-1] if listed else None} first; picking row 2 puts {picked} in the "
-                      f"field and keeps the list; a path pasted from the log lists {pasted}")
+                      f"field and keeps the list; a path pasted from the log lists {pasted}; the dialog draws "
+                      f"{dialog.drawn}, the redo panel only {hud.drawn}")
 
 
 def check_single():
