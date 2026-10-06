@@ -67,7 +67,7 @@ To update the loader, quit the game and replace `CDAnimator.asi`. To remove it, 
 loader\build.bat
 ```
 
-It needs the Visual Studio 2022 Build Tools and uses the CMake and Ninja they bundle. The first build downloads MinHook for its instruction length decoder. The plugin lands in `loader\dist\CDAnimator.asi`. `build.bat clean` builds from an empty folder.
+It needs the Visual Studio 2022 Build Tools and uses the CMake and Ninja they bundle. The first build downloads MinHook for its instruction length decoder. The plugin lands in `loader\dist\CDAnimator.asi`, and beside it `CDAnimator-Loader-<version>.zip`, the file to share, holds the plugin and `MinHook-LICENSE.txt`, whose licence asks that its notice go with the plugin. `build.bat clean` builds from an empty folder.
 
 ## Going online
 

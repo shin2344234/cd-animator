@@ -106,6 +106,6 @@ A file no pack has, a clip under a new name, only does anything if something in 
 loader\build.bat
 ```
 
-It needs the Visual Studio 2022 Build Tools, and uses the CMake and Ninja they bundle. The first build fetches MinHook for its instruction length decoder. MinHook's licence asks that its notice go with the plugin, so `MinHook-LICENSE.txt` goes beside `CDAnimator.asi` wherever the plugin is shared. The plugin lands in `loader\dist\CDAnimator.asi`. `build.bat clean` starts from an empty build folder.
+It needs the Visual Studio 2022 Build Tools, and uses the CMake and Ninja they bundle. The first build fetches MinHook for its instruction length decoder. MinHook's licence asks that its notice go with the plugin, so the build stages `MinHook-LICENSE.txt` beside `CDAnimator.asi` in `dist` and packs both into `CDAnimator-Loader-<version>.zip`, the file to share. The plugin lands in `loader\dist\CDAnimator.asi`. `build.bat clean` starts from an empty build folder.
 
 `src/core/log`, `src/core/paths`, `src/game/mem` and `src/game/farhook` are Broomy's, with the namespace renamed to `cda`. The function signatures in `src/game/signatures.h` are Broomy's too, and tie the plugin to this exe. After a game update they need finding again.
