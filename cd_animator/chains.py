@@ -31,7 +31,7 @@ import bpy
 from mathutils import Matrix, Vector
 from mathutils.kdtree import KDTree
 
-from . import convert
+from . import anim, convert
 
 TRACK = "CD chains"
 GRAVITY = 9.81
@@ -284,7 +284,6 @@ def bake(context, arm, start=None, end=None, damping=0.03, collide=True, settle=
     links keep out of the body's main bones and no lower than its lowest
     foot or toe bone, taken as the floor. Returns the number of chain bones
     keyed."""
-    from bpy_extras import anim_utils
     names = chain_bones(arm)
     if not names:
         return 0
@@ -454,15 +453,16 @@ def bake(context, arm, start=None, end=None, damping=0.03, collide=True, settle=
     action["cd_chains"] = True
     slot = action.slots.new(id_type="OBJECT", name=arm.name)
     layer = action.layers.new("Layer")
-    layer.strips.new(type="KEYFRAME")
-    bag = anim_utils.action_ensure_channelbag_for_slot(action, slot)
+    # The strip's own channelbag(ensure=True), as anim_utils only gained an
+    # ensure function in Blender 5.0.
+    bag = layer.strips.new(type="KEYFRAME").channelbag(slot, ensure=True)
     for n in order:
         qs = [q for _f, q in keys[n]]
         for i in range(1, len(qs)):
             if qs[i - 1].dot(qs[i]) < 0.0:
                 qs[i].negate()
         for i in range(4):
-            fc = bag.fcurves.new(f'pose.bones["{n}"].rotation_quaternion', index=i, group_name=n)
+            fc = anim.new_fcurve(bag, f'pose.bones["{n}"].rotation_quaternion', i, n)
             pts = fc.keyframe_points
             pts.add(len(qs))
             co = []

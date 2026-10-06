@@ -2,16 +2,16 @@
 
 ## What you need
 
-Blender 4.4 or newer runs the add-on. It was built and tested on Blender 5.2.2. Crimson Desert has to be installed on the same computer, because the add-on reads the game's packs directly and never asks you to unpack anything.
+Blender 4.4 or newer runs the add-on. It was built on Blender 5.2.2, and every check passes on 4.4.3, 4.5.14 LTS and 5.2.2. Crimson Desert has to be installed on the same computer, because the add-on reads the game's packs directly and never asks you to unpack anything.
 
 The loader needs Ultimate ASI Loader, github.com/ThirteenAG/Ultimate-ASI-Loader, the same loader every other ASI mod uses. It sits in the game's `bin64` folder under a system file's name, `winmm.dll` on the install these pages were tested on. If Broomy or another ASI mod already runs, it is there. The loader is made for Crimson Desert 2.03.02, exe 1.0.0.2976. It finds the game's file functions by their bytes, so a game update can stop it working until it is updated too.
 
 ## The add-on
 
-In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `dist/cd_animator-0.41.1.zip` from the repository. The same install from a command prompt:
+In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `dist/cd_animator-0.41.2.zip` from the repository. The same install from a command prompt:
 
 ```
-blender --command extension install-file -r user_default -e dist/cd_animator-0.41.1.zip
+blender --command extension install-file -r user_default -e dist/cd_animator-0.41.2.zip
 ```
 
 When Blender next opens, the 3D viewport's sidebar has a CD Animator tab. Press N over the viewport to show the sidebar. [The CD Animator tab](sidebar.md) goes through it.
@@ -31,6 +31,8 @@ Everything the add-on takes from the packs is written to a cache folder the firs
 ```
 
 It holds `skeletons`, `clips`, `meshes`, `textures`, `voice`, `sounds` and `mocap`, and a few JSON lists the add-on worked out from the game's files, such as which chart nodes play each clip. Each list's name carries a stamp of the game's files, so after a game update the add-on works them out again on first use.
+
+Windows opens no path longer than 259 letters, and the game's deepest folders pass that under the cache. A file whose path would be too long goes to `long`, in a folder named by a hash of its game folder, with `game_folder.txt` beside it naming that folder. That is a few hundred of the game's 280,011 clips and a few dozen meshes, more with a long Windows user name.
 
 A saved scene keeps using the cache. An action imported from the game exports against the clip file it came from, which the action remembers by its full path in the cache, and export stops with "cannot read the template clip" when that file is gone. Textures, voice lines and sounds also load from the cache by full path, and Blender does not pack them into the `.blend`. So after the cache is cleared, or on another computer, a saved scene shows missing textures and sounds, and its clips cannot export until each is imported again. Anything in the cache can be deleted, and the add-on fetches it again when next needed, so clear it between projects rather than during one.
 

@@ -72,7 +72,7 @@ def add_pose(action, pose):
             for i in range(3):
                 fc = bag.fcurves.find(base + ".location", index=i)
                 if fc is None:
-                    fc = bag.fcurves.new(base + ".location", index=i, group_name=n)
+                    fc = anim.new_fcurve(bag, base + ".location", i, n)
                     fc.keyframe_points.insert(0, 0.0)
                     fc.keyframe_points.insert(end, 0.0)
                 for p in fc.keyframe_points:
@@ -83,7 +83,7 @@ def add_pose(action, pose):
             fcs = [bag.fcurves.find(base + ".rotation_quaternion", index=i) for i in range(4)]
             if any(fc is None for fc in fcs):
                 frames, quats = [0, end], [Quaternion(), Quaternion()]
-                fcs = [fc or bag.fcurves.new(base + ".rotation_quaternion", index=i, group_name=n)
+                fcs = [fc or anim.new_fcurve(bag, base + ".rotation_quaternion", i, n)
                        for i, fc in enumerate(fcs)]
                 for fc in fcs:
                     fc.keyframe_points.clear()

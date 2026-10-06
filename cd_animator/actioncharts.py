@@ -258,14 +258,7 @@ def template_clip(action):
     t = action.get("cd_template")
     if not t:
         return None
-    base = os.path.join(packs.cache_root(), "clips")
-    try:
-        rel = os.path.relpath(t, base)
-    except ValueError:
-        return None
-    if rel.startswith("..") or not rel.lower().endswith(".paa"):
-        return None
-    return rel[:-4].replace("\\", "/")
+    return packs.cached_clip(t)
 
 
 def new_path(action, name):

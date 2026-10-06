@@ -19,7 +19,7 @@ from .formats import sockets as sockets_format
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 41, 1),
+    "version": (0, 41, 2),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",

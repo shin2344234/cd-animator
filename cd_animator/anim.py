@@ -12,7 +12,6 @@ import json
 import os
 
 import bpy
-from bpy_extras import anim_utils
 
 from . import convert, meta
 from .formats import paa_codec
@@ -30,6 +29,15 @@ def block_kind(block, lod):
     if "kind" in block:
         return block["kind"]
     return block["section"] + (0 if lod else 1)
+
+
+def new_fcurve(bag, data_path, index, group):
+    """A new F-curve in channelbag `bag`, in the group named `group`, made
+    if missing. Blender 5.0's fcurves.new takes group_name for this; 4.4 and
+    4.5 do not."""
+    fc = bag.fcurves.new(data_path, index=index)
+    fc.group = bag.groups.get(group) or bag.groups.new(group)
+    return fc
 
 
 def _fill(fcurve, frames, values):
@@ -119,8 +127,9 @@ def import_clip(context, obj, path, layer=True):
     action.use_fake_user = True
     slot = action.slots.new(id_type="OBJECT", name=obj.name)
     layer = action.layers.new("Layer")
-    layer.strips.new(type="KEYFRAME")
-    bag = anim_utils.action_ensure_channelbag_for_slot(action, slot)
+    # The strip's own channelbag(ensure=True), as anim_utils only gained an
+    # ensure function in Blender 5.0.
+    bag = layer.strips.new(type="KEYFRAME").channelbag(slot, ensure=True)
 
     unknown = []
     blocks = []
@@ -158,20 +167,20 @@ def import_clip(context, obj, path, layer=True):
                     quats[i].negate()
                     block["neg"].append(frames[i])
             for i in range(4):
-                fc = bag.fcurves.new(base + ".rotation_quaternion", index=i, group_name=bone_name)
+                fc = new_fcurve(bag, base + ".rotation_quaternion", i, bone_name)
                 _fill(fc, frames, [q[i] for q in quats])
         if bt.pos_keys:
             frames = [k.frame * step for k in bt.pos_keys]
             locs = [convert.key_to_basis(axis, (0.0, 0.0, 0.0, 1.0), (k.x, k.y, k.z))[1]
                     for k in bt.pos_keys]
             for i in range(3):
-                fc = bag.fcurves.new(base + ".location", index=i, group_name=bone_name)
+                fc = new_fcurve(bag, base + ".location", i, bone_name)
                 _fill(fc, frames, [v[i] for v in locs])
         if bt.scale_keys:
             frames = [k.frame * step for k in bt.scale_keys]
             sizes = [convert.scale_to_basis(axis, (k.x, k.y, k.z)) for k in bt.scale_keys]
             for i in range(3):
-                fc = bag.fcurves.new(base + ".scale", index=i, group_name=bone_name)
+                fc = new_fcurve(bag, base + ".scale", i, bone_name)
                 _fill(fc, frames, [v[i] for v in sizes])
 
     last = round(td.lead.duration * FPS)

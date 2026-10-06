@@ -114,6 +114,28 @@ def main():
     fails += report(res == {"FINISHED"} and act.name == "pack_new" and int(act.frame_end) == 40,
                     "game_new_clip starts a 40 frame clip from the broom idle")
 
+    # The game's longest clip and mesh paths pass Windows' 259 letters under
+    # the add-on's cache; they go to a shorter folder and map back. The cache
+    # here is as long as an installed add-on's for a 20-letter user name.
+    long_clip, long_mesh = max(idx.clips, key=len), max(idx.meshes, key=len)
+    clip_path = packs.cache_root() + os.sep + "clips" + os.sep + IDLE.replace("/", os.sep) + ".paa"
+    real_root = packs.cache_root
+    with tempfile.TemporaryDirectory() as tmp:
+        deep = os.path.join(tmp, "u" * max(0, 123 - len(tmp) - 1))
+        packs.cache_root = lambda: deep
+        try:
+            got_clip, got_mesh = packs.fetch_clip(idx, long_clip), packs.fetch_mesh(idx, long_mesh)
+            sizes = [len(f) for f in (got_clip, got_mesh) + tuple(os.path.join(os.path.dirname(got_clip), n)
+                                                                 for n in os.listdir(os.path.dirname(got_clip)))]
+            ok = (os.path.isfile(got_clip) and os.path.isfile(got_mesh) and max(sizes) <= packs.PATH_MAX
+                  and packs.cached_clip(got_clip) == long_clip)
+        finally:
+            packs.cache_root = real_root
+    fails += report(ok and packs.cached_clip(clip_path) == IDLE,
+                    f"under a {len(deep)}-letter cache the longest clip ({len(long_clip)} letters) and mesh "
+                    f"({len(long_mesh)}) cache in paths of at most {max(sizes)} letters, and both a long and a "
+                    f"plain cached clip name their game clip")
+
     print("PASS" if not fails else f"FAIL: {fails} checks")
     sys.stdout.flush()
     os._exit(1 if fails else 0)

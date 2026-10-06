@@ -4,11 +4,11 @@ A Blender add-on for Crimson Desert animations. It imports skeletons (`.pab`) as
 
 [docs/README.md](docs/README.md) is a guide to every part of the add-on and the loader, with a page per task. `python docs/build_page.py` makes it into one web page, the CD Animator Guide.
 
-It needs Blender 4.4 or newer and was built on 5.2.2.
+It needs Blender 4.4 or newer. It was built on 5.2.2, and every check passes on 4.4.3, 4.5.14 LTS and 5.2.2.
 
 ## Install
 
-In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `dist/cd_animator-0.41.1.zip`. To rebuild the zip after changing the code:
+In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `dist/cd_animator-0.41.2.zip`. To rebuild the zip after changing the code:
 
 ```
 blender --command extension build --source-dir cd_animator --output-dir dist

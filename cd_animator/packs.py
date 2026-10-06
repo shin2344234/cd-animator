@@ -10,6 +10,7 @@ and exporter find them as they would unpacked copies, and the cached clip
 stays the template its action is written against.
 """
 
+import hashlib
 import heapq
 import os
 import re
@@ -258,6 +259,45 @@ def cache_root():
         return bpy.utils.user_resource("DATAFILES", path=os.path.join("cd_animator", "game"), create=True)
 
 
+# Windows opens no path past 259 letters and makes no folder past 247, and
+# Blender's Python is not exempt even with long paths turned on. The game's
+# deepest clips and meshes pass that under the add-on's cache, so their
+# folder becomes long/<hash>, with a FOLDER_NOTE naming the game folder.
+PATH_MAX, FOLDER_MAX = 259, 247
+FOLDER_NOTE = "game_folder.txt"
+
+
+def _cache_folder(kind, folder, longest):
+    """The cache folder for the game folder `folder` (with /) under `kind`,
+    holding file names of up to `longest` letters."""
+    path = os.path.join(cache_root(), kind, *folder.split("/"))
+    if len(path) <= FOLDER_MAX and len(path) + 1 + longest <= PATH_MAX:
+        return path
+    key = f"{kind}/{folder}"
+    path = os.path.join(cache_root(), "long", hashlib.sha1(key.encode()).hexdigest()[:16])
+    _write(os.path.join(path, FOLDER_NOTE), key.encode())
+    return path
+
+
+def cached_clip(local):
+    """The clip cached at `local`, a path under character/motion/ without
+    .paa, or None when `local` is not a clip in the cache."""
+    if not local.lower().endswith(".paa"):
+        return None
+    folder, leaf = os.path.split(local[:-4])
+    try:
+        with open(os.path.join(folder, FOLDER_NOTE), encoding="utf-8") as f:
+            kind, _, game = f.read().partition("/")
+        return game + "/" + leaf if kind == "clips" else None
+    except OSError:
+        pass
+    try:
+        rel = os.path.relpath(local[:-4], os.path.join(cache_root(), "clips"))
+    except ValueError:
+        return None
+    return None if rel.startswith("..") else rel.replace("\\", "/")
+
+
 def _write(path, data):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     try:
@@ -277,7 +317,7 @@ def fetch_clip(idx, name):
     e = idx.by_path.get(MOTION + name + ".paa")
     if e is None:
         raise PackError(f"no clip {name} in the game")
-    folder = os.path.join(cache_root(), "clips", *os.path.dirname(name).split("/"))
+    folder = _cache_folder("clips", os.path.dirname(name), len(os.path.basename(name) + ".paa_metabin"))
     stem = os.path.join(folder, os.path.basename(name))
     path = _write(stem + ".paa", paz.read(e))
     lod = idx.by_path.get(MOTION_LOD + name + "_lod.paa")
@@ -295,7 +335,8 @@ def fetch_mesh(idx, name):
     e = idx.by_path.get(name + ".pac")
     if e is None:
         raise PackError(f"no mesh {name} in the game")
-    return _write(os.path.join(cache_root(), "meshes", *name.split("/")) + ".pac", paz.read(e))
+    folder, leaf = name.rsplit("/", 1) if "/" in name else ("", name)
+    return _write(os.path.join(_cache_folder("meshes", folder, len(leaf) + 4), leaf + ".pac"), paz.read(e))
 
 
 def find_mesh(idx, file_name):
@@ -320,7 +361,8 @@ def fetch_texture(idx, path):
     e = idx.by_path.get(path.lower())
     if e is None:
         return None
-    local = os.path.join(cache_root(), "textures", *path.lower().split("/"))
+    folder, leaf = path.lower().rsplit("/", 1) if "/" in path else ("", path.lower())
+    local = os.path.join(_cache_folder("textures", folder, len(leaf)), leaf)
     if os.path.isfile(local) and os.path.getsize(local) == e.size:
         return local
     return _write(local, paz.read(e))

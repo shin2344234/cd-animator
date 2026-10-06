@@ -161,7 +161,7 @@ def end_on(obj, action, overlap, pose):
             continue
         fcs = channels.get(path)
         if fcs is None:
-            fcs = {i: bag.fcurves.new(path, index=i, group_name=bone) for i in range(len(REST[prop]))}
+            fcs = {i: anim.new_fcurve(bag, path, i, bone) for i in range(len(REST[prop]))}
             for i, fc in fcs.items():
                 for f in (0, start):   # every track of the game's clips starts on frame 0
                     fc.keyframe_points.insert(f, REST[prop][i]).interpolation = "LINEAR"
@@ -184,7 +184,7 @@ def hold(obj, action, pose, side):
         bone = path[len('pose.bones["'):].partition('"].')[0]
         if not (bone.startswith(f"Bip01 {side} Finger") or bone == f"Bip_Weapon_{side}"):
             continue
-        fcs = channels.get(path) or {i: bag.fcurves.new(path, index=i, group_name=bone) for i in range(len(values))}
+        fcs = channels.get(path) or {i: anim.new_fcurve(bag, path, i, bone) for i in range(len(values))}
         for i, fc in fcs.items():
             fc.keyframe_points.clear()
             fc.keyframe_points.insert(0, values[i]).interpolation = "LINEAR"
