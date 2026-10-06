@@ -67,7 +67,7 @@ To update the loader, quit the game and replace `CDAnimator.asi`. To remove it, 
 loader\build.bat
 ```
 
-It needs the Visual Studio 2022 Build Tools and uses the CMake and Ninja they bundle. The first build downloads MinHook for its instruction length decoder. The plugin lands in `loader\dist\CDAnimator.asi`, and beside it two zips to share, `CDAnimator-Loader-<version>.zip` for a manual install and `CDAnimator-Loader-<version>-DMM.zip` for Definitive Mod Manager. Each holds the plugin and `MinHook-LICENSE.txt`, whose licence asks that its notice go with the plugin. DMM deploys the plugin and keeps the notice in its library. `build.bat clean` builds from an empty folder.
+It needs the Visual Studio 2022 Build Tools and uses the CMake and Ninja they bundle. The first build downloads MinHook for its instruction length decoder. The plugin lands in `loader\dist\CDAnimator.asi`, and beside it two zips to share, `CDAnimator-Loader-<version>.zip` for a manual install and `CDAnimator-Loader-<version>-DMM.zip` for Definitive Mod Manager. Each holds the plugin and MinHook's notice, whose licence asks that it go with the plugin. The manual zip names it `MinHook-LICENSE.txt` and the DMM zip `CDAnimator-MinHook-LICENSE.txt`, since DMM keeps every ASI mod's files side by side in its library and deploys only the plugin. `build.bat clean` builds from an empty folder.
 
 ## Going online
 

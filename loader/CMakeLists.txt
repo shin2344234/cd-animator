@@ -52,7 +52,9 @@ endif()
 
 # The release zips, manual and DMM: each the plugin and MinHook's notice,
 # which its BSD licence asks to ship with the binary, flat like the other
-# mods' zips. DMM deploys the plugin and keeps the notice in its library.
+# mods' zips. DMM deploys the plugin and keeps the notice in its library,
+# which holds every ASI mod's files side by side, so there the notice is
+# CDAnimator-MinHook-LICENSE.txt, as the release kit names DMM extras.
 file(STRINGS "${CMAKE_SOURCE_DIR}/src/version.h" CDA_VERSION_LINE REGEX "#define CDA_VERSION ")
 string(REGEX MATCH "[0-9]+\\.[0-9]+\\.[0-9]+" CDA_VERSION "${CDA_VERSION_LINE}")
 set(CDA_ZIP "CDAnimator-Loader-${CDA_VERSION}.zip")
@@ -62,9 +64,10 @@ add_custom_command(TARGET CDAnimator POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_SOURCE_DIR}/dist"
     COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:CDAnimator>" "${CMAKE_SOURCE_DIR}/dist/"
     COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_SOURCE_DIR}/MinHook-LICENSE.txt" "${CMAKE_SOURCE_DIR}/dist/"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_SOURCE_DIR}/MinHook-LICENSE.txt" "${CMAKE_SOURCE_DIR}/dist/CDAnimator-MinHook-LICENSE.txt"
     COMMAND ${CMAKE_COMMAND} -E rm -f "${CDA_ZIP}" "${CDA_ZIP_DMM}"
     COMMAND ${CMAKE_COMMAND} -E tar cf "${CDA_ZIP}" --format=zip CDAnimator.asi MinHook-LICENSE.txt
-    COMMAND ${CMAKE_COMMAND} -E tar cf "${CDA_ZIP_DMM}" --format=zip CDAnimator.asi MinHook-LICENSE.txt
+    COMMAND ${CMAKE_COMMAND} -E tar cf "${CDA_ZIP_DMM}" --format=zip CDAnimator.asi CDAnimator-MinHook-LICENSE.txt
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/dist"
     COMMENT "Staging dist/, ${CDA_ZIP} and ${CDA_ZIP_DMM}"
     VERBATIM
