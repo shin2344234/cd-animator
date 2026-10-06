@@ -281,7 +281,7 @@ A looping move, an emote, ends on a copy of the idle's end branch pointed back a
 
 Taking out a pointed node puts it back on the game's index, but a move adds a node, slots, a branch, a condition token and a name. Taking anything out of a chart therefore makes it again from the game's chart: the moves that stay go in again in their order, then the pointed nodes that stay.
 
-Entering a state loads the clips of the states its branches lead to. Speeder Bike's build log on 4 October 2026 showed the mount's state A272684B loading the broom idle and both dismounts at once. A mount's RideOn chart is still checked after the rider gets off, until the game pauses. Kliff's upper chart, `ride_upper.paac`, checks branch 551, at 0x4998C in the shipped chart with target D69FE049, only from the broom's two dismounts, 18064912 and 8B293B1B, from the first frame of getting off.
+Entering a state loads the clips of the states its branches lead to. Speeder Bike's loader log on 4 October 2026 showed the mount's state A272684B loading the broom idle and both dismounts at once. A mount's RideOn chart is still checked after the rider gets off, until the game pauses. Kliff's upper chart, `ride_upper.paac`, checks branch 551, at 0x4998C in the shipped chart with target D69FE049, only from the broom's two dismounts, 18064912 and 8B293B1B, from the first frame of getting off.
 
 ## Event types
 
