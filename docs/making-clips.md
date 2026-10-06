@@ -10,7 +10,7 @@ New clip from a game clip starts a clip from one of the game's clips. The new cl
 
 | Option | Default | What it does |
 |---|---|---|
-| Template | | The game clip to start from. Type words and click a clip in the list under it |
+| Template | | The game clip to start from. Type words, press Return and click a clip in the list under it |
 | Name | empty | The new clip's name, which is also its file name. Empty gives the template's name with `_new` |
 | Length | 0 | Frames at 30 a second. 0 keeps the template's length |
 | Start from | Template's motion | Template's motion keeps every key of the template, cut or held at the new end. Template's first frame has every bone hold the template's first frame for the whole clip |

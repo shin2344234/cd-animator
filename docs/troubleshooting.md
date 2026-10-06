@@ -29,7 +29,7 @@ Blender's status bar shows only the last line of a report. Open an Info editor t
 | Message | What to do |
 |---|---|
 | Crimson Desert's folder was not found; set it in the add-on's preferences | Set Game folder in the add-on's preferences to the folder that holds `0009` and `0010`, as [Installing](install.md#where-the-game-is) shows |
-| no clip in the game is called ... | The name is not one of the game's. Type a few words from it instead and pick from the list. Skeletons, meshes, characters and prefabs give the same message |
+| no clip in the game is called ... | The name is not one of the game's. Type a few words from it instead and pick from the list. When it names the words you typed, the click on the list only closed the field; press Return after typing, then click the clip. Skeletons, meshes, characters and prefabs give the same message |
 | N clips end in ...; pick one with its folder, such as ... | Several folders have a file of that name. Type the folder in front, as the message shows |
 | a LOD clip follows its full clip; ... | Edit the full clip instead. Its LOD is rebuilt from it on export |
 | start a new clip from a full clip, not a _lod.paa | Pick the clip without `_lod` as the template |

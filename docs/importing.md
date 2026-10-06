@@ -6,7 +6,7 @@ Everything here comes straight out of the game's packs. Nothing has to be unpack
 
 Import skeleton, Import animation, Import mesh, Import character and New clip from a game clip each open a dialog with a search field. Type words from a name in any order, such as `broom idle`, and pick from the list. A full path works too, and so does a path copied out of `CDAnimator.log`, which is how [Seen in game](in-the-game.md#seen-in-game) hands clips over.
 
-The Clip fields, in Import animation, Import character and New clip from a game clip, have a list of their own under the field, and it follows each letter you type. It holds the 300 clips closest to your words, best first. A clip where each word you typed starts a word of its name, in the order typed, comes before one where a word only sits inside another, as `broom` does in `lookbroom`. Among clips that match equally well, the skeleton's basic set comes first. Those are its everyday motions, named like `cd_phm_basic_` for every man. After that a shorter name comes before a longer one, and a clip in the skeleton's own folder before one in a subfolder. So `nor std idle` lists Kliff's standing idle first, ahead of the box and cup idles. Click a row to put its name in the field.
+The Clip fields, in Import animation, Import character and New clip from a game clip, have a list of their own under the field, and it follows each letter you type. It holds the 300 clips closest to your words, best first. A clip where each word you typed starts a word of its name, in the order typed, comes before one where a word only sits inside another, as `broom` does in `lookbroom`. Among clips that match equally well, the skeleton's basic set comes first. Those are its everyday motions, named like `cd_phm_basic_` for every man. After that a shorter name comes before a longer one, and a clip in the skeleton's own folder before one in a subfolder. So `nor std idle` lists Kliff's standing idle first, ahead of the box and cup idles. Press Return when you've typed, then click a row to put its name in the field. While the field is still being typed in, Blender spends the first click on closing it, so a row clicked then needs a second click.
 
 The other search fields, such as Character and Mesh, use Blender's own search box. The add-on hands it the 300 closest names by the same rule. The box then sorts them again, the shortest first among the closest, so in those fields the basic set does not come first.
 
@@ -30,7 +30,7 @@ The clip becomes an action named after the clip, and the armature plays it. Impo
 
 | Option | Default | What it does |
 |---|---|---|
-| Clip | | The clip to import. Type words and click a clip in the list under it, or paste a path from `CDAnimator.log` |
+| Clip | | The clip to import. Type words, press Return and click a clip in the list under it, or paste a path from `CDAnimator.log` |
 | Voice | On | For a lip sync clip from `99_autofacial`, adds its spoken line to the scene from frame 0 |
 
 A facial clip goes on the armature's face, over the body clip, and the body clip stays the active action. [Faces and voice lines](faces.md) covers those.

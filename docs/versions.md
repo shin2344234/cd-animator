@@ -53,6 +53,7 @@ Every release of the add-on and the loader, oldest first, with the date of its c
 | 0.41.0 | 5 October | The Clip fields show the add-on's own list of the closest clips under the field, the basic set first among equal matches |
 | 0.41.1 | 5 October | The Adjust Last Operation panel shows the clip without the list, since typing there ran the import again at every letter |
 | 0.41.2 | 5 October | Runs on Blender 4.4 and 4.5. Importing a clip, building a character and hanging chains used two calls that only Blender 5.0 has. The game's deepest clips and meshes, whose cache paths passed Windows' 259 letters, cache in a shorter folder |
+| 0.41.3 | 5 October | The Adjust Last Operation panel after Import animation, Import character or New clip shows the clip and the rest of the options again; since 0.41.1 it stopped after the first row |
 
 ## The loader
 

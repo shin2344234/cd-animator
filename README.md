@@ -23,7 +23,7 @@ Definitive Mod Manager users can import `CDAnimator-<version>-DMM.zip` for the l
 ## Your first clip
 
 1. In Blender, hover over the 3D viewport, press N and open the CD Animator tab.
-2. Press Import character. Leave Character on Kliff, type `nor std idle` in Clip, click `cd_phm_basic_00_00_nor_std_idle_00` at the top of the list under it, and press OK.
+2. Press Import character. Leave Character on Kliff, type `nor std idle` in Clip, press Return, click `cd_phm_basic_00_00_nor_std_idle_00` at the top of the list under it, and press OK.
 3. Change the pose. [Posing with IK controls](docs/ik-controls.md) is the quickest way to move a hand or a foot.
 4. Press Send to game, under In the game.
 5. Start the game, load a save and let Kliff stand still. He plays your edit.

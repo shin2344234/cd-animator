@@ -19,7 +19,7 @@ from .formats import sockets as sockets_format
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 41, 2),
+    "version": (0, 41, 3),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -291,7 +291,10 @@ def _draw_clip_field(op, layout, context):
     if context.region and context.region.type == "HUD":
         # The redo panel runs the operator again at every change, and the
         # field changes at every letter typed, so there it only shows.
-        layout.label(text=f"{op.bl_rna.properties['clip'].name}: {op.clip}")
+        # The panel draws the operator itself, whose own properties hold the
+        # field's name; a dialog's draw and the checks pass the properties.
+        props = getattr(op, "properties", op)
+        layout.label(text=f"{props.bl_rna.properties['clip'].name}: {op.clip}")
         return
     layout.prop(op, "clip")
     layout.template_list("CDANIM_UL_clips", "", op, "clips", op, "picked", rows=8)

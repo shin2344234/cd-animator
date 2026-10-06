@@ -114,16 +114,33 @@ def check_clip_list():
         def __init__(self):
             self.drawn = []
         def __getattr__(self, name):
-            return lambda *a, **k: self.drawn.append(name)
+            return lambda *a, **k: self.drawn.append(name if name != "label" else "label " + k.get("text", ""))
     class Context:
         def __init__(self, kind):
             self.region = type("Region", (), {"type": kind})()
     dialog, hud = Layout(), Layout()
     cd_animator._draw_clip_field(props, dialog, Context("TEMPORARY"))
-    cd_animator._draw_clip_field(props, hud, Context("HUD"))
+
+    # The redo panel draws the operator itself, not its properties as the
+    # dialog does, so the operator is caught in its own execute and drawn.
+    cls = cd_animator.CDANIM_OT_game_character
+    real_execute = cls.execute
+    def draw_and_stop(self, context):
+        try:
+            cd_animator._draw_clip_field(self, hud, Context("HUD"))
+        except Exception as exc:
+            hud.drawn.append(f"error {exc}")
+        return {"CANCELLED"}
+    cls.execute = draw_and_stop
+    try:
+        bpy.ops.cd_animator.game_character(character="cd_phm_macduff_00000",
+                                           clip="cd_phm_basic_00_00_nor_std_idle_00")
+    finally:
+        cls.execute = real_execute
     ok = (len(listed) == 300 and listed[0] == "1_pc/1_phm/cd_phm_basic_00_00_nor_std_idle_00"
           and picked == listed[1] and kept and pasted == listed[:1]
-          and dialog.drawn == ["prop", "template_list"] and hud.drawn == ["label"])
+          and dialog.drawn == ["prop", "template_list"]
+          and hud.drawn == ["label Clip: cd_phm_basic_00_00_nor_std_idle_00"])
     return report(ok, f"Import character's Clip field lists {len(listed)} clips for nor std idle, "
                       f"{listed[0].rsplit('/', 1)[-1] if listed else None} first; picking row 2 puts {picked} in the "
                       f"field and keeps the list; a path pasted from the log lists {pasted}; the dialog draws "
