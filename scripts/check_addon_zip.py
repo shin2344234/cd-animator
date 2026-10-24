@@ -3,8 +3,9 @@
     py -3 scripts/check_addon_zip.py
 
 The release names itself for the add-on, the version line in
-cd_animator/blender_manifest.toml, and its manual archive carries
-dist/cd_animator-<version>.zip. This fails when that zip is missing, or
+cd_animator/blender_manifest.toml, and package.ps1 ships
+dist/cd_animator-<version>.zip on GitHub as CDAnimator-Blender-<version>.zip.
+This fails when that zip is missing, or
 when its files and the files under cd_animator/ differ in name or in a
 single byte. Contents are compared, not timestamps. Rebuild with
 

@@ -5,7 +5,11 @@
   "scriptsDir": "scripts",
   "dist": "loader/dist",
   "sources": ["loader/src", "loader/CMakeLists.txt"],
-  "manualZip": ["dist/cd_animator-{version}.zip", "README.md", "LICENSE", "loader/MinHook-LICENSE.txt"],
+  "archives": { "manual": "{fileBase}-Loader-{version}.zip", "dmm": "{fileBase}-Loader-{version}-DMM.zip" },
+  "assets": [
+    { "role": "blender", "from": "dist/cd_animator-{version}.zip", "name": "{fileBase}-Blender-{version}.zip" }
+  ],
+  "manualZip": ["README.md", "LICENSE", "loader/MinHook-LICENSE.txt"],
   "dmmZip": ["LICENSE", "loader/MinHook-LICENSE.txt"],
   "gates": [
     { "name": "the add-on zip is the add-on as it stands", "run": "py -3 scripts/check_addon_zip.py" }

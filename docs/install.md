@@ -6,13 +6,21 @@ Blender 4.4 or newer runs the add-on. It was built on Blender 5.2.2, and every c
 
 The loader needs Ultimate ASI Loader, github.com/ThirteenAG/Ultimate-ASI-Loader, the same loader every other ASI mod uses. It sits in the game's `bin64` folder under a system file's name, `winmm.dll` on the install these pages were tested on. If Broomy or another ASI mod already runs, it is there. The loader is made for Crimson Desert 2.03.02, exe 1.0.0.2976. It finds the game's file functions by their bytes, so a game update can stop it working until it is updated too.
 
-## The release zips
+## The release files
 
-A release comes as two zips. `CDAnimator-<version>.zip` holds the add-on as `cd_animator-<version>.zip`, the loader as `CDAnimator.asi`, the README, the licence and `MinHook-LICENSE.txt`, MinHook's notice, which its licence asks to go with the plugin. `CDAnimator-<version>-DMM.zip` is the loader for Definitive Mod Manager, with the licence and the notice named `CDAnimator-LICENSE` and `CDAnimator-MinHook-LICENSE.txt`, since DMM keeps every ASI mod's files side by side in its library. The release kit's `scripts\package.ps1` builds both into `loader\dist`.
+A release on GitHub is three separate files. None of them goes inside another, and you need the Blender one plus one of the two Loader ones.
+
+| File | What it is | Where it goes |
+|---|---|---|
+| `CDAnimator-Blender-<version>.zip` | the Blender add-on | Blender's Install from Disk, still zipped |
+| `CDAnimator-Loader-<version>-DMM.zip` | the game plugin `CDAnimator.asi`, with the licence and MinHook's notice named `CDAnimator-LICENSE` and `CDAnimator-MinHook-LICENSE.txt` | Definitive Mod Manager |
+| `CDAnimator-Loader-<version>.zip` | the same plugin, the README, the licence and `MinHook-LICENSE.txt` | unzip it and copy `CDAnimator.asi` into `bin64` |
+
+MinHook's licence asks for its notice to go with the plugin, so both Loader zips carry it. The DMM zip prefixes its two text files because DMM keeps every ASI mod's files side by side in its library. Releases before 0.41.4 shipped as `CDAnimator-<version>.zip`, which held the add-on zip inside it, and `CDAnimator-<version>-DMM.zip`. The release kit's `scripts\package.ps1` builds all three into `loader\dist`, the Blender zip as a copy of `dist/cd_animator-<version>.zip`.
 
 ## The add-on
 
-In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `cd_animator-<version>.zip` from the release zip, or `dist/cd_animator-<version>.zip` after building it. Leave it zipped. The same install from a command prompt:
+In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `CDAnimator-Blender-<version>.zip` from the releases page, or `dist/cd_animator-<version>.zip` after building it. The two are the same file under different names. Leave it zipped. The same install from a command prompt:
 
 ```
 blender --command extension install-file -r user_default -e dist/cd_animator-<version>.zip
@@ -55,8 +63,8 @@ It writes `dist/cd_animator-<version>.zip`, the version taken from `cd_animator/
 ## The loader
 
 1. Quit the game if it is running. Windows keeps a running plugin's file locked.
-2. Copy `CDAnimator.asi`, from the release zip or from `loader/dist` after a build, into the game's `bin64` folder. With Definitive Mod Manager, import `CDAnimator-<version>-DMM.zip` instead.
-3. Make a folder named `CDAnimator` in `bin64`.
+2. Copy `CDAnimator.asi`, from `CDAnimator-Loader-<version>.zip` or from `loader/dist` after a build, into the game's `bin64` folder. With Definitive Mod Manager, import `CDAnimator-Loader-<version>-DMM.zip` instead.
+3. Make a folder named `CDAnimator` in `bin64`. Definitive Mod Manager does not make it either.
 4. Start the game once.
 
 On that first start the loader writes `CDAnimator.ini` beside itself with every setting at its default, and logs what it does to `CDAnimator.log` in the same place. Each later start moves the last log to `CDAnimator.01.log`, the one before to `CDAnimator.02.log`, and so on. [The CD Animator Loader](loader.md) has the settings and the log.

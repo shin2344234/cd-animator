@@ -12,13 +12,20 @@ The [guide](docs/README.md) covers every part of both, with a page per task.
 
 ## Install
 
-Download `CDAnimator-<version>.zip` from the [releases page](https://github.com/shin2344234/cd-animator/releases). It holds the add-on as `cd_animator-<version>.zip`, the loader as `CDAnimator.asi`, this README, the licence and MinHook's notice.
+The [releases page](https://github.com/shin2344234/cd-animator/releases) has three separate downloads, and none of them is inside another:
 
-1. In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `cd_animator-<version>.zip`. Leave it zipped.
-2. With the game closed, copy `CDAnimator.asi` into the game's `bin64` folder and make a folder named `CDAnimator` beside it.
-3. Start the game once. The loader writes `CDAnimator.ini` with every setting at its default.
+- `CDAnimator-Blender-<version>.zip` is the Blender add-on.
+- `CDAnimator-Loader-<version>-DMM.zip` is the game plugin, for Definitive Mod Manager.
+- `CDAnimator-Loader-<version>.zip` is the same game plugin for copying in by hand, with this README, the licence and MinHook's notice.
 
-Definitive Mod Manager users can import `CDAnimator-<version>-DMM.zip` for the loader instead of step 2. [Installing](docs/install.md) has the rest, including where the add-on finds the game and its cache.
+You need the Blender zip and one of the two Loader zips.
+
+1. In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `CDAnimator-Blender-<version>.zip`. Leave it zipped.
+2. With the game closed, import `CDAnimator-Loader-<version>-DMM.zip` in Definitive Mod Manager. To install by hand instead, copy `CDAnimator.asi` out of `CDAnimator-Loader-<version>.zip` into the game's `bin64` folder.
+3. Make a folder named `CDAnimator` in `bin64`. DMM does not make it for you.
+4. Start the game once. The loader writes `CDAnimator.ini` with every setting at its default.
+
+The game reads the `CDAnimator` folder only when it starts, so a clip you send from Blender shows from the game's next start. [Installing](docs/install.md) has the rest, including where the add-on finds the game and its cache.
 
 ## Your first clip
 
