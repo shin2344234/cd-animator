@@ -5,7 +5,7 @@
   "scriptsDir": "scripts",
   "dist": "loader/dist",
   "sources": ["loader/src", "loader/CMakeLists.txt"],
-  "archives": { "manual": "{fileBase}-Loader-{version}.zip", "dmm": "{fileBase}-Loader-{version}-DMM.zip" },
+  "archives": { "manual": "{fileBase}-Loader-{version}-Manual.zip", "dmm": "{fileBase}-Loader-{version}-DMM.zip" },
   "assets": [
     { "role": "blender", "from": "dist/cd_animator-{version}.zip", "name": "{fileBase}-Blender-{version}.zip" }
   ],

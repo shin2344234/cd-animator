@@ -14,9 +14,9 @@ A release on GitHub is three separate files. None of them goes inside another, a
 |---|---|---|
 | `CDAnimator-Blender-<version>.zip` | the Blender add-on | Blender's Install from Disk, still zipped |
 | `CDAnimator-Loader-<version>-DMM.zip` | the game plugin `CDAnimator.asi`, with the licence and MinHook's notice named `CDAnimator-LICENSE` and `CDAnimator-MinHook-LICENSE.txt` | Definitive Mod Manager |
-| `CDAnimator-Loader-<version>.zip` | the same plugin, the README, the licence and `MinHook-LICENSE.txt` | unzip it and copy `CDAnimator.asi` into `bin64` |
+| `CDAnimator-Loader-<version>-Manual.zip` | the same plugin for installing by hand, not for DMM, with the README, the licence and `MinHook-LICENSE.txt` | unzip it and copy `CDAnimator.asi` into `bin64` |
 
-MinHook's licence asks for its notice to go with the plugin, so both Loader zips carry it. The DMM zip prefixes its two text files because DMM keeps every ASI mod's files side by side in its library. Releases before 0.41.4 shipped as `CDAnimator-<version>.zip`, which held the add-on zip inside it, and `CDAnimator-<version>-DMM.zip`. The release kit's `scripts\package.ps1` builds all three into `loader\dist`, the Blender zip as a copy of `dist/cd_animator-<version>.zip`.
+MinHook's licence asks for its notice to go with the plugin, so both Loader zips carry it. The DMM zip prefixes its two text files because DMM keeps every ASI mod's files side by side in its library. Releases before 0.41.4 shipped as `CDAnimator-<version>.zip`, which held the add-on zip inside it, and `CDAnimator-<version>-DMM.zip`. 0.41.4 first named the hand-install zip `CDAnimator-Loader-0.41.4.zip` and renamed it `-Manual` the same day. The release kit's `scripts\package.ps1` builds all three into `loader\dist`, the Blender zip as a copy of `dist/cd_animator-<version>.zip`.
 
 ## The add-on
 
@@ -63,7 +63,7 @@ It writes `dist/cd_animator-<version>.zip`, the version taken from `cd_animator/
 ## The loader
 
 1. Quit the game if it is running. Windows keeps a running plugin's file locked.
-2. Copy `CDAnimator.asi`, from `CDAnimator-Loader-<version>.zip` or from `loader/dist` after a build, into the game's `bin64` folder. With Definitive Mod Manager, import `CDAnimator-Loader-<version>-DMM.zip` instead.
+2. Copy `CDAnimator.asi`, from `CDAnimator-Loader-<version>-Manual.zip` or from `loader/dist` after a build, into the game's `bin64` folder. With Definitive Mod Manager, import `CDAnimator-Loader-<version>-DMM.zip` instead.
 3. Make a folder named `CDAnimator` in `bin64`. Definitive Mod Manager does not make it either.
 4. Start the game once.
 

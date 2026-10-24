@@ -16,12 +16,12 @@ The [releases page](https://github.com/shin2344234/cd-animator/releases) has thr
 
 - `CDAnimator-Blender-<version>.zip` is the Blender add-on.
 - `CDAnimator-Loader-<version>-DMM.zip` is the game plugin, for Definitive Mod Manager.
-- `CDAnimator-Loader-<version>.zip` is the same game plugin for copying in by hand, with this README, the licence and MinHook's notice.
+- `CDAnimator-Loader-<version>-Manual.zip` is the same game plugin for copying in by hand, not for DMM, with this README, the licence and MinHook's notice.
 
 You need the Blender zip and one of the two Loader zips.
 
 1. In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `CDAnimator-Blender-<version>.zip`. Leave it zipped.
-2. With the game closed, import `CDAnimator-Loader-<version>-DMM.zip` in Definitive Mod Manager. To install by hand instead, copy `CDAnimator.asi` out of `CDAnimator-Loader-<version>.zip` into the game's `bin64` folder.
+2. With the game closed, import `CDAnimator-Loader-<version>-DMM.zip` in Definitive Mod Manager. Without DMM, copy `CDAnimator.asi` out of `CDAnimator-Loader-<version>-Manual.zip` into the game's `bin64` folder instead.
 3. Make a folder named `CDAnimator` in `bin64`. DMM does not make it for you.
 4. Start the game once. The loader writes `CDAnimator.ini` with every setting at its default.
 
