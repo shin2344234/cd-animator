@@ -19,6 +19,9 @@ Needs the game installed. It requires:
     into, and a row picked from the list to fill the field, and the redo
     panel to show the clip without the field, which would run the import
     again at every letter;
+  * the Skeleton line under the Character field to name phm_01 and
+    1_pc/1_phm for Kliff, phw_01 and 1_pc/2_phw for Damian, and a warning
+    for a name no appearance has;
   * a list of Kliff with a broom idle, the Wyvern with its air idle and a
     name that matches no character to build the two, each in a collection
     of its own, side by side without overlapping, each playing its clip,
@@ -147,6 +150,30 @@ def check_clip_list():
                       f"{dialog.drawn}, the redo panel only {hud.drawn}")
 
 
+def check_skeleton_row():
+    """Under the Character field, Import character names the skeleton the
+    character resolves to and the folder its clips come from: phm_01 for
+    Kliff, phw_01 for Damian, and a warning for a name no appearance has. A
+    player whose list held only women's clips for Kliff had a mod giving him
+    another body, and this row is where that shows."""
+    class Layout:   # records the labels a draw puts in the panel, at any depth
+        def __init__(self, drawn):
+            self.drawn = drawn
+        def __getattr__(self, name):
+            if name == "label":
+                return lambda **k: self.drawn.append(k.get("text", ""))
+            return lambda *a, **k: Layout(self.drawn)
+    rows = {}
+    for name in ("cd_phm_macduff_00000", "cd_phw_damian_00000", "no_such_character"):
+        drawn = []
+        cd_animator._draw_character_skeleton(Layout(drawn), bpy.context, name)
+        rows[name] = drawn
+    ok = (rows["cd_phm_macduff_00000"] == ["Skeleton", "phm_01, clips from 1_pc/1_phm"]
+          and rows["cd_phw_damian_00000"] == ["Skeleton", "phw_01, clips from 1_pc/2_phw"]
+          and rows["no_such_character"] == ["Skeleton", "No skeleton found for this character"])
+    return report(ok, f"the Character field's skeleton row reads {rows}")
+
+
 def check_single():
     """Import character with a clip, and its clip search."""
     class Props:
@@ -212,6 +239,7 @@ def main():
     fails += check_main_first(idx)
     fails += check_closest_first(idx)
     fails += check_clip_list()
+    fails += check_skeleton_row()
     fails += check_single()
     with tempfile.TemporaryDirectory() as folder:
         fails += check_list(folder)

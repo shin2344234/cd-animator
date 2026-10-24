@@ -6,7 +6,7 @@ Import character builds a character the way the game puts it together: the skele
 
 | Option | Default | What it does |
 |---|---|---|
-| Character | Kliff | The appearance to build. Type words to search |
+| Character | Kliff | The appearance to build. Type words to search. The Skeleton line under it names the skeleton the character's body uses and the folder the Clip list comes from, `phm_01, clips from 1_pc/1_phm` for Kliff |
 | Clip | empty | A clip for the character to play. The list under it holds the clips made for its skeleton, the closest to the words typed first |
 | Facial clip | empty | An expression from `99_facial` or a spoken line from `99_autofacial` for its face |
 | Detail level | 0 | 0 is the most detailed mesh level, 3 the coarsest |

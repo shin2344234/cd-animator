@@ -19,7 +19,7 @@ from .formats import sockets as sockets_format
 bl_info = {
     "name": "CD Animator",
     "author": "Seth",
-    "version": (0, 41, 3),
+    "version": (0, 41, 4),
     "blender": (4, 4, 0),
     "location": "File > Import",
     "description": "Import Crimson Desert skeletons, meshes and animation clips, and export clips with their LOD and metadata",
@@ -652,6 +652,22 @@ def facial_clips(idx, skeleton):
     return _face_clips[key]
 
 
+def _draw_character_skeleton(layout, context, text):
+    """A row under the Character field naming the skeleton its body resolves
+    to, and so the folder the Clip list comes from. A mod that gives Kliff
+    another body shows here as phw_01, with a list of the women's clips."""
+    skel = _character_skeleton(context, text)
+    split = layout.row().split(factor=0.4)
+    name = split.column()
+    name.alignment = "RIGHT"
+    name.label(text="Skeleton")
+    if skel:
+        folder, _, leaf = skel[len(packs.MODEL):].rpartition("/")
+        split.label(text=f"{leaf}, clips from {folder}", icon="ARMATURE_DATA")
+    else:
+        split.label(text="No skeleton found for this character", icon="ERROR")
+
+
 def _character_face_names(self, context, edit_text):
     """Facial clips for the skeleton of the character in the same dialog."""
     try:
@@ -958,6 +974,7 @@ class CDANIM_OT_game_character(Operator):
     def draw(self, context):
         self.layout.use_property_split = True
         self.layout.prop(self, "character")
+        _draw_character_skeleton(self.layout, context, self.character)
         _draw_clip_field(self, self.layout, context)
         for name in ("face", "level", "textures", "proportions", "gear", "cloth", "sway", "voice"):
             self.layout.prop(self, name)

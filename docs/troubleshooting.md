@@ -90,6 +90,8 @@ A saved scene with missing textures, silent sounds or clips that will not export
 
 After Retarget from armature, the export report has a "no keys left" line for each face and helper bone. Those bones hold their bind pose, which is expected.
 
+If Import character lists only women's clips for Kliff, from `1_pc/2_phw`, read the Skeleton line under Character. It should say `phm_01, clips from 1_pc/1_phm`. A `phw_01` there means the game's files give Kliff a woman's body, which a mod that changes his body or look can do. The add-on reads the packs as they are, so turn that mod off and restart Blender to get his own clips.
+
 The first search of a session takes about 6 seconds while the add-on reads the packs' index, and the first sound search about 13 seconds once per game version.
 
 ## Limits
