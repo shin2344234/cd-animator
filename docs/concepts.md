@@ -66,7 +66,7 @@ Two words mean different things in Blender and in the game. In Blender an action
 
 ## Where the files are
 
-The game keeps its files in numbered pack groups, the folders `0000` to `0035` in its install folder. Each has an index, `0.pamt`, and data files, `0.paz` and up. The add-on reads the indexes and finds each file by its game path, so the groups matter only when you unpack files by hand.
+The game keeps its files in numbered pack groups, the folders `0000` to `0035` in its install folder. Each has an index, `0.pamt`, and data files, `0.paz` and up. The add-on reads the indexes and finds each file by its game path, so the groups matter only when you extract files by hand.
 
 | Group | What the add-on reads there |
 |---|---|
@@ -77,6 +77,82 @@ The game keeps its files in numbered pack groups, the folders `0000` to `0035` i
 | `0012` | The input maps |
 
 Spoken lines are in one more group for each voice language installed.
+
+## Reading the game's names
+
+Files go by folder and code, never by the names the game shows, so typing Kliff into a search finds nothing. His files call him macduff, and his appearance is `cd_phm_macduff_00000`. Counts come from 2.03.02's pack index. Where a column says guess, the index fits the reading but nothing in the game spells it out.
+
+### Groups
+
+The first folder under `character/motion/`, `character/model/` and `character/appearance/` is a group.
+
+| Folder | What is in it |
+|---|---|
+| `1_pc` | The humanoid skeletons and 255,379 clips, used by Kliff and by everyone else on those skeletons. Its appearances are the named characters only |
+| `2_mon` | Monsters and animals, such as `cd_m0004_00_dragon`. Appearances sort by build, such as `cd_m0001_00_twofeet` and `cd_m0002_00_fourfeet` |
+| `3_npc` | Appearances only, sorted by region, such as `cd_npc_south` with 1,616. Their clips are in `1_pc` |
+| `4_riding` | Mounts, such as `cd_r0032_00_broom` |
+| `6_object` | Clips for objects, 2,941 of them |
+| `7_montower`, `9_cutscene` | 19 clips between them |
+
+Monster folders are numbered `cd_m<nnnn>` and mount folders `cd_r<nnnn>`.
+
+### Skeleton codes
+
+Every folder in `1_pc` is a number and a code, such as `1_phm`. A code is three parts. The first letter is `p` for a body clip or `n` for a crowd voice, then the kind of person, then `m` or `w`.
+
+| Part | Reading | How sure |
+|---|---|---|
+| `m`, `w` last | Man, woman. Each kind comes in both, as `phm` and `phw`, `pgm` and `pgw`, `pdm` and `pdw`, `pom` and `pow`, `ptm` and `ptw`, and `phm` holds every man, `phw` every woman | Index shows |
+| `p` first | Player. Body clips use it, in names such as `cd_phm_basic_...` | Guess |
+| `n` first | NPC. `nhm_adult_`, `nhw_adult_`, `nom_adult_`, `ngm_adult_`, `ntm_adult_` and `ndm_adult_` are lip sync clips for crowd voices, in the `99_autofacial` folders of the matching `p` code | Guess |
+| `h` | Human. `1_phm` and `2_phw` hold Kliff, Damiane and every other person | Guess |
+| `g` | Goblin. The goblin broker's clips are `cd_pgm_...goblinbroker...` | Guess |
+| `o` | Orc. Orc quest scenes, such as `cd_seq_quest_orcumer_intro_pom2_...`, use `pom` | Guess |
+| `t` | Troll. Troll scenes, such as `cd_seq_enc_trollhealbear_...ptm...`, use `ptm` | Guess |
+| `pp` in `ppdm` | Pororin. Its clips are the pororin dye shop's | Guess |
+| `d`, `de`, `tt`, `i`, `e`, `b` | Unknown. `pdm` has 2,785 clips, `pdem` 723, `pttm` 82, `pdw` 71, `pim` 41, `pem` 2 and `pbm` 1 | Unknown |
+
+Only four of these have a skeleton of their own under `character/model/1_pc/`: `phm_01`, `phw_01`, `ptm_01` and `ppdm_01`.
+
+### Kliff's folder
+
+`1_pc/1_phm/` has 199,424 clips. Most are not Kliff's body moving.
+
+| Subfolder | Clips | What they are |
+|---|---|---|
+| `99_autofacial` | 138,393 | Lip sync. `unique_<name>_<number>` for a named character's lines, such as `unique_kliff_...`, and `nhm_adult_...` for crowd voices |
+| `02_mission` | 22,181 | Mission scenes, mostly `cd_seq_...` |
+| `01_npc` | 11,651 | Townspeople at work and play, and their scenes, many named `cd_ss<number>_...` |
+| `99_arfacial`, `99_facial` | 4,134 | Facial expressions, named `f_cd_...` |
+| `00_mon` | 3,864 | Enemy fighters on the man's skeleton, such as `cd_phm_m_bow_...`. Reading `mon` as enemy is a guess |
+| `00_riding` | 2,423 | Riding, named `cd_phm_rd_<mount>_...` |
+| `weapon`, `armor` | 2,468 | What an item does itself during a move, such as a bowstring or a cloak gliding, named `..._at_<item>_00` |
+| `98_item` | 282 | Using an item, such as playing dice |
+
+The 14,021 clips at the top of the folder, outside any subfolder, are the everyday ones, `cd_phm_basic_...` and a set for each weapon.
+
+### Clip names
+
+A body clip's name runs `cd_<code>_<set>_<nn>_<nn>_<state>_<pose>_<what>_<phase>_<nn>`. Kliff's standing idle, `cd_phm_basic_00_00_nor_std_idle_00`, reads as code `phm`, set `basic`, state `nor`, pose `std`, what `idle`. Not every name has every part, and the words in the middle are what the add-on's search fields match.
+
+The set says what the clip belongs to, such as `basic`, `adult`, `child`, a weapon (`sword`, `bow`, `baxe`, `fishrod`) or `rd_<mount>` for riding.
+
+| Word | Reading | How sure |
+|---|---|---|
+| `nor` | Normal. The same slot spells it out as `normal` 760 times in Kliff's clips, and the woman's idle is `cd_phw_basic_00_00_normal_stand_idle_000` | Index shows |
+| `std` | Stand. `nor_std` and `normal_stand` fill the same place, 18,342 and 1,382 times across the game | Index shows |
+| `rd` | Riding. 969 of Kliff's `rd` clips are in `00_riding` | Index shows |
+| `att` | Attack. It leads `att_nor` and `att_skill` clips, and 10 names spell out `attack` | Guess |
+| `abn` | Abnormal, a state done to the character. It leads `abn_dam`, `abn_stun`, `abn_bump` and `abn_die` | Guess |
+| `stt`, `ing`, `end` | Start, in progress, end of a three-part move. `sttloop` is a start that loops | Guess |
+| `l`, `r`, `f`, `b` | Left, right, forward, back, as in `walk_f` and `turn180l` | Guess |
+
+Other states are whole words, such as `sit`, `air`, `aim`, `lean`, `lie` and `freeclimb`.
+
+### Appearance names
+
+An appearance is `<group>/<code>/cd_<code>_<name>/cd_<code>_<name>_<nnnnn>`. The name is the game's own name for the character, which is not always the shown one: `cd_phm_macduff` is Kliff and `cd_phw_damian` is Damiane. The number picks one of a character's looks. Kliff has four, `00000`, `00001`, `00002` and `00005`, and Import character starts on `00000`. The readable name, Kliff, is on his record in the character table, along with `Kliff_AI` and `Kliff_Clone`.
 
 ## Glossary
 

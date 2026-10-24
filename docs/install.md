@@ -2,7 +2,7 @@
 
 ## What you need
 
-Blender 4.4 or newer runs the add-on. It was built on Blender 5.2.2, and every check passes on 4.4.3, 4.5.14 LTS and 5.2.2. Crimson Desert has to be installed on the same computer, because the add-on reads the game's packs directly and never asks you to unpack anything.
+Blender 4.4 or newer runs the add-on. It was built on Blender 5.2.2, and every check passes on 4.4.3, 4.5.14 LTS and 5.2.2. Crimson Desert has to be installed on the same computer, because the add-on reads the game's packs directly and never asks you to extract anything.
 
 The loader needs Ultimate ASI Loader, github.com/ThirteenAG/Ultimate-ASI-Loader, the same loader every other ASI mod uses. It sits in the game's `bin64` folder under a system file's name, `winmm.dll` on the install these pages were tested on. If Broomy or another ASI mod already runs, it is there. The loader is made for Crimson Desert 2.03.02, exe 1.0.0.2976. It finds the game's file functions by their bytes, so a game update can stop it working until it is updated too.
 

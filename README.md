@@ -30,7 +30,7 @@ The game reads the `CDAnimator` folder only when it starts, so a clip you send f
 ## Your first clip
 
 1. In Blender, hover over the 3D viewport, press N and open the CD Animator tab.
-2. Press Import character. Leave Character on Kliff, type `nor std idle` in Clip, press Return, click `cd_phm_basic_00_00_nor_std_idle_00` at the top of the list under it, and press OK.
+2. Press Import character. Leave Character on `1_pc/1_phm/cd_phm_macduff/cd_phm_macduff_00000`, which is Kliff ([Reading the game's names](docs/concepts.md#reading-the-games-names) explains why), type `nor std idle` in Clip, press Return, click `cd_phm_basic_00_00_nor_std_idle_00` at the top of the list under it, and press OK.
 3. Change the pose. [Posing with IK controls](docs/ik-controls.md) is the quickest way to move a hand or a foot.
 4. Press Send to game, under In the game.
 5. Start the game, load a save and let Kliff stand still. He plays your edit.
