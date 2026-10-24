@@ -12,7 +12,7 @@ The [guide](docs/README.md) covers every part of both, with a page per task.
 
 ## Install
 
-The release zip `CDAnimator-<version>.zip` holds the add-on as `cd_animator-<version>.zip`, the loader as `CDAnimator.asi`, this README, the licence and MinHook's notice.
+Download `CDAnimator-<version>.zip` from the [releases page](https://github.com/shin2344234/cd-animator/releases). It holds the add-on as `cd_animator-<version>.zip`, the loader as `CDAnimator.asi`, this README, the licence and MinHook's notice.
 
 1. In Blender open Edit > Preferences > Get Extensions, open the menu at the top right, choose Install from Disk, and pick `cd_animator-<version>.zip`. Leave it zipped.
 2. With the game closed, copy `CDAnimator.asi` into the game's `bin64` folder and make a folder named `CDAnimator` beside it.
