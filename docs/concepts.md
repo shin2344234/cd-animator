@@ -99,21 +99,27 @@ Monster folders are numbered `cd_m<nnnn>` and mount folders `cd_r<nnnn>`.
 
 ### Skeleton codes
 
-Every folder in `1_pc` is a number and a code, such as `1_phm`. A code is three parts. The first letter is `p` for a body clip or `n` for a crowd voice, then the kind of person, then `m` or `w`.
+Every folder in `1_pc` is a number and a code, such as `1_phm`. A code is three parts, `p` or `n`, then the race, then `m` or `w`. The same codes name the people in the character table, in capitals with `N` first, such as `NDM_Desert_Dwarf_10` and `NGM_Goblin_Market_4306`, and their appearances under `2_mon/cd_m0001_00_twofeet/`, such as `cd_m0001_00_pdm_desert`.
+
+The readings below come from every path in the packs, the record names in the character table, and one character of each race built in Blender.
 
 | Part | Reading | How sure |
 |---|---|---|
-| `m`, `w` last | Man, woman. Each kind comes in both, as `phm` and `phw`, `pgm` and `pgw`, `pdm` and `pdw`, `pom` and `pow`, `ptm` and `ptw`, and `phm` holds every man, `phw` every woman | Index shows |
-| `p` first | Player. Body clips use it, in names such as `cd_phm_basic_...` | Guess |
-| `n` first | NPC. `nhm_adult_`, `nhw_adult_`, `nom_adult_`, `ngm_adult_`, `ntm_adult_` and `ndm_adult_` are lip sync clips for crowd voices, in the `99_autofacial` folders of the matching `p` code | Guess |
-| `h` | Human. `1_phm` and `2_phw` hold Kliff, Damiane and every other person | Guess |
-| `g` | Goblin. The goblin broker's clips are `cd_pgm_...goblinbroker...` | Guess |
-| `o` | Orc. Orc quest scenes, such as `cd_seq_quest_orcumer_intro_pom2_...`, use `pom` | Guess |
-| `t` | Troll. Troll scenes, such as `cd_seq_enc_trollhealbear_...ptm...`, use `ptm` | Guess |
-| `pp` in `ppdm` | Pororin. Its clips are the pororin dye shop's | Guess |
-| `d`, `de`, `tt`, `i`, `e`, `b` | Unknown. `pdm` has 2,785 clips, `pdem` 723, `pttm` 82, `pdw` 71, `pim` 41, `pem` 2 and `pbm` 1 | Unknown |
+| `m`, `w` last | Man, woman. Each race comes in both, as `phm` and `phw`, `pgm` and `pgw`, `pdm` and `pdw`, `pom` and `pow`, `ptm` and `ptw`, and `phm` holds every man, `phw` every woman | Index shows |
+| `n` first | NPC. The character table names every non-player person `N` plus a code: 3,477 `NHM_` records, 759 `NHW_`, 380 `NTM_`, 330 `NGM_`, 312 `NOM_` and fewer for the rest. In clip names, `nhm_adult_` and the like are lip sync for crowd voices | Index shows |
+| `p` first | The clip family, the form every body clip and folder uses. Player is the likely word, but Kliff's records carry no code at all | Guess |
+| `h` | Human. Kliff, Damiane, citizens, nobles and soldiers, and no record spells the word out | Guess |
+| `d` | Dwarf. `NDM_Desert_Dwarf_...` records use the `pdm` appearances, which build short and stocky | Index shows |
+| `g` | Goblin. `NGM_Goblin_Market_...` records, and the goblin broker's clips are `cd_pgm_...goblinbroker...` | Index shows |
+| `o` | Orc. `NOM_Desert_Orc_...` records | Index shows |
+| `t` | Troll. `NTM_Desert_Troll_...` records. A `ptm` troll builds 3.65 m tall to Kliff's 1.92 m | Index shows |
+| `tt` in `pttm` | Titan. The titan quest's scene clips in `17_pttm` name their actor `titan2`, and the titan boss's record carries a two-handed spear, as most `pttm` clips do | Index shows |
+| `i` | Imp. The only `pim` scene, `cd_ss00054_11_imptalk_...`, names its three actors `pim1` to `pim3`. The 15 `NIM_Bandit_...` records do not say imp | Index shows |
+| `pd` in `ppdm` | A dog- or cat-headed people with black fur, the only race here with digitigrade legs. The NPC form is `NPDM`, as `NPDM_Unique_Dverick`, which makes the race `pd`, not `pp`. Its clips are the pororin dye shop's, so pororin is the likely name | Guess |
+| `de` | Unknown. 64 `NDEM_` records, citizens, priests, merchants and the Long Leaf village police, built 2.44 m to the tips of a deer-antler headdress with human faces | Unknown |
+| `e`, `b` | Unknown. `pem` has 2 clips and `pbm` 1, and no record, appearance or skeleton uses either | Unknown |
 
-Only four of these have a skeleton of their own under `character/model/1_pc/`: `phm_01`, `phw_01`, `ptm_01` and `ppdm_01`.
+Only four codes have a skeleton of their own under `character/model/1_pc/`: `phm_01`, `phw_01`, `ptm_01` and `ppdm_01`. Every other race plays its clips on `phm_01` or `phw_01`, so a dwarf or an orc imports on the man's skeleton. A further code, `l`, turns up on three records only, such as `NLM_Unique_Ponto`, which use human appearances and have no clips of their own.
 
 ### Kliff's folder
 
