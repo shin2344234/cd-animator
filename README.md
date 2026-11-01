@@ -7,7 +7,7 @@ The [guide](docs/README.md) covers every part of both, with a page per task.
 ## What you need
 
 - Blender 4.4 or newer. Every check passes on 4.4.3, 4.5.14 LTS and 5.2.2.
-- Crimson Desert installed on the same computer. The add-on reads the game's packs directly.
+- Crimson Desert installed on the same computer, at exe 1.0.0.3479. The add-on reads the game's packs directly.
 - For the loader, Ultimate ASI Loader in the game's `bin64` folder, the same one every ASI mod uses.
 
 ## Install

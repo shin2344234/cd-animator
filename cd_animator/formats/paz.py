@@ -13,6 +13,15 @@ A file's full path is its folder's path, a slash and its name. The parser in
 master looter's paz tools keeps only the top folder, which is not enough:
 26,553 clip names in 0009 appear in more than one folder with different data.
 
+The DLC build of 29 October 2026 (exe 1.0.0.3392) changed the layout, and
+every build since keeps it. A tree node starts with a varint, its distance
+back to its parent node (0 for a root), in place of the parent's 4-byte
+offset. A folder record is (hash, folder, first file, file count), and a
+4-byte file count comes before the file records. File names lose their
+extension: the flags' top byte picks it from a table after the file records,
+a 4-byte size and then null-terminated strings, the first one empty. The
+reader tells the two apart by the first node of the first tree that has one.
+
 The clips, skeletons, blends, metadata and charts the add-on reads are stored
 plain or as LZ4 blocks (compression type 2). Type 1 keeps the file's own
 header and compresses the parts after it: a mesh (.pac) stores each section
@@ -85,6 +94,45 @@ def _joiner(nodes):
     return path
 
 
+def _varint(data, off):
+    value = shift = 0
+    while True:
+        b = data[off]
+        off += 1
+        value |= (b & 0x7F) << shift
+        shift += 7
+        if b < 0x80:
+            return value, off
+
+
+def _tree_varint(data, off, size):
+    """{offset: (parent offset, fragment)} for a fragment tree of the DLC
+    build's layout, a root's parent 0xFFFFFFFF as in the old one."""
+    nodes = {}
+    o, end = off, off + size
+    while o < end:
+        at = o - off
+        back, o = _varint(data, o)
+        n = data[o]
+        nodes[at] = (at - back if back else 0xFFFFFFFF, data[o + 1:o + 1 + n].decode("utf-8", "replace"))
+        o += 1 + n
+    if o != end:
+        raise ValueError(f"a name tree runs {o - end} bytes past its end")
+    return nodes
+
+
+def _is_varint_layout(data, off):
+    """True when the index from its first tree at `off` has the DLC build's
+    layout: an old tree's first node starts with a parent of 0xFFFFFFFF, a
+    new one's with a 0 varint. The folder tree can be empty (group 0016)."""
+    for _ in range(2):
+        size = struct.unpack_from("<I", data, off)[0]
+        if size:
+            return data[off + 4:off + 8] != b"\xff\xff\xff\xff"
+        off += 4
+    return False
+
+
 def read_index(pamt_path, keep=None):
     """The entries of one group's index. `keep` is a set of lower-case
     extensions without the dot; other files are skipped."""
@@ -96,6 +144,8 @@ def read_index(pamt_path, keep=None):
     paz_count = struct.unpack_from("<I", data, off)[0]
     off += 4 + 8
     off += paz_count * 8 + max(paz_count - 1, 0) * 4
+    if _is_varint_layout(data, off):
+        return _read_index_varint(data, off, folder_dir, stem, keep)
 
     size = struct.unpack_from("<I", data, off)[0]
     folders = _joiner(_tree(data, off + 4, size))
@@ -135,6 +185,51 @@ def read_index(pamt_path, keep=None):
         prefix = folder_of[i]
         path = f"{prefix}/{name}" if prefix else name
         out.append(Entry(path, paz, offset, stored, size, flags))
+    return out
+
+
+def _read_index_varint(data, off, folder_dir, stem, keep):
+    """read_index for the DLC build's layout, from the folder tree at `off`."""
+    size = struct.unpack_from("<I", data, off)[0]
+    folders = _joiner(_tree_varint(data, off + 4, size))
+    off += 4 + size
+    size = struct.unpack_from("<I", data, off)[0]
+    names = _joiner(_tree_varint(data, off + 4, size))
+    off += 4 + size
+
+    folder_count = struct.unpack_from("<I", data, off)[0]
+    off += 4
+    owner = [struct.unpack_from("<IIII", data, off + 16 * i)[1:] for i in range(folder_count)]
+    off += 16 * folder_count
+    file_count = struct.unpack_from("<I", data, off)[0]
+    off += 4
+    files_at = off
+    off += 20 * file_count
+    size = struct.unpack_from("<I", data, off)[0]
+    if off + 4 + size != len(data):
+        raise ValueError(f"the extension table ends at {off + 4 + size}, the index at {len(data)}")
+    exts = [e.decode("utf-8", "replace") for e in data[off + 4:off + 4 + size].split(b"\0")]
+
+    folder_of = [None] * file_count
+    for ref, first, count in owner:
+        prefix = folders(ref) if ref != 0xFFFFFFFF else ""
+        for i in range(first, min(first + count, file_count)):
+            folder_of[i] = prefix
+
+    out = []
+    paz_files = {}
+    for i in range(file_count):
+        node, offset, stored, size, flags = struct.unpack_from("<IIIII", data, files_at + 20 * i)
+        ext = exts[flags >> 24]
+        if keep is not None and ext[1:].lower() not in keep:
+            continue
+        index = flags & 0xFF
+        paz = paz_files.get(index)
+        if paz is None:
+            paz = paz_files[index] = os.path.join(folder_dir, f"{stem + index}.paz")
+        prefix = folder_of[i]
+        name = names(node) + ext
+        out.append(Entry(f"{prefix}/{name}" if prefix else name, paz, offset, stored, size, flags))
     return out
 
 

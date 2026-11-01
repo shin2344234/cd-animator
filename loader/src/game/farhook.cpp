@@ -3,11 +3,16 @@
 #include <Windows.h>
 #include <TlHelp32.h>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <string>
+#include <vector>
 
 extern "C" {
 #include <hde64.h>
 }
+
+#include "game/mem.h"
 
 namespace cda::farhook
 {
@@ -306,6 +311,51 @@ namespace cda::farhook
         if (!WriteCode(target + off, &detour, 8, why, whyLen)) { *original = nullptr; return false; }
         ++g_n;
         return true;
+    }
+
+    // `pattern` as it reads once Install has hooked the function: its own
+    // `mov rax, imm64; jmp rax` over the first whole instructions of 12 bytes
+    // or more, int3 up to their end, then the rest of the pattern.
+    static std::string HookedForm(const char* pattern)
+    {
+        std::vector<std::string> tokens;
+        for (const char* p = pattern; *p;)
+        {
+            while (*p == ' ') ++p;
+            const char* start = p;
+            while (*p && *p != ' ') ++p;
+            if (p > start) tokens.emplace_back(start, p);
+        }
+        unsigned char head[32] = {};
+        const size_t n = tokens.size() < sizeof head ? tokens.size() : sizeof head;
+        for (size_t i = 0; i < n; ++i)
+        {
+            if (tokens[i] == "??") return {};
+            head[i] = static_cast<unsigned char>(strtoul(tokens[i].c_str(), nullptr, 16));
+        }
+        unsigned len = 0;
+        while (len < 12)
+        {
+            hde64s hs;
+            const unsigned l = hde64_disasm(head + len, &hs);
+            if ((hs.flags & F_ERROR) || l == 0) return {};
+            len += l;
+            if (len > n) return {};
+        }
+        std::string out = "48 B8 ?? ?? ?? ?? ?? ?? ?? ?? FF E0";
+        for (unsigned i = 12; i < len; ++i) out += " CC";
+        for (size_t i = len; i < tokens.size(); ++i) out += " " + tokens[i];
+        return out;
+    }
+
+    uintptr_t FindEntry(const char* pattern, bool* hooked)
+    {
+        *hooked = false;
+        if (const uintptr_t at = cda::mem::FindUnique(pattern)) return at;
+        const std::string alt = HookedForm(pattern);
+        const uintptr_t at = alt.empty() ? 0 : cda::mem::FindUnique(alt.c_str());
+        *hooked = at != 0;
+        return at;
     }
 
     void RemoveAll()

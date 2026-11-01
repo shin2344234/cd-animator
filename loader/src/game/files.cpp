@@ -3,11 +3,6 @@
 #include <Windows.h>
 #include <intrin.h>
 #include <cstring>
-#include <vector>
-
-extern "C" {
-#include <hde64.h>
-}
 
 #include "core/log.h"
 #include "game/farhook.h"
@@ -46,6 +41,7 @@ namespace
     FnAsync       g_asyncOriginal = nullptr;
     FnFind        g_findOriginal = nullptr;
     FnExists      g_existsOriginal = nullptr;
+    FnExists      g_indexOfOriginal = nullptr;
     FnMakePath    g_makePath = nullptr;
     FnReleasePath g_releasePath = nullptr;
     FnAlloc       g_allocSet = nullptr, g_allocClear = nullptr;
@@ -58,13 +54,13 @@ namespace
 
     volatile LONG g_servedLogged = 0;
 
-    // The thread block's job pointer (+0x1E0): set on the loader's own
-    // threads, where the async slot queues a task instead of calling Read.
+    // The thread block's job pointer: set on the loader's own threads, where
+    // the async slot queues a task instead of calling Read.
     uintptr_t* JobSlot()
     {
         const uintptr_t slots = __readgsqword(0x58);
         const uintptr_t block = slots ? *reinterpret_cast<uintptr_t*>(slots) : 0;
-        return block ? reinterpret_cast<uintptr_t*>(block + 0x1E0) : nullptr;
+        return block ? reinterpret_cast<uintptr_t*>(block + kOff_Block_Job) : nullptr;
     }
 
     // The game picks one of two allocators by a byte in its thread block, and
@@ -73,7 +69,7 @@ namespace
     {
         const uintptr_t slots = __readgsqword(0x58);
         const uintptr_t block = slots ? *reinterpret_cast<uintptr_t*>(slots) : 0;
-        return block && *reinterpret_cast<uint8_t*>(block + 0x1FD) != 0;
+        return block && *reinterpret_cast<uint8_t*>(block + kOff_Block_AllocFlag) != 0;
     }
 
     // The game's buffer, now holding `bytes`, in the game's own allocation.
@@ -186,6 +182,12 @@ namespace
         return g_existsOriginal(loader, s.Path(path));
     }
 
+    uint64_t IndexOfDetour(uintptr_t loader, uintptr_t path)
+    {
+        Swapped s(loader, path, "index of");
+        return g_indexOfOriginal(loader, s.Path(path));
+    }
+
     uintptr_t CallTarget(uintptr_t call)
     {
         uint8_t op = 0;
@@ -195,52 +197,6 @@ namespace
     bool SameEmpty(uintptr_t hit, void* ctx)
     {
         return cda::mem::RipAt(hit + kOff_ReleasePath_EmptyLea, 7) == *static_cast<uintptr_t*>(ctx);
-    }
-
-    // `pattern` as it reads once farhook has hooked the function: its own
-    // `mov rax, imm64; jmp rax` over the first whole instructions of 12 bytes
-    // or more, int3 up to their end, then the rest of the pattern.
-    std::string HookedForm(const char* pattern)
-    {
-        std::vector<std::string> tokens;
-        for (const char* p = pattern; *p;)
-        {
-            while (*p == ' ') ++p;
-            const char* start = p;
-            while (*p && *p != ' ') ++p;
-            if (p > start) tokens.emplace_back(start, p);
-        }
-        unsigned char head[32] = {};
-        const size_t n = tokens.size() < sizeof head ? tokens.size() : sizeof head;
-        for (size_t i = 0; i < n; ++i)
-        {
-            if (tokens[i] == "??") return {};
-            head[i] = static_cast<unsigned char>(strtoul(tokens[i].c_str(), nullptr, 16));
-        }
-        unsigned len = 0;
-        while (len < 12)
-        {
-            hde64s hs;
-            const unsigned l = hde64_disasm(head + len, &hs);
-            if ((hs.flags & F_ERROR) || l == 0) return {};
-            len += l;
-            if (len > n) return {};
-        }
-        std::string out = "48 B8 ?? ?? ?? ?? ?? ?? ?? ?? FF E0";
-        for (unsigned i = 12; i < len; ++i) out += " CC";
-        for (size_t i = len; i < tokens.size(); ++i) out += " " + tokens[i];
-        return out;
-    }
-
-    // The function `pattern` names, found as shipped or as Broomy left it.
-    uintptr_t FindTarget(const char* pattern, bool* hooked)
-    {
-        *hooked = false;
-        if (const uintptr_t at = cda::mem::FindUnique(pattern)) return at;
-        const std::string alt = HookedForm(pattern);
-        const uintptr_t at = alt.empty() ? 0 : cda::mem::FindUnique(alt.c_str());
-        *hooked = at != 0;
-        return at;
     }
 
     // A detour on `target`, on top of another plugin's when one is there.
@@ -266,10 +222,11 @@ namespace cda::files
         g_lookup = lookup;
         g_standIn = standIn;
         g_loaded = loaded;
-        bool readHooked = false, findHooked = false, existsHooked = false;
-        const uintptr_t read = FindTarget(kSig_ResourceRead, &readHooked);
-        const uintptr_t find = FindTarget(kSig_LoaderFindSource, &findHooked);
-        const uintptr_t exists = FindTarget(kSig_LoaderExists, &existsHooked);
+        bool hooked = false;
+        const uintptr_t read = farhook::FindEntry(kSig_ResourceRead, &hooked);
+        const uintptr_t find = farhook::FindEntry(kSig_LoaderFindSource, &hooked);
+        const uintptr_t exists = farhook::FindEntry(kSig_LoaderExists, &hooked);
+        const uintptr_t indexOf = farhook::FindEntry(kSig_LoaderIndexOf, &hooked);
         const uintptr_t make = mem::FindUnique(kSig_MakePath);
         uintptr_t empty = make ? mem::RipAt(make + kOff_MakePath_EmptyLea, 7) : 0;
         const uintptr_t release = empty ? mem::FindIf(kSig_ReleasePath, &SameEmpty, &empty) : 0;
@@ -292,22 +249,25 @@ namespace cda::files
         uintptr_t async = 0;
         const bool asyncFound = mem::FindVtablesByName(kRtti_ResourceLoader, vt, 2) == 1 &&
                                 mem::ReadPtr(vt[0] + kSlot_LoaderAsync * 8, &async) && mem::InImage(async);
-        if (!read || !find || !exists || !asyncFound || !make || !release || !g_allocSet || !g_allocClear ||
-            !g_freeSet || !g_freeClear || !g_tagBytes)
+        if (!read || !find || !exists || !indexOf || !asyncFound || !make || !release || !g_allocSet ||
+            !g_allocClear || !g_freeSet || !g_freeClear || !g_tagBytes)
         {
-            LOG_ERR("[files] the file loader's pieces were not all found (read %s, find %s, exists %s, async load %s, "
-                    "path %s and %s, allocator %s, release %s), so every file is the game's own.",
+            LOG_ERR("[files] the file loader's pieces were not all found (read %s, find %s, exists %s, index of %s, "
+                    "async load %s, path %s and %s, allocator %s, release %s), so every file is the game's own.",
                     read ? "found" : "missing", find ? "found" : "missing", exists ? "found" : "missing",
-                    asyncFound ? "found" : "missing", make ? "found" : "missing", release ? "found" : "missing",
+                    indexOf ? "found" : "missing", asyncFound ? "found" : "missing", make ? "found" : "missing",
+                    release ? "found" : "missing",
                     g_allocSet && g_allocClear ? "found" : "missing",
                     g_freeSet && g_freeClear && g_tagBytes ? "found" : "missing");
             return false;
         }
-        // Find and exists go in before Read and the async load: a new file
-        // must reach its stand-in before anything reads it.
-        // Exists first: find's hook asks it whether a pack has the file.
+        // Find, exists and index of go in before Read and the async load: a
+        // new file must reach its stand-in before anything reads it.
+        // Exists first: the other hooks ask it whether a pack has the file.
         const bool e = Hook("loader exists", exists, reinterpret_cast<void*>(&ExistsDetour),
                             reinterpret_cast<void**>(&g_existsOriginal));
+        const bool x = e && Hook("loader index of", indexOf, reinterpret_cast<void*>(&IndexOfDetour),
+                                 reinterpret_cast<void**>(&g_indexOfOriginal));
         const bool f = Hook("loader find", find, reinterpret_cast<void*>(&FindDetour), reinterpret_cast<void**>(&g_findOriginal));
         const bool r = Hook("resource read", read, reinterpret_cast<void*>(&ReadDetour), reinterpret_cast<void**>(&g_readOriginal));
         const bool a = r && Hook("async load", async, reinterpret_cast<void*>(&AsyncDetour),
@@ -317,7 +277,8 @@ namespace cda::files
             LOG_ERR("[files] reads could not be hooked, so every file is the game's own.");
             return false;
         }
-        if (!f || !e) LOG_ERR("[files] find or exists is not hooked, so a file no pack has will not be found.");
+        if (!f || !e || !x)
+            LOG_ERR("[files] find, exists or index of is not hooked, so a file no pack has may not be found.");
         return true;
     }
 }

@@ -1807,6 +1807,7 @@ def _check_game(context):
         root = ingame.folder(context)
         rows = ingame.status(root, ingame.read_log(ingame.bin64(context)))
         charts = actioncharts.in_folder(packs.index(context), root)
+        old = actioncharts.stale(packs.index(context), root)
     except (ingame.SendError, actioncharts.ChartError, packs.PackError, OSError) as exc:
         _in_game.update(rows=[], note=str(exc), charts=[])
         return
@@ -1817,8 +1818,12 @@ def _check_game(context):
             leaf = clip_path.rsplit("/", 1)[-1]
             lines.append((os.path.basename(f), leaf, len(nodes), leaf.lower() in present))
     running = ingame.game_running()
-    _in_game.update(rows=rows, charts=lines, note="The game is running" if running else
-                    "The game is not running" if running is False else "")
+    note = "The game is running" if running else "The game is not running" if running is False else ""
+    if old:
+        note = (f"{len(old)} charts or blends in the loader's folder were made for an older version of the game, "
+                f"which this one cannot read, such as {os.path.basename(old[0])}. Delete them and send their clips "
+                "again. " + note).strip()
+    _in_game.update(rows=rows, charts=lines, note=note)
 
 
 class CDANIM_OT_send_to_game(Operator):
@@ -1852,6 +1857,7 @@ class CDANIM_OT_send_to_game(Operator):
         charts = []
         try:
             root = ingame.folder(context)
+            ingame.need_game_loader(context)
             name, written, problems = ingame.send(obj, action, root, self.bake)
             if "cd_template" in action:
                 idx = packs.index(context)

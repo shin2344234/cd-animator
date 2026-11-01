@@ -55,6 +55,7 @@ Every release of the add-on and the loader, oldest first, with the date of its c
 | 0.41.2 | 5 October | Runs on Blender 4.4 and 4.5. Importing a clip, building a character and hanging chains used two calls that only Blender 5.0 has. The game's deepest clips and meshes, whose cache paths passed Windows' 259 letters, cache in a shorter folder |
 | 0.41.3 | 5 October | The Adjust Last Operation panel after Import animation, Import character or New clip shows the clip and the rest of the options again; since 0.41.1 it stopped after the first row |
 | 0.41.4 | 24 October | Import character names the skeleton the character's body uses under the Character field, and the folder its clips come from, so a mod that gives Kliff a woman's body shows there. The first release with the add-on and the loader as separate downloads, `CDAnimator-Blender-<version>.zip` and the two `CDAnimator-Loader` zips |
+| 0.42.0 | 1 November | Reads the game as of exe 1.0.0.3479: part names without `CD_`, meshes and skeletons whose paths lost `cd_`, lip sync clips in each language's voice group, item and character records with the name first, and the DLC build's action charts. The In the game panel names charts sent before the update, which the game can no longer read, and Send to game refuses a loader older than 0.4.0 |
 
 ## The loader
 
@@ -63,5 +64,6 @@ Every release of the add-on and the loader, oldest first, with the date of its c
 | 0.1.0 | 2 October 2026 | Serves files from the `CDAnimator` folder by name, and `LogClips`. On 3 October, still 0.1.0, it learned to serve files no pack has through stand-ins |
 | 0.2.0 | 3 October | Serves files under `by_path` at their game path only |
 | 0.3.0 | 3 October | `LogStates` and `WatchActions` |
+| 0.4.0 | 1 November | Runs on exe 1.0.0.3479, and hooks the loader's index of, new in the DLC build |
 
 The add-on's Send to game needs loader 0.2.0 or newer for anything that writes charts or blends.

@@ -1,8 +1,8 @@
 # The CD Animator Loader
 
-The loader is `CDAnimator.asi`, an ASI plugin for Crimson Desert 2.03.02, exe 1.0.0.2976. When the game starts, it reads the `CDAnimator` folder beside it in `bin64`, and from then on hands the game each file there in place of the game's own file of that name. A clip exported from CD Animator plays without repacking anything and without a mod written for it. It also logs what the game loads, which is how you find the clip behind something you see in game.
+The loader is `CDAnimator.asi`, an ASI plugin for Crimson Desert exe 1.0.0.3479. When the game starts, it reads the `CDAnimator` folder beside it in `bin64`, and from then on hands the game each file there in place of the game's own file of that name. A clip exported from CD Animator plays without repacking anything and without a mod written for it. It also logs what the game loads, which is how you find the clip behind something you see in game.
 
-[Installing](install.md#the-loader) covers putting it in and building it. This page is version 0.3.0.
+[Installing](install.md#the-loader) covers putting it in and building it. This page is version 0.4.0.
 
 ## The CDAnimator folder
 
@@ -78,7 +78,7 @@ The loader writes `CDAnimator.log` beside itself. Each start moves the last log 
 Each line starts with the time of day, to the millisecond, and a level, `info`, `ok` or `error`, as in the first line of every session:
 
 ```
-[10:26:53.855] [info ] [mod] CD Animator Loader 0.3.0 for Crimson Desert 2.03.02 (exe 1.0.0.2976).
+[10:26:53.855] [info ] [mod] CD Animator Loader 0.4.0 for Crimson Desert exe 1.0.0.3479.
 ```
 
 The log carries no date, but the file's creation time is the session's start. The other samples on this page leave the time and level out.
@@ -156,5 +156,6 @@ A file that both the loader and Broomy serve, such as Broomy's hover idle, goes 
 | 0.1.0 | Files by name from the `CDAnimator` folder, `LogClips`, and new files through stand-ins |
 | 0.2.0 | Files at a game path under `by_path` |
 | 0.3.0 | `LogStates` and `WatchActions` |
+| 0.4.0 | Runs on exe 1.0.0.3479. Hooks the loader's index of, new in the DLC build, beside find and exists |
 
-The loader finds the game's functions by their bytes, and those belong to exe 1.0.0.2976. After a game update the loader may stop serving files until it is updated to match.
+The loader finds the game's functions by their bytes, and those belong to exe 1.0.0.3479. After a game update the loader may stop serving files until it is updated to match. Loader 0.3.0 and older were made for exe 1.0.0.2976 and serve nothing on later builds, and Send to game refuses to send while one of them is in `bin64`.

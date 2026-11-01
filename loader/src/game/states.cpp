@@ -1,19 +1,17 @@
 #include "game/states.h"
 
 #include <Windows.h>
-#include <cstring>
 
 #include "core/log.h"
 #include "game/farhook.h"
 #include "game/mem.h"
+#include "game/signatures.h"
+
+using namespace cda::sig;
 
 namespace
 {
-    // From Broomy's riderfix.cpp, which hooks the same function.
-    constexpr uintptr_t kRva_BranchCheck = 0x232E3D0;
-    constexpr uint8_t kBranchCheckHead[] = { 0x48, 0x8B, 0xC4, 0x48, 0x89, 0x58, 0x10, 0x4C, 0x89, 0x48, 0x20, 0x44,
-                                             0x88, 0x40, 0x18, 0x48, 0x89, 0x48, 0x08 };
-
+    // Broomy's riderfix.cpp hooks the same function, found the same way.
     typedef uint64_t (*FnCheck)(uintptr_t, uint32_t*, uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t,
                                 uintptr_t, uintptr_t, uintptr_t, uintptr_t);
     FnCheck g_original = nullptr;
@@ -39,7 +37,7 @@ namespace
         uintptr_t rec = 0;
         uint32_t code = 1, target = 0;
         if (!a8 || !err || !cda::mem::Read32(reinterpret_cast<uintptr_t>(err), &code)) return r;
-        if (!cda::mem::ReadPtr(a8, &rec) || !cda::mem::Read32(rec + 0x14, &target)) return r;
+        if (!cda::mem::ReadPtr(a8, &rec) || !cda::mem::Read32(rec + kOff_Record_Target, &target)) return r;
         const uint8_t l = static_cast<uint8_t>(layer);
         for (int w = 0; w < g_watchCount; ++w)
         {
@@ -77,7 +75,13 @@ namespace cda::states
         g_log = logStates;
         g_watchCount = watchCount < kWatch ? watchCount : kWatch;
         for (int i = 0; i < g_watchCount; ++i) g_watch[i] = watch[i];
-        const uintptr_t at = cda::mem::Game().base + kRva_BranchCheck;
+        bool hooked = false;
+        const uintptr_t at = cda::farhook::FindEntry(kSig_BranchCheck, &hooked);
+        if (!at)
+        {
+            LOG_ERR("[state] the branch check is not on this exe, so no [state] lines are logged.");
+            return false;
+        }
         char why[160] = {};
         bool ok;
         const bool over = cda::farhook::AbsJumpTarget(at) != 0;
@@ -85,24 +89,15 @@ namespace cda::states
             ok = cda::farhook::InstallOverAbsJump("branch check", at, reinterpret_cast<void*>(&CheckDetour),
                                                   reinterpret_cast<void**>(&g_original), why, sizeof why);
         else
-        {
-            uint8_t head[sizeof kBranchCheckHead] = {};
-            if (!cda::mem::ReadBytes(at, head, sizeof head) || memcmp(head, kBranchCheckHead, sizeof head) != 0)
-            {
-                LOG_ERR("[state] the branch check is not at +0x%llX on this exe.",
-                        static_cast<unsigned long long>(kRva_BranchCheck));
-                return false;
-            }
             ok = cda::farhook::Install("branch check", at, reinterpret_cast<void*>(&CheckDetour),
                                        reinterpret_cast<void**>(&g_original), why, sizeof why);
-        }
         if (!ok)
         {
             LOG_ERR("[state] could not hook the branch check: %s", why);
             return false;
         }
         LOG("[state] branch check hooked at +0x%llX%s; %s, %d action keys watched.",
-            static_cast<unsigned long long>(kRva_BranchCheck), over ? ", on top of another plugin's hook" : "",
+            static_cast<unsigned long long>(cda::mem::Rva(at)), over ?", on top of another plugin's hook" : "",
             logStates ? "each layer's next action is logged" : "states are not logged", g_watchCount);
         return true;
     }

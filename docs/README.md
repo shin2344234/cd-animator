@@ -4,7 +4,7 @@ CD Animator makes and edits Crimson Desert animations in Blender and puts them i
 
 The add-on runs inside Blender 4.4 or newer. It reads skeletons, clips, meshes, textures, sounds and the game's action charts straight from the game's packs, builds characters with their gear, and writes clips the game can play. These pages describe version 0.41.3.
 
-The loader is `CDAnimator.asi`, a plugin the game loads through Ultimate ASI Loader like any other ASI mod. Every time the game starts, it hands the game each file in `bin64\CDAnimator` in place of the game's own file of that name, and it can log each clip the game loads. These pages describe version 0.3.0, made for Crimson Desert 2.03.02, exe 1.0.0.2976.
+The loader is `CDAnimator.asi`, a plugin the game loads through Ultimate ASI Loader like any other ASI mod. Every time the game starts, it hands the game each file in `bin64\CDAnimator` in place of the game's own file of that name, and it can log each clip the game loads. These pages describe version 0.4.0, made for Crimson Desert exe 1.0.0.3479.
 
 The add-on writes into the loader's folder and reads the loader's log. A clip goes from Blender into the game with one button, and a clip you just saw in the game comes back into Blender with one click.
 

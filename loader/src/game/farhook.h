@@ -37,5 +37,10 @@ namespace cda::farhook
     // What InstallOverAbsJump would take over: the address such a patch jumps
     // to, or 0 when the entry is not one.
     uintptr_t AbsJumpTarget(uintptr_t target);
+
+    // The function whose entry `pattern` matches once in the game, as shipped
+    // or as Install here (or Broomy's copy of it) left it, with *hooked set
+    // in the second case. 0 when neither form matches exactly once.
+    uintptr_t FindEntry(const char* pattern, bool* hooked);
     void RemoveAll();
 }

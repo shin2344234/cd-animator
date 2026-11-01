@@ -72,24 +72,31 @@ MOVE_FOLDER = "1_pc/1_phm/"            # clips Kliff's skeleton plays
 IDLE_CLIP = "1_pc/1_phm/cd_phm_basic_00_00_nor_std_idle_00"
 IDLE = 0x26107D3C                      # his standing idle, in both charts
 LOOP_BLEND = 6.0                       # a loop's blend into its own start, as the lower idle's end branch has
-# The low byte of a node's word at 0x40, 1 when the game moves the character by the clip's B_MoveControl_01: the
-# dodge roll, the dash and the step back have it. The idle has 0, which leaves movement to move speed records.
+# The low byte of a node's word at 0x44 (0x40 before the DLC build), 1 when the game moves the character by the
+# clip's B_MoveControl_01: the dodge roll, the dash and the step back have it. The idle has 0, which leaves movement
+# to move speed records.
 ROOT_MOTION = 0x01
+# The key condition token, (id, name's place in strings[0], hashlittle of the name, 0, 0); 0xE9 before the DLC build.
+KEY_TOKEN = 0xEA
+# A frame event's word 1 when it has no condition tokens, and the word 2 the DLC build added, unused at 0xFFFF.
+EVENT_HEAD = 0x01000000
+EVENT_SPARE = 0xFFFF
 STOP_AFTER = 0.13                      # s into a loop before its key stops it, the shortest wait of the game's key slots
 # Kliff's expressions, actions of his facial chart by the game's names for them. No branch leads into that chart. A
-# body node's frame event of type 0x40 starts one of its actions, as his meditation closes his eyes and his roar
+# body node's frame event of type 0x42 starts one of its actions, as his meditation closes his eyes and his roar
 # angers him. A face plays its node's duration, about 16 s for most, unless another starts, and then his resting
 # face comes back. Starting the one already playing starts it over.
 FACIAL_CHART = CHARTS + "upperaction/99_facial/pc_phm_facial.paac"
-FACE_EVENT = 0x40
-# A node's frame event of type 0x41 plays one of the game's sounds, a Wwise event its bank info names, by
-# hashlittle of the name at word 48. 3,724 of those in Kliff's charts set no other word but these.
-SOUND_EVENT = 0x41
-# A frame event of type 0x3D shows a prop. Word 2 holds the prefab's place in the chart's prefab table (strings[9])
-# and, above it, the socket's in the bone table (strings[6]), and word 3's low half the place of the prop's own
+FACE_EVENT = 0x42
+# A node's frame event of type 0x43 plays one of the game's sounds, a Wwise event its bank info names, by
+# hashlittle of the name at word 49. 3,724 of those in Kliff's charts set no other word but these.
+SOUND_EVENT = 0x43
+# A frame event of type 0x3F shows a prop. Word 3 holds the prefab's place in the chart's prefab table (strings[9])
+# and, above it, the socket's in the bone table (strings[6]), and word 4's low half the place of the prop's own
 # socket that goes on it, its grip, 0xFFFF for none. His writing idle's start and loop nodes show theirs in mode 0,
-# while their node plays; its end node shows them in mode 2 and hides them in mode 1 at 1.83 s.
-PROP_EVENT = 0x3D
+# while their node plays; its end node shows them in mode 2 and hides them in mode 1 at 1.83 s. The DLC build moved
+# every event type from 0x37 up by 2 and put a word in at 2, so these were 0x40, 0x41 and 0x3D with one word less.
+PROP_EVENT = 0x3F
 HANDS = {"RIGHT": "RHand_Socket", "LEFT": "LHand_Socket"}
 GRIP = "Basic_ChildSocket"             # the grip 285 of the game's prop events name, its festival cups' among them
 # A clip whose first frame grips with both hands at their sockets, a sword in each. Its fingers curl a mean 20.9
@@ -183,6 +190,21 @@ class _Blend:
 
 def _parse(path, data):
     return _Blend(data) if is_blend(path) else paac.Chart.parse(data)
+
+
+_UNREADABLE = (paac.ParseError, motionblend.FormatError, struct_error, UnicodeDecodeError, KeyError)
+
+
+def _parse_file(f, path):
+    """The chart or blend in the folder's file `f`. A chart sent before the
+    DLC build has the old layout, which the game no longer reads."""
+    with open(f, "rb") as h:
+        data = h.read()
+    try:
+        return _parse(path, data)
+    except _UNREADABLE as exc:
+        raise ChartError(f"{f} was made for an older version of the game, which this one cannot read. Delete it "
+                         "and send its clips again") from exc
 
 
 def _uses_file(idx):
@@ -387,14 +409,15 @@ def _standing(chart, key):
 def face_event(key):
     """The words of the frame event that starts facial action `key`, as
     the game's nodes start theirs, its blends 0.3333 s."""
-    return [FACE_EVENT, 0x20000, 0, key, 0x3EAAA64C, 0x3EAAA64C, 1]
+    return [FACE_EVENT, EVENT_HEAD | 0x20000, EVENT_SPARE, 0, key, 0x3EAAA64C, 0x3EAAA64C, 1]
 
 
 def sound_event(name):
     """The words of the frame event that plays the game's sound `name`."""
-    words = [0] * 58
-    words[0], words[48], words[52], words[54], words[55], words[57] = (
-        SOUND_EVENT, _hash(name.lower()), 0xBF800000, 0x10000, 0xFFFF0000, 0x50000)
+    words = [0] * 59
+    words[0], words[1], words[2] = SOUND_EVENT, EVENT_HEAD, EVENT_SPARE
+    words[49], words[53], words[55], words[56], words[58] = (
+        _hash(name.lower()), 0xBF800000, 0x10000, 0xFFFF0000, 0x50000)
     return words
 
 
@@ -421,7 +444,7 @@ def _add_event(chart, node, seconds, words):
     at that time. Every node of the game keeps its events sorted by time
     and numbered in order."""
     event = paac.Rec(paac.LAYOUTS["FrameEventInstance"])
-    event.time, event.time_end, event.unk_10 = seconds, -1.0, 0xFFFFFFFF
+    event.time, event.time_end, event.unk_10 = seconds, -1.0, 0x0001FFFF
     event.event_index = len(chart.frame_event_buffer) // 4
     chart.frame_event_buffer += struct.pack("<%dI" % len(words), *words)
     events = node.frame_event_instances
@@ -451,7 +474,7 @@ def add_move(chart, clip, key, frames, loop=False, travel=False, stop=True, even
         names.append(key)
     token = len(chart.condition_offsets)
     chart.condition_offsets.append(len(chart.condition_words))
-    chart.condition_words += [0xE9, names.index(key), _hash(key), 0, 0]
+    chart.condition_words += [KEY_TOKEN, names.index(key), _hash(key), 0, 0]
 
     # The key branch, from a plain key exit of this chart: one key token and no other condition.
     def plain(sl):
@@ -492,14 +515,14 @@ def add_move(chart, clip, key, frames, loop=False, travel=False, stop=True, even
     for r in node.animation_speeds:
         r.time_end = frames / FPS + 0.1
     if travel:
-        node.header.unk_40 = node.header.unk_40 & ~0xFF | ROOT_MOTION
+        node.header.unk_44 = node.header.unk_44 & ~0xFF | ROOT_MOTION
     # Last first, as each goes before the node's others at its time, so they keep their order through a rebuild.
     for seconds, words in reversed(events):
         _add_event(chart, node, seconds, words)
     for seconds, prefab, socket, grip in reversed(props):
         where = _place(chart.strings[6], socket) << 16 | _place(chart.strings[9], prefab)
         held = 0xFFFF0000 | _place(chart.strings[6], grip) if grip else 0xFFFFFFFF
-        _add_event(chart, node, seconds, [PROP_EVENT, 0, where, held, 0x0101FFFF])
+        _add_event(chart, node, seconds, [PROP_EVENT, EVENT_HEAD, EVENT_SPARE, where, held, 0x0101FFFF])
     chart.nodes.append(node)
     point(chart, [len(chart.nodes) - 1], clip)
     act = idle.copy()
@@ -582,8 +605,8 @@ def _added(chart, game, node):
     for e in node.frame_event_instances:
         words = chart.frame_event(e.event_index) if e.event_index >= first else None
         if words and words[0] & 0xFFFF == PROP_EVENT:
-            grip = words[3] & 0xFFFF
-            props.append((e.time, chart.strings[9][words[2] & 0xFFFF], chart.strings[6][words[2] >> 16],
+            grip = words[4] & 0xFFFF
+            props.append((e.time, chart.strings[9][words[3] & 0xFFFF], chart.strings[6][words[3] >> 16],
                           chart.strings[6][grip] if grip != 0xFFFF else ""))
         elif words:
             events.append((e.time, words))
@@ -607,7 +630,7 @@ def moves(chart, game):
                    for i in range(a.slot_first, a.slot_first + a.slot_count))
         out.append((clip[:-4] if clip.lower().endswith(".paa") else clip,
                     chart.strings[0][chart.condition_words[o + 1]], loop,
-                    bool(chart.nodes[a.node_first].header.unk_40 & ROOT_MOTION),
+                    bool(chart.nodes[a.node_first].header.unk_44 & ROOT_MOTION),
                     round(chart.nodes[a.node_first].header.duration * FPS), *_added(chart, game, chart.nodes[a.node_first])))
     return out
 
@@ -799,8 +822,7 @@ def current(idx, root, path):
     if mine and mine != _target(root, path) and _by_name(idx).get(chart_name(path)) != path:
         mine = None   # a file of that name, but not this one's
     if mine:
-        with open(mine, "rb") as f:
-            chart = _parse(path, f.read())
+        chart = _parse_file(mine, path)
         n, g = _size(chart), _size(game)
         if n < g or n != g and isinstance(chart, _Blend):
             raise ChartError(f"{mine} does not match the game's {chart_name(path)}; it was not made from this "
@@ -881,8 +903,10 @@ def take_out(idx, root, clip):
         return rewritten, deleted
     leaf = clip.rsplit("/", 1)[-1].lower() + ".paa"
     for f, path in list(_ours(idx, root)):
-        with open(f, "rb") as h:
-            chart = _parse(path, h.read())
+        try:
+            chart = _parse_file(f, path)
+        except ChartError:
+            continue   # stale() names it
         game_data = game_bytes(idx, path)
         if isinstance(chart, _Blend):
             game = _parse(path, game_data)
@@ -921,7 +945,24 @@ def in_folder(idx, root):
     for f, path in _ours(idx, root):
         if path == FACIAL_CHART:
             continue   # its added actions copy the game's faces, and name no new clip
-        with open(f, "rb") as h:
-            chart = _parse(path, h.read())
+        try:
+            chart = _parse_file(f, path)
+        except ChartError:
+            continue   # stale() names it
         out.append((f, pointed(chart, _parse(path, game_bytes(idx, path)))))
+    return out
+
+
+def stale(idx, root):
+    """The charts and blends in `root` this version of the game cannot
+    read, sent before an update changed their layout. The loader still
+    hands them to the game."""
+    if not os.path.isdir(root):
+        return []
+    out = []
+    for f, path in _ours(idx, root):
+        try:
+            _parse_file(f, path)
+        except ChartError:
+            out.append(f)
     return out

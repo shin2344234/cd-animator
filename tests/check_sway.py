@@ -50,7 +50,7 @@ def report(ok, what):
 
 
 def check_values(idx):
-    path = "character/model/1_pc/1_phm/head/hair/cd_phm_00_hair_00_0022_player.pac"
+    path = "character/model/1_pc/1_phm/head/hair/phm_00_hair_00_0022_player.pac"
     m = pac.read_pac(paz.read(idx.by_path[path]), 0, idx.bone_hashes())
     pins = [p for sb in m.submeshes for p in sb.pins]
     below = sum(1 for p in pins if p < 63)

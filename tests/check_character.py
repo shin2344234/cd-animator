@@ -37,17 +37,17 @@ from cd_animator.formats import paa, paa_codec, pac, paz  # noqa: E402
 
 PHM = "1_pc/1_phm/"
 KLIFF = {
-    "CD_Nude": "nude/cd_phm_00_nude_00_0001",
-    "CD_Underwear": "armor/38_underwear/cd_phm_00_uw_00_0001",
-    "CD_Head": "head/head/cd_phm_00_head_00_0001_macduff",
-    "CD_EyeLeft": "head/head_sub/cd_phm_00_eyeleft_00_0001",
-    "CD_EyeRight": "head/head_sub/cd_phm_00_eyeright_00_0001",
-    "CD_Eyebrows": "head/head_sub/cd_phm_00_eyebrow_00_0002",
-    "CD_Eyelashes": "head/head_sub/cd_phm_00_head_00_0001_macduff_eyelash_0001",
-    "CD_Tooth": "head/head_sub/cd_phm_00_tooth_00_0001",
-    "CD_Nude_Hair": "head/beard/cd_phm_00_fuzz_00_0001",
-    "CD_Hair": "head/hair/cd_phm_00_hair_00_0022_player",
-    "CD_Beard": "head/beard/cd_phm_00_beard_00_0005_06_player",
+    "CD_Nude": "nude/phm_00_nude_00_0001",
+    "CD_Underwear": "armor/38_underwear/phm_00_uw_00_0001",
+    "CD_Head": "head/head/phm_00_head_00_0001_macduff",
+    "CD_EyeLeft": "head/head_sub/phm_00_eyeleft_00_0001",
+    "CD_EyeRight": "head/head_sub/phm_00_eyeright_00_0001",
+    "CD_Eyebrows": "head/head_sub/phm_00_eyebrow_00_0002",
+    "CD_Eyelashes": "head/head_sub/phm_00_head_00_0001_macduff_eyelash_0001",
+    "CD_Tooth": "head/head_sub/phm_00_tooth_00_0001",
+    "CD_Nude_Hair": "head/beard/phm_00_fuzz_00_0001",
+    "CD_Hair": "head/hair/phm_00_hair_00_0022_player",
+    "CD_Beard": "head/beard/phm_00_beard_00_0005_06_player",
     "CD_Upperbody": "armor/9_upperbody/cd_phm_00_ub_00_0054",
     "CD_Lowerbody": "armor/10_lowerbody/cd_phm_00_lb_00_0054",
     "CD_Lowerbody_Acc": "armor/10_lowerbody/cd_phm_00_lb_belt_00_0001",
@@ -189,7 +189,7 @@ def check_proportions(idx):
                     f"sit at the variation's bind, worst {worst * 1000:.4f} mm; scale {arm.scale[0]:g}")
 
     body = next(o for o in arm.children if o.get("cd_component") == "CD_Nude")
-    path = "character/model/1_pc/1_phm/nude/cd_phm_00_nude_00_0001.pac"
+    path = "character/model/1_pc/1_phm/nude/phm_00_nude_00_0001.pac"
     m = pac.read_pac(paz.read(idx.by_path[path]), 0, {paa_codec.bone_hash(b.name) for b in sk.bones})
     bone_index = {paa_codec.bone_hash(b.name): i for i, b in enumerate(sk.bones)}
     verts = [p for sb in m.submeshes for p in sb.positions]

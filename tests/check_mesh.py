@@ -36,7 +36,7 @@ from cd_animator.formats import pac, paa, paa_codec, paz  # noqa: E402
 
 SW = Matrix(((1, 0, 0, 0), (0, 0, 1, 0), (0, 1, 0, 0), (0, 0, 0, 1)))
 CASES = [
-    ("character/model/1_pc/1_phm/phm_01", "character/model/1_pc/1_phm/nude/cd_phm_00_nude_00_0001",
+    ("character/model/1_pc/1_phm/phm_01", "character/model/1_pc/1_phm/nude/phm_00_nude_00_0001",
      "1_pc/1_phm/00_riding/cd_phm_rd_broom_basic_00_00_nor_std_dismount_l_00", (0, 25, 50)),
     ("character/model/2_mon/cd_m0004_00_dragon/cd_m0004_00_wyvern/cd_m0004_00_wyvern",
      "character/model/2_mon/cd_m0004_00_dragon/cd_m0004_00_wyvern/cd_m0004_00_wyvern_00_0001",

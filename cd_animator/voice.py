@@ -3,9 +3,11 @@
 A lip sync clip is `<skeleton folder>/99_autofacial/<language>/<line>`, and
 the line's voice is `sound/windows/<language>/<line>.wem` in a pack group
 of that language: 0006 holds English, 0005 Korean, 0035 Chinese on this
-install, each about 61,000 lines. The game's Wwise Vorbis files become Ogg
-Vorbis (formats/wwise.py), kept in the add-on's cache, and play as a sound
-strip in the scene from frame 0, where the facial clip starts.
+install, each about 61,000 lines. Since exe 1.0.0.3479 the language's lip
+sync clips sit in that group too, so only installed languages have them.
+The game's Wwise Vorbis files become Ogg Vorbis (formats/wwise.py), kept in
+the add-on's cache, and play as a sound strip in the scene from frame 0,
+where the facial clip starts.
 """
 
 import bisect

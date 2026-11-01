@@ -40,10 +40,10 @@ WYVERN_IDLE = "2_mon/cd_m0004_00_dragon/cd_m0004_00_wyvern/00_mon/cd_rd_wyvern_b
 # (skeleton, clip, bones the skeleton lacks, what the clip shows)
 CASES = [
     (WYVERN, WYVERN_IDLE, 0, "the Wyvern, flags 0x0F"),
-    ("character/model/4_riding/cd_r0002_00_fourfeet/cd_r0002_00_horse/cd_r0002_00_horse",
+    ("character/model/4_riding/r0002_00_fourfeet/r0002_00_horse/r0002_00_horse",
      "4_riding/cd_r0002_00_fourfeet/cd_r0002_00_horse/cd_prh_basic_00_00_nor_std_idle_00", 0,
      "the horse, flags 0xCF, scale keys"),
-    ("character/model/2_mon/cd_m0001_00_twofeet/cd_m0001_00_bear/cd_m0001_00_bear",
+    ("character/model/2_mon/m0001_00_twofeet/m0001_00_bear/m0001_00_bear",
      "2_mon/cd_m0001_00_twofeet/cd_m0001_00_bear/00_mon/cd_bear_basic_00_00_nor_std_idle_00", 0, "the bear, flags 0x4F"),
     (PHM, "1_pc/1_phm/00_riding/cd_phm_rd_bear_basic_00_00_nor_std_idle_00", 0, "Kliff on the bear, scale keys"),
     (PHM, "1_pc/1_phm/00_riding/cd_phm_rd_wyvern_basic_00_00_air_std_idle_00", 0, "Kliff on the Wyvern, five block counts"),

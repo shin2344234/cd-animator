@@ -53,10 +53,10 @@ def report(ok, what):
 
 def check_tables(idx):
     fails = 0
-    for name, count in (("iteminfo", 6816), ("characterinfo", 7250)):
+    for name, count in (("iteminfo", 7064), ("characterinfo", 7315)):
         table = idx.table(name)
         bad = [k for k, rec in table.items()
-               if not staticinfo.record_name(rec) or int.from_bytes(rec[:4], "little") != k]
+               if not staticinfo.record_name(rec) or staticinfo.record_key(rec) != k]
         fails += report(len(table) == count and not bad, f"{name}: {len(table)} records, {len(bad)} without key and name")
     kliff = staticinfo.record_name(idx.table("characterinfo")[1])
     fails += report(kliff == "Kliff", f"characterinfo key 1 is {kliff}")
@@ -72,7 +72,7 @@ def check_records(idx):
                     and names == KLIFF_ITEMS and sword == ["cd_phm_01_sword_0019_r", "cd_phm_01_sword_0053_r_in"],
                     f"Kliff's record: {g.record if g else None}, {g.description if g else None}, {names}, sword {sword}")
     found = sum(1 for a in idx.appearances if packs.gear(idx, a))
-    dog = next(a for a in idx.appearances if a.endswith("cd_m0002_00_greyhound_0001_00000"))
+    dog = next(a for a in idx.appearances if a.endswith("/m0002_00_greyhound_0001_00000"))
     fails += report(found >= 1400 and packs.gear(idx, dog) is None,
                     f"{found} of {len(idx.appearances)} appearances have gear; the greyhound has "
                     f"{packs.gear(idx, dog)}")

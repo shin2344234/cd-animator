@@ -1,6 +1,6 @@
 """Give Kliff a new move: press L while standing and he waves.
 
-    blender -b --factory-startup --python examples/new_move.py -- [--send] [out folder]
+    blender -b --factory-startup --python examples/new_move.py -- [--send] [--key=K] [out folder]
 
 It makes cd_phm_cdanim_wave_00, a new clip: his standing idle with the
 right arm out to the side, the forearm up and rocking side to side with the
@@ -8,7 +8,7 @@ palm forward, two seconds. Then it does what Play on a key and Send to game
 do in the panel: basic_upper.paac and basic_lower.paac each get a move that
 plays the clip on L, and ui/inputmap.xml gets the key (actioncharts.py says
 how). Into out/new_move by_path by default; with --send into the loader's
-folder.
+folder. --key=9 plays it on 9 instead, for when another mod has L.
 """
 
 import math
@@ -99,7 +99,8 @@ def wave(arm):
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     send = "--send" in argv
-    rest = [a for a in argv if a != "--send"]
+    key = next((a[len("--key="):] for a in argv if a.startswith("--key=")), "l").lower()
+    rest = [a for a in argv if a != "--send" and not a.startswith("--key=")]
     out = rest[0] if rest else os.path.join(ROOT, "out", "new_move")
     cd_animator.register()
     for o in list(bpy.data.objects):
@@ -109,7 +110,7 @@ def main():
     bpy.ops.cd_animator.game_new_clip(clip=IDLE_CLIP, clip_name=NAME, frames=FRAMES, start="MOTION")
     action = arm.animation_data.action
     wave(arm)
-    bpy.ops.cd_animator.play_on_key(key="l")
+    bpy.ops.cd_animator.play_on_key(key=key)
     if send:
         bpy.ops.cd_animator.send_to_game(clip="ACTION")
         folder = ingame.folder()
@@ -117,7 +118,7 @@ def main():
         folder = out
         os.makedirs(folder, exist_ok=True)
         export.export_with_companions(arm, action, os.path.join(folder, NAME + ".paa"))
-        actioncharts.send_move(packs.index(), folder, actioncharts.new_path(action, NAME), "l", int(action.frame_end))
+        actioncharts.send_move(packs.index(), folder, actioncharts.new_path(action, NAME), key, int(action.frame_end))
     print("wrote", ", ".join(sorted(os.path.relpath(os.path.join(d, f), folder) for d, _s, fs in os.walk(folder)
                                     for f in fs)), "to", folder)
     sys.stdout.flush()

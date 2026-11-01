@@ -2,7 +2,7 @@
 #include <string>
 
 // The game's file loader, hooked so a file the plugin holds goes to the game
-// in place of the file the game asked for. The same four hooks as Broomy's
+// in place of the file the game asked for. The same five hooks as Broomy's
 // gamefile.cpp, cut down to that one job:
 //
 // Read fills a buffer; the hook lets the game read, then swaps in the
@@ -10,8 +10,8 @@
 // async load instead, which on a loader thread queues a task that never
 // reaches Read; for a file the plugin holds, that thread is made to look
 // like any other for the one call, so the load goes through Read. A file no
-// pack has needs a shipped file of the same kind that find and exists see
-// in its place, its stand-in; Read then fills the buffer with the plugin's
+// pack has needs a shipped file of the same kind that find, exists and index
+// of see in its place, its stand-in; Read then fills the buffer with the plugin's
 // bytes anyway.
 namespace cda::files
 {

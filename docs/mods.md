@@ -112,4 +112,4 @@ The scripts find CD Animator through `CD_ANIMATOR`, the folder that holds `cd_an
 4. Look through any state you reuse for frame events, especially type 0x65.
 5. Check every chart edit against the shipped bytes first, and skip it when they differ, so a game update cannot corrupt a chart.
 6. Test with the CD Animator Loader beside your plugin and `LogClips`, `LogStates` and `WatchActions` on, to see each clip load and each state change.
-7. Say which game version the mod is for. Hooks and chart offsets both belong to exe 1.0.0.2976.
+7. Say which game version the mod is for. Hooks and chart offsets both belong to a game build, exe 1.0.0.3479 for loader 0.4.0.

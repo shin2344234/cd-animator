@@ -44,7 +44,7 @@ def report(ok, what):
 
 def check_pins(idx):
     hashes = idx.bone_hashes()
-    body = pac.read_pac(paz.read(idx.by_path["character/model/1_pc/1_phm/nude/cd_phm_00_nude_00_0001.pac"]), 0, hashes)
+    body = pac.read_pac(paz.read(idx.by_path["character/model/1_pc/1_phm/nude/phm_00_nude_00_0001.pac"]), 0, hashes)
     pins = [p for sb in body.submeshes for p in sb.pins]
     cloak = pac.read_pac(paz.read(idx.by_path[ARMOR + "19_cloak/cd_phm_00_cloak_0054_15.pac"]), 0, hashes)
     rows = [(pos[1], p) for sb in cloak.submeshes for pos, p in zip(sb.positions, sb.pins)]

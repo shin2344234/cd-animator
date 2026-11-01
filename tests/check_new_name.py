@@ -5,15 +5,16 @@
 Needs the game installed; it writes only to a temporary folder that stands
 in for the game's bin64. It requires:
 
-  * the chart reader to pack 556 of the game's 558 charts back byte for
+  * the chart reader to pack 558 of the game's 560 charts back byte for
     byte, the two it cannot parse being commonactioninfo and its
-    _serialized copy, and the blend reader all 1,688 blends;
+    _serialized copy, and the blend reader all 1,706 blends;
   * the chart nodes that play Kliff's standing idle to include node 0 of
     basic_upper and of basic_lower, both in action 26107D3C, the upper
     chart's default action, and the uses of his run to include slot 0 of
     the blends basic_move_lv3 and basic_move_lv3_new;
   * Send to game to refuse charts and blends with a loader older than
-    0.2.0, which serves files by name only;
+    0.2.0, which serves files by name only, and to refuse everything with
+    one made for an older game build;
   * Where it plays to store the nodes chosen on a new clip;
   * Send to game to write the clip's three files and the two charts under
     by_path at their game paths, each chart the game's with the new path
@@ -59,7 +60,7 @@ in for the game's bin64. It requires:
     have the idle's ways out but its end and those into other standing
     idles, the lower chart's walk among them, and to go in again as a
     loop with its expression when a chart is made again; one that travels to have 1 in the low byte at
-    0x40 of its node, where the idle's has 0, and to keep it when made
+    0x44 of its node, where the idle's has 0, and to keep it when made
     again; a move's node to last its clip, the speed record 0.1 s more,
     in both charts, though the upper idle's lasts 3 s;
   * every expression of Play on a key to be an action of Kliff's facial
@@ -146,12 +147,12 @@ def main():
             same += paac.Chart.parse(data).pack() == data
         except paac.ParseError:
             unread.append(actioncharts.chart_name(p))
-    fails += report(same == 556 and sorted(unread) == ["commonactioninfo.paac", "commonactioninfo_serialized.paac"],
+    fails += report(same == 558 and sorted(unread) == ["commonactioninfo.paac", "commonactioninfo_serialized.paac"],
                     f"charts packed back byte for byte: {same} of {len(actioncharts.chart_paths(idx))}; "
                     f"unread {unread}")
     blends = actioncharts.blend_paths(idx)
     same = sum(motionblend.write(motionblend.parse(d)) == d for d in (actioncharts.game_bytes(idx, p) for p in blends))
-    fails += report(same == len(blends) == 1688, f"blends written back byte for byte: {same} of {len(blends)}")
+    fails += report(same == len(blends) == 1706, f"blends written back byte for byte: {same} of {len(blends)}")
 
     uses = actioncharts.uses(idx, IDLE)
     keys = {(p, n): k for p, n, k in uses}
@@ -188,7 +189,15 @@ def main():
         refused = "0.2.0" in str(exc)
     fails += report(refused and not os.path.exists(at(UPPER)), "a loader older than 0.2.0: charts refused")
     with open(loader, "wb") as f:
-        f.write(b"\0MZ [mod] CD Animator Loader 0.2.0 for Crimson Desert 2.03.02 (exe 1.0.0.2976).\0")
+        f.write(b"\0MZ [mod] CD Animator Loader 0.3.0 for Crimson Desert 2.03.02 (exe 1.0.0.2976).\0")
+    try:
+        bpy.ops.cd_animator.send_to_game(clip="ACTION")
+        refused = False
+    except RuntimeError as exc:
+        refused = "0.4.0" in str(exc)
+    fails += report(refused and not os.path.exists(at(UPPER)), "a loader made for 2976: the send refused")
+    with open(loader, "wb") as f:
+        f.write(b"\0MZ [mod] CD Animator Loader 0.4.0 for Crimson Desert exe 1.0.0.3479.\0")
 
     bpy.ops.cd_animator.send_to_game(clip="ACTION")
     files = sorted(n for n in os.listdir(root) if n != actioncharts.BY_PATH)
@@ -394,10 +403,10 @@ def main():
                        and [(e.time, c.frame_event(e.event_index)) for e in events
                             if e.event_index >= ours and c.frame_event(e.event_index)[0] != actioncharts.PROP_EVENT] == added
                        and (not stop or events[0].event_index >= ours
-                            and added[2][1][48] == hashlittle(b"sfx_social_hand_clap", 0xC5EDE))
+                            and added[2][1][49] == hashlittle(b"sfx_social_hand_clap", 0xC5EDE))
                        and actioncharts.moves(rebuilt, game) == actioncharts.moves(again, game)
-                       and again.nodes[act.node_first].header.unk_40 & 0xFF == actioncharts.ROOT_MOTION
-                       and game.nodes[game.find_action(actioncharts.IDLE).node_first].header.unk_40 & 0xFF == 0
+                       and again.nodes[act.node_first].header.unk_44 & 0xFF == actioncharts.ROOT_MOTION
+                       and game.nodes[game.find_action(actioncharts.IDLE).node_first].header.unk_44 & 0xFF == 0
                        and abs(again.nodes[act.node_first].animation_speeds[0].time_end - (length / 30 + 0.1)) < 1e-4)
     fails += report(all(loop_ok), f"a looping move that travels, upper and lower: {loop_ok}")
     facial = paac.Chart.parse(actioncharts.game_bytes(idx, actioncharts.CHARTS + "upperaction/99_facial/pc_phm_facial.paac"))

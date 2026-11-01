@@ -32,8 +32,8 @@ from cd_animator.formats import chacha, material, paz  # noqa: E402
 PHM = "character/model/1_pc/1_phm/"
 WYVERN = "character/model/2_mon/cd_m0004_00_dragon/cd_m0004_00_wyvern/"
 CASES = [
-    (PHM + "phm_01", [PHM + "nude/cd_phm_00_nude_00_0001", PHM + "head/head/cd_phm_00_head_00_0001",
-                      PHM + "head/hair/cd_phm_00_hair_00_0003_player", PHM + "armor/9_upperbody/cd_phm_00_ub_00_0187"]),
+    (PHM + "phm_01", [PHM + "nude/phm_00_nude_00_0001", PHM + "head/head/phm_00_head_00_0001",
+                      PHM + "head/hair/phm_00_hair_00_0003_player", PHM + "armor/9_upperbody/cd_phm_00_ub_00_0187"]),
     (WYVERN + "cd_m0004_00_wyvern", [WYVERN + "cd_m0004_00_wyvern_00_0001"]),
 ]
 

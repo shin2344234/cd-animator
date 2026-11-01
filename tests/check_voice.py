@@ -13,9 +13,11 @@ Needs the game installed with English voice. It requires:
   * Kliff with an idle and one of his lines to get a sound strip from frame
     0 holding that line, the scene to play in step with the sound, and
     Remove facial clip to take the strip out again;
-  * a French line, with no French voice installed, to warn and add nothing;
-  * an English line with no English voice file but a Korean one to point to
-    the Korean lip sync clip, and a line voiced in no installed language to
+  * a French line, with no French voice installed, to be refused, since
+    the game installs a language's lip sync clips with its voice;
+  * where the game has them, an English line with no English voice file
+    but a Korean one to point to the Korean lip sync clip, and a line
+    voiced in no installed language to
     say so.
 
 Exit code 0 means every check passed.
@@ -118,10 +120,14 @@ def check_kliff():
                     f"{face['cd_duration'] if face else 0:.3f} s clip, sync {scene.sync_mode}")
 
     bpy.context.view_layer.objects.active = arm
-    bpy.ops.cd_animator.game_clip(clip=FRENCH)
+    try:
+        bpy.ops.cd_animator.game_clip(clip=FRENCH)
+        refused = False
+    except RuntimeError as exc:
+        refused = "no clip in the game" in str(exc)
     kept = voice.strip_of(scene, arm)
-    fails += report(kept is not None and kept.get("cd_voice_line") == LINE.rsplit("/", 1)[-1],
-                    "a French line with no French voice installed leaves the English strip and warns")
+    fails += report(refused and kept is not None and kept.get("cd_voice_line") == LINE.rsplit("/", 1)[-1],
+                    f"a French line with no French voice installed is refused ({refused}) and leaves the English strip")
 
     bpy.ops.cd_animator.remove_face()
     ed = scene.sequence_editor
@@ -133,16 +139,25 @@ def check_kliff():
 def check_missing(idx):
     lines = voice.voices(idx)
     english = [c for c in idx.clips if "/1_phm/99_autofacial/english(us)/" in c]
-    korean_only = next(c for c in english if "english(us)/" + c.rsplit("/", 1)[-1] not in lines
-                       and voice.elsewhere(idx, c))
-    nowhere = next(c for c in english if "english(us)/" + c.rsplit("/", 1)[-1] not in lines
-                   and not voice.elsewhere(idx, c))
+    unvoiced = [c for c in english if "english(us)/" + c.rsplit("/", 1)[-1] not in lines]
+    # Since exe 1.0.0.3479 a language's lip sync clips come in the same
+    # group as its voice, so the game may have no English clip without an
+    # English voice.
+    if not unvoiced:
+        return report(True, f"unvoiced English lines: none among {len(english)} English lip sync clips")
+    korean_only = next((c for c in unvoiced if voice.elsewhere(idx, c)), None)
+    nowhere = next((c for c in unvoiced if not voice.elsewhere(idx, c)), None)
     arm = bpy.context.view_layer.objects.active
-    strip, note = voice.add_for_clip(bpy.context, idx, arm, korean_only)
-    other = voice.elsewhere(idx, korean_only)[0][1]
-    strip2, note2 = voice.add_for_clip(bpy.context, idx, arm, nowhere)
-    return report(strip is None and other in note and strip2 is None and "any installed language" in note2,
-                  f"unvoiced English lines: {note!r}; {note2!r}")
+    ok, notes = True, []
+    if korean_only:
+        strip, note = voice.add_for_clip(bpy.context, idx, arm, korean_only)
+        ok &= strip is None and voice.elsewhere(idx, korean_only)[0][1] in note
+        notes.append(note)
+    if nowhere:
+        strip, note = voice.add_for_clip(bpy.context, idx, arm, nowhere)
+        ok &= strip is None and "any installed language" in note
+        notes.append(note)
+    return report(ok, f"{len(unvoiced)} unvoiced English lines: {notes!r}")
 
 
 def main():

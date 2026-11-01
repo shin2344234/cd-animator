@@ -5,9 +5,10 @@
 Needs the game installed; the folder is found through Steam when not given.
 It reads the index of groups 0009 and 0010, unpacks Kliff's skeleton (stored
 LZ4-compressed) and his broom idle with its LOD and metadata and requires
-them byte for byte equal to the unpacked samples, imports the skeleton and
-the clip through the new operators and requires every bone to pose as the
-sample import does, exports the game's clip unchanged and requires the
+them equal to the unpacked samples (the skeleton has gained bones since
+the sample), imports the skeleton and the clip through the new operators
+and requires every bone the sample has to pose as the sample import does,
+exports the game's clip unchanged and requires the
 game's bytes back, starts a new clip from a game clip, and checks the name
 search and lookup, including a clip name two folders share.
 Exit code 0 means every check passed.
@@ -25,7 +26,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 
 import cd_animator  # noqa: E402
 from cd_animator import anim, export, packs  # noqa: E402
-from cd_animator.formats import paz  # noqa: E402
+from cd_animator.formats import paa, paz  # noqa: E402
 
 IDLE = "1_pc/1_phm/00_riding/cd_phm_rd_broom_basic_00_00_nor_std_idle_01"
 SHARED = "cd_phm_lk_ptm_mace_01_05_att_kickhit_lk_phm_move_f_00"
@@ -42,7 +43,9 @@ def poses(obj, action, frames):
     for f in frames:
         bpy.context.scene.frame_set(f)
         bpy.context.view_layer.update()
-        out.append({pb.name: (obj.matrix_world @ pb.head, obj.matrix_world @ pb.tail) for pb in obj.pose.bones})
+        # A head and a point 10 cm along the bone: bone lengths follow children.
+        out.append({pb.name: (obj.matrix_world @ pb.head, obj.matrix_world @ (pb.head + pb.y_axis * 0.1))
+                    for pb in obj.pose.bones})
     return out
 
 
@@ -61,9 +64,30 @@ def main():
     fails += report(len(idx.clips) > 100000 and len(idx.skeletons) > 100,
                     f"index: {len(idx.clips)} clips, {len(idx.skeletons)} skeletons in {time.time() - t:.1f} s")
 
+    # The DLC build (1.0.0.3392) added B_EnemyCatch_C_Child_00 to the
+    # sample's 447 bones, swapped two and moved a few binds, so the game's
+    # file holds the sample's bones, and poses are compared on the bones
+    # whose bind and every parent's bind are unchanged.
     pab = idx.by_path["character/model/1_pc/1_phm/phm_01.pab"]
-    same = paz.read(pab) == open(os.path.join(samples, "character", "phm_01.pab"), "rb").read()
-    fails += report(same and pab.stored != pab.size, f"phm_01.pab, LZ4 {pab.stored} -> {pab.size} bytes, equals the sample")
+    data = paz.read(pab)
+    game_bones = paa.read_pab(data).bones
+    sample_bones = paa.read_pab(open(os.path.join(samples, "character", "phm_01.pab"), "rb").read()).bones
+    added = sorted({b.name for b in game_bones} - {b.name for b in sample_bones})
+    fails += report(len(data) == pab.size and pab.stored != pab.size
+                    and {b.name for b in sample_bones} <= {b.name for b in game_bones} and len(added) <= 4,
+                    f"phm_01.pab, LZ4 {pab.stored} -> {pab.size} bytes, the sample's {len(sample_bones)} bones and {added}")
+    old = {b.name: b for b in sample_bones}
+
+    def unchanged(b):
+        while b is not None:
+            o = old.get(b.name)
+            if o is None or (o.scale, o.quat, o.trans) != (b.scale, b.quat, b.trans):
+                return False
+            b = game_bones[b.parent] if 0 <= b.parent < len(game_bones) else None
+        return True
+    same_bind = {b.name for b in game_bones if unchanged(b)}
+    # A bone's tail can point at a child, so a moved child moves it too.
+    same_bind -= {game_bones[b.parent].name for b in game_bones if b.name not in same_bind and b.parent >= 0}
     clip_path = packs.fetch_clip(idx, IDLE)
     stem = clip_path[:-4]
     leaf = os.path.basename(IDLE)
@@ -98,8 +122,9 @@ def main():
     disk_action = anim.import_clip(bpy.context, disk_rig, os.path.join(samples, "character", leaf + ".paa"))[0]
     frames = (0, 13, 50, 99)
     a, b = poses(game_rig, game_action, frames), poses(disk_rig, disk_action, frames)
-    worst = max(max((x[n][0] - y[n][0]).length, (x[n][1] - y[n][1]).length) for x, y in zip(a, b) for n in x)
-    fails += report(worst < 1e-6, f"the game import poses as the sample import, worst {worst * 1000:.4f} mm")
+    worst = max(max((x[n][0] - y[n][0]).length, (x[n][1] - y[n][1]).length) for x, y in zip(a, b) for n in x if n in same_bind)
+    # 0.01 mm: Blender keeps bone directions in 32-bit floats.
+    fails += report(worst < 1e-5, f"the game import poses as the sample import on the {len(same_bind)} bones whose bind is unchanged, worst {worst * 1000:.4f} mm")
 
     out = tempfile.mkdtemp(prefix="cd_packs_")
     written, _p = export.export_with_companions(game_rig, game_action, os.path.join(out, leaf + ".paa"))

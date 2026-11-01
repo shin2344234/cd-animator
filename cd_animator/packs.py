@@ -92,6 +92,14 @@ class Index:
         for group, keep in GROUPS.items():
             for e in paz.read_index(os.path.join(folder, group, "0.pamt"), keep):
                 self.by_path[e.path.lower()] = e
+        # Since exe 1.0.0.3479 the lip sync clips are in the voice group of
+        # their language (0005 Korean, 0006 English, 0035 Chinese on this
+        # install), so only installed languages have them.
+        for group in _other_groups(folder):
+            for e in paz.read_index(os.path.join(folder, group, "0.pamt"), {"paa", "paa_metabin"}):
+                p = e.path.lower()
+                if p.startswith(MOTION):
+                    self.by_path[p] = e
         # Clips by their path under character/motion/, without .paa; LODs left out.
         self.clips = sorted(p[len(MOTION):-4] for p in self.by_path
                             if p.startswith(MOTION) and not p.startswith(MOTION_LOD) and p.endswith(".paa"))
@@ -139,8 +147,18 @@ class Index:
         return self._bone_hashes
 
 
+def _other_groups(folder):
+    """The pack groups GROUPS leaves out, in order."""
+    return [g for g in sorted(os.listdir(folder))
+            if g not in GROUPS and os.path.isfile(os.path.join(folder, g, "0.pamt"))]
+
+
 def _stamp(folder):
-    return tuple(os.path.getmtime(os.path.join(folder, g, "0.pamt")) for g in GROUPS)
+    """The index files' times: one per group of GROUPS and the newest of the
+    rest, short enough for the cache file names built from it."""
+    def mtime(g):
+        return os.path.getmtime(os.path.join(folder, g, "0.pamt"))
+    return (*map(mtime, GROUPS), max(map(mtime, _other_groups(folder)), default=0.0))
 
 
 _index = None

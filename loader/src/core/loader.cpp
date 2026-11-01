@@ -194,7 +194,7 @@ namespace
     }
 
     constexpr char kDefaultIni[] =
-        "; CD Animator Loader for Crimson Desert 2.03.02 (exe 1.0.0.2976).\r\n"
+        "; CD Animator Loader for Crimson Desert exe 1.0.0.3479.\r\n"
         ";\r\n"
         "; Every file in the CDAnimator folder beside the plugin goes to the game in\r\n"
         "; place of the game's file of that name. The plugin writes what it does to\r\n"
@@ -229,7 +229,7 @@ namespace
     DWORD WINAPI Worker(LPVOID)
     {
         // One literal, so the add-on can read the version from the plugin file.
-        LOG("[mod] " CDA_NAME " " CDA_VERSION " for Crimson Desert 2.03.02 (exe 1.0.0.2976).");
+        LOG("[mod] " CDA_NAME " " CDA_VERSION " for Crimson Desert exe 1.0.0.3479.");
         const std::wstring dir = cda::Paths::Dir() + L"CDAnimator\\";
         WriteDefaultIni();
         const std::wstring ini = cda::Paths::File(CDA_FILEBASE L".ini");
@@ -243,7 +243,7 @@ namespace
             return 0;
         }
         if (g_logClips) LOG("[mod] LogClips is on: each clip and blend the game loads is logged once, as a [clip] line.");
-        // Broomy hooks the same four functions from its DllMain and finds
+        // Broomy hooks the same five functions from its DllMain and finds
         // them by their first bytes, which these hooks overwrite. Its hooks
         // go in first, then these on top of them.
         if (GetFileAttributesW(cda::Paths::File(L"Broomy.asi").c_str()) != INVALID_FILE_ATTRIBUTES)

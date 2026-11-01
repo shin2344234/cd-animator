@@ -58,7 +58,9 @@ def check_families(idx):
     listed = cd_animator.facial_clips(idx, "character/model/1_pc/1_phm/phm_01")
     odd = [c for c in listed if "facial" not in c]
     bpy.data.objects.remove(arm)
-    return report(all(n == f for n, f in counts) and len(listed) > 100000 and not odd,
+    # Lip sync clips of installed voice languages only since exe 1.0.0.3479:
+    # three here, about 51,000 clips for Kliff with his facial ones.
+    return report(all(n == f for n, f in counts) and len(listed) > 40000 and not odd,
                   f"facial clips key only face bones {counts}; the search lists {len(listed)} for Kliff, "
                   f"{len(odd)} of them outside a facial folder")
 

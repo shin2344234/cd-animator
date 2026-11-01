@@ -35,6 +35,8 @@ import struct
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
+from .sockets import part_name
+
 # Components that show only in some states: the flight cloak, the line to a
 # hyperspace plug, bags for docking.
 HIDDEN = ("flight", "for_dock", "hyperspaceplug")
@@ -71,7 +73,7 @@ def read_appearance(data):
 
 def prefab_parts(data):
     """[(component name, mesh game path)] of a prefab, in file order."""
-    names = [(m.end(), m.group(1).decode()) for m in _COMPONENT.finditer(data)]
+    names = [(m.end(), part_name(m.group(1).decode())) for m in _COMPONENT.finditer(data)]
     out = []
     for m in _MESH.finditer(data):
         start = m.start()
@@ -89,7 +91,7 @@ def prefab_parts(data):
 def prefab_sockets(data):
     """{component name: socket file game path} of a prefab: the socket
     file a weapon's component names after its mesh (formats/sockets.py)."""
-    names = [(m.end(), m.group(1).decode()) for m in _COMPONENT.finditer(data)]
+    names = [(m.end(), part_name(m.group(1).decode())) for m in _COMPONENT.finditer(data)]
     out = {}
     for m in _SOCKET_FILE.finditer(data):
         start = m.start()

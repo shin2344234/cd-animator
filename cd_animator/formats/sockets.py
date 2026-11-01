@@ -18,7 +18,7 @@ Which socket a part goes to is in the character descriptions,
 character/descriptors/characterdescription/*.xml, named by creature type
 (phm_description_player_kliff.xml, animal_wolf.xml, mon_wyvern.xml):
 
-    <PartInOutSocket PartName="CD_MainWeapon_Sword_R"
+    <PartInOutSocket PartName="MainWeapon_Sword_R"
         InSocketBone="Pelvis_L_Socket" OutSocketBone="RHand_Socket"
         InChildSocketBone="Pelvis_L_ChildSocket"
         OutChildSocketBone="Basic_ChildSocket"/>
@@ -36,7 +36,7 @@ After the SocketList a skeleton's socket file groups some sockets for
 stacking over clothes:
 
     <StackEquipInfo Count="5" EquipTypeName="Back"
-        InnerPartNames="CD_Cloak CD_Upperbody"
+        InnerPartNames="Cloak Upperbody"
         OriginBoneName="Bip_Weapon_Attach_In_02" Axis="z" ...>
         <Socket Name="Spine2_B_Shield_Socket"/> ...
 
@@ -47,6 +47,13 @@ bone's own game frame, by as much as the inner parts stand out there.
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+
+
+def part_name(name):
+    """A part's name as the add-on keeps it, CD_Nude for Nude. The game
+    dropped the CD_ prefix from prefabs and descriptions in exe 1.0.0.3479;
+    the add-on keeps it so that scenes built before then still match."""
+    return name if not name or name.startswith("CD_") else "CD_" + name
 
 
 @dataclass
@@ -116,7 +123,7 @@ def read_stacks(data):
         unit = _AXES.get(axis.lstrip("+-"))
         names = tuple(re.findall(r'<Socket\s[^>]*?Name="([^"]+)"', body))
         if unit and e.get("OriginBoneName") and names:
-            out.append(Stack(e.get("EquipTypeName", ""), tuple(e.get("InnerPartNames", "").split()),
+            out.append(Stack(e.get("EquipTypeName", ""), tuple(map(part_name, e.get("InnerPartNames", "").split())),
                              e["OriginBoneName"], tuple(sign * x for x in unit), names))
     return out
 
@@ -137,7 +144,7 @@ def read_part_sockets(data, into=None):
         elements = [dict(re.findall(r'(\w+)="([^"]*)"', attrs))
                     for attrs in re.findall(r"<PartInOutSocket ([^>]*?)/?>", text)]
     for pairs in elements:
-        part = pairs.pop("PartName", None)
+        part = part_name(pairs.pop("PartName", None))
         if part:
             held = found.setdefault(part, {})
             for k, v in pairs.items():

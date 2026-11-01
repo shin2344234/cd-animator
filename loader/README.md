@@ -1,6 +1,6 @@
 # CD Animator Loader
 
-An ASI plugin for Crimson Desert 2.03.02 (exe 1.0.0.2976). It hands the game every file in a `CDAnimator` folder in place of the game's own file of the same name, so a clip exported from CD Animator plays without a pack and without a mod written for it. It also logs the name of each clip the game loads, which is how you find the file behind something you see in game.
+An ASI plugin for Crimson Desert exe 1.0.0.3479. It hands the game every file in a `CDAnimator` folder in place of the game's own file of the same name, so a clip exported from CD Animator plays without a pack and without a mod written for it. It also logs the name of each clip the game loads, which is how you find the file behind something you see in game.
 
 The plugin is `CDAnimator.asi`. Ultimate ASI Loader loads it, like any other ASI mod.
 
@@ -71,7 +71,7 @@ A file the loader holds and Broomy also serves, such as Broomy's hover idle, goe
 
 ## The log
 
-At startup the log lists each file the loader found and the four hooks it installed:
+At startup the log lists each file the loader found and the hooks it installed:
 
 ```
 [folder] CDAnimator/cd_phm_basic_00_00_nor_std_idle_00.paa (35796 bytes) goes in for the game's file of that name.

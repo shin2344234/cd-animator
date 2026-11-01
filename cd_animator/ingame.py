@@ -48,6 +48,9 @@ def folder(context=None):
 
 
 BY_PATH_LOADER = (0, 2, 0)
+# The first loader for exe 1.0.0.3479. Older ones find none of its file
+# functions and serve nothing.
+GAME_LOADER = (0, 4, 0)
 
 
 def loader_version(context=None):
@@ -72,6 +75,17 @@ def need_by_path(context=None):
         raise SendError(f"the CD Animator Loader in bin64 is {have}, which serves files by name only, so an edited "
                         "chart or blend could also replace another of the game's files of that name. Copy "
                         "CDAnimator.asi 0.2.0 or later from the loader's dist folder into bin64")
+
+
+def need_game_loader(context=None):
+    """Raise SendError when the installed loader says it is older than the
+    first one made for this game build. One that says nothing is left to
+    need_by_path."""
+    v = loader_version(context)
+    if v is not None and v < GAME_LOADER:
+        raise SendError(f"the CD Animator Loader in bin64 is {'.'.join(map(str, v))}, made for an older version "
+                        "of the game, and serves nothing on exe 1.0.0.3479. Copy CDAnimator.asi "
+                        f"{'.'.join(map(str, GAME_LOADER))} or later from the loader's dist folder into bin64")
 
 
 def clip_name(action):
