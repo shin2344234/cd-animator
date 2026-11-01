@@ -64,6 +64,6 @@ Every release of the add-on and the loader, oldest first, with the date of its c
 | 0.1.0 | 2 October 2026 | Serves files from the `CDAnimator` folder by name, and `LogClips`. On 3 October, still 0.1.0, it learned to serve files no pack has through stand-ins |
 | 0.2.0 | 3 October | Serves files under `by_path` at their game path only |
 | 0.3.0 | 3 October | `LogStates` and `WatchActions` |
-| 0.4.0 | 1 November | Runs on exe 1.0.0.3479, and hooks the loader's index of, new in the DLC build |
+| 0.4.0 | 1 November | Runs on exe 1.0.0.3479, and hooks the loader's index of, new in the DLC build. Loader 0.3.0 and older serve nothing on this exe |
 
 The add-on's Send to game needs loader 0.2.0 or newer for anything that writes charts or blends.
